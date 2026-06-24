@@ -21,9 +21,9 @@ hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
 ```
-pass=503  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=33  crash=38
+pass=507  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=29  crash=38
 ```
-Of the 540 tests that are neither skipped nor crash, **503 pass (93%)**.
+Of the 540 tests that are neither skipped nor crash, **507 pass (94%)**.
 
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
@@ -68,7 +68,7 @@ truncates toward zero (the result takes the dividend's sign); the Lean `Int`
 - `smod0`, `smod2`: got `1`, expected `-2 mod 2^256`.
 - `smod8_byZero`, `sdiv_dejavu`: off-by-sign / off-by-one.
 
-### INCONCLUSIVE (33) — mostly outside the evaluator's scope; ~11 are real gaps
+### INCONCLUSIVE (29) — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
   `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
   `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The

@@ -37,12 +37,21 @@ namespace MachineState
     pure helpers `readPadded`/`writeBytes` would try to allocate up to `2^256`
     bytes and OOM/abort the process.
 
-    We pick `2^32` (4 GiB): far larger than anything any real bytecode or test
-    reaches, yet small enough that `offset + size` exceeding it is a reliable
-    signal of an attacker-supplied `~2^256` value. Out-of-range accesses are
-    rejected as an exceptional halt (`InvalidMemoryAccess`) by the callers,
-    matching how a real client would fail such a transaction (out of gas). -/
-def maxMemSize : Nat := 2 ^ 32
+    The cap must satisfy two constraints:
+    1. *Large enough* that no real bytecode/test ever exceeds it — legitimate
+       memory use in these tests is on the order of KiB.
+    2. *Small enough that the allocation it permits cannot itself OOM the
+       process* — the guard is only useful if a byte range that passes it can
+       actually be allocated safely. A 4 GiB cap (`2^32`) fails this: an input
+       with `size = 2^32` passes the guard and then makes `readPadded` /
+       `writeBytes` allocate multi‑GiB, aborting the runner anyway.
+
+    We pick `2^24` (16 MiB): comfortably above any real test's footprint, yet a
+    `ByteArray` of that size allocates instantly. Anything larger is taken as an
+    attacker-supplied / unpriceable access and rejected as an exceptional halt
+    (`InvalidMemoryAccess`) by the callers, matching how a real client would
+    fail such a transaction (out of gas). -/
+def maxMemSize : Nat := 2 ^ 24
 
 /-- Whether *writing* the byte range `[offset, offset + size)` into memory stays
     within `maxMemSize`. `writeBytes` grows the backing `ByteArray` to
