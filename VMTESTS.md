@@ -35,11 +35,12 @@ Of the 522 tests that aren't skipped/crashed, **491 pass (94%)**.
   0 at runtime. 23 tests (all of vmSha3Test + a few others). Lift in phase 2.
 - **Compare** storage (over pre∪post slot keys), return-data, balance, nonce.
   Logs not compared (need RLP + real keccak).
-- **Implicit STOP compensation**: `stepF` returns `InvalidInstruction` when `pc`
-  runs past the end of the code, but the Yellow Paper halts there with a STOP.
-  The driver detects exactly `pc ≥ code.size` and treats it as success. Without
-  this, ~150 otherwise-correct tests (most push/dup/swap/jump) falsely failed.
-  **This is a real v1 evaluator gap** (see findings).
+- **Implicit STOP**: previously `stepF` returned `InvalidInstruction` when `pc`
+  ran past the end of the code, but the Yellow Paper halts there with a STOP
+  (code is zero-padded; `0x00` = STOP). This is now **fixed in the evaluator**:
+  `Decode.decodeAt` returns `(STOP, none)` for `pc ≥ code.size`, so both `stepF`
+  and the relation `Step` (via `Step.stop`) agree. Without this, ~150
+  otherwise-correct tests (most push/dup/swap/jump) failed.
 
 ## Findings — genuine evaluator issues surfaced
 
@@ -69,6 +70,9 @@ uses a different (Euclidean/T-division) convention.
   `loop_stacklimit_1021`): expect an OOG halt we can't reproduce with infinite gas.
 - **7 fuel-exhausted** (`*foreverOutOfGas`, `loop-*`, `ackermann33`): infinite /
   very long loops the real EVM stops via gas.
+
+### Fixed in this PR
+- **End-of-code implicit STOP** (`Decode.decodeAt`): see above.
 
 ### Also note (not a failure here, but a known stepF gap)
 `stepF` never raises `StackOverflow` (no 1024-depth cap; only the relation has it,

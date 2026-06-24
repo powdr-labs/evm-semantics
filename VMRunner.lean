@@ -147,23 +147,15 @@ def buildState (testObj : Json) : State :=
 ----------------------------------------------------------------------------
 
 /-- Fueled `stepF` loop (mirrors `Main.run`, kept `partial`).
-
-    Compensates for a known v1 gap: `stepF` returns `InvalidInstruction` when
-    `pc` runs past the end of the code, but the Yellow Paper halts there with an
-    **implicit STOP** (success). We detect that precise condition
-    (`pc ≥ code.size`, distinct from a mid-code undefined opcode at `pc < size`)
-    and treat it as a successful halt. This is a harness-level compensation, not
-    a change to the evaluator. -/
+    End-of-code implicit STOP is handled by `Decode.decodeAt` (and thus the
+    evaluator itself), so no harness compensation is needed here. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
   if fuel = 0 then .error .OutOfFuel else
     match s.halt with
     | .Running =>
-      if s.pc.toNat ≥ s.executionEnv.code.size then
-        .ok { s with halt := .Success }       -- implicit STOP at end of code
-      else
-        match stepF s with
-        | .ok s'   => run s' (fuel - 1)
-        | .error e => .error e
+      match stepF s with
+      | .ok s'   => run s' (fuel - 1)
+      | .error e => .error e
     | _ => .ok s
 
 ----------------------------------------------------------------------------
