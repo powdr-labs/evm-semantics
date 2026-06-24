@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Installs elan + the toolchain pinned in `lean-toolchain`, restores a
       # build cache, and fetches Mathlib's prebuilt olean cache so Mathlib is
