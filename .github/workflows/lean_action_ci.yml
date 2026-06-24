@@ -1,0 +1,112 @@
+name: Lean CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build the library + executables. `leanprover/lean-action` handles elan
+  # setup, Mathlib cache fetch, and the `lake build`. We then run the demo
+  # to smoke-test the executable shadow.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & smoke-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+
+      # `lake build` only builds default targets; vmtests is opt-in.
+      - name: Build vmtests executable
+        run: lake build vmtests
+
+      - name: Run demo executable
+        run: |
+          .lake/build/bin/evm_semantics
+          # The demo should leave 8 on the stack and halt successfully.
+          .lake/build/bin/evm_semantics | grep -q 'stack: \[8\]'
+          .lake/build/bin/evm_semantics | grep -q 'halt:  EvmSemantics.HaltKind.Success'
+
+      - name: Assert no `sorry`s remain in the package source
+        run: |
+          set -e
+          # Look for `sorry` as a real token (not inside backticks like
+          # `\`sorry\`` in doc comments, nor inside string literals).
+          # We anchor on whitespace-or-bol before and whitespace-or-eol
+          # after, and exclude backtick-wrapped or doc-comment mentions.
+          matches=$(grep -RnE '(^|[^`a-zA-Z0-9_])sorry([^`a-zA-Z0-9_]|$)' \
+                      EvmSemantics/ Main.lean --include='*.lean' \
+                    || true)
+          if [ -n "$matches" ]; then
+            echo "$matches"
+            echo "::error::Found a 'sorry' token in the source tree."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Lint with the strict set of Lean + Mathlib style/correctness linters that
+  # Mathlib enables in its own CI. Any linter warning fails the job.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (strict Lean + Mathlib linters)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          build: false
+          test: false
+
+      - name: Fetch Mathlib olean cache
+        run: lake exe cache get || true
+
+      # Clean + re-build with the strict linter set. Each `-D…=true` flag
+      # corresponds to a `register_option linter.…` declaration in Lean
+      # core or Mathlib. The flag set below mirrors Mathlib's own CI gate
+      # (simp normal forms, unused arguments, style, …).
+      - name: Build with strict linters
+        run: |
+          set -o pipefail
+          lake clean
+          lake build -- \
+            -Dlinter.unusedVariables=true \
+            -Dlinter.unusedSimpArgs=true \
+            -Dlinter.unusedTactic=true \
+            -Dlinter.unnecessarySimpa=true \
+            -Dlinter.haveLet=1 \
+            -Dlinter.style.longLine=true \
+            -Dlinter.style.cdot=true \
+            -Dlinter.style.cases=true \
+            -Dlinter.style.refine=true \
+            -Dlinter.style.docString=true \
+            -Dlinter.style.openClassical=true \
+            -Dlinter.style.lambdaSyntax=true \
+            -Dlinter.style.dollarSyntax=true \
+            -Dlinter.style.show=true \
+            -Dlinter.style.multiGoal=true \
+            -Dlinter.dupNamespace=true \
+            -Dlinter.flexible=true \
+            -Dlinter.oldObtain=true \
+            -Dlinter.docPrime=true \
+            2>&1 | tee build.log
+          # `lake build` only fails on errors. We additionally fail when
+          # any of the enabled linters emits a warning.
+          if grep -E '^warning:' build.log; then
+            echo "::error::Linter warnings present — see lint output above."
+            exit 1
+          fi
+
+      # Run `#lint` (from Batteries / Mathlib's global linter) across the
+      # whole `EvmSemantics` package. This catches: declarations missing
+      # doc-strings, simp lemmas not in simp-normal-form, unused arguments,
+      # dangerous instances, etc. Currently informational — findings are
+      # surfaced in the logs but do not fail CI, since several findings
+      # come from auto-derived `Repr`/`injEq` instances we don't control.
+      - name: Run Mathlib/Batteries `#lint`
+        continue-on-error: true
+        run: lake env lean Lint.lean

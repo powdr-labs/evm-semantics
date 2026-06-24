@@ -93,6 +93,32 @@ A `lake exe cache get` is recommended after the first `lake update` to
 fetch Mathlib's precompiled `.olean` artifacts. The cold build is
 ~10 minutes; cached, ~30 seconds.
 
+## CI
+
+`.github/workflows/lean_action_ci.yml` defines two jobs:
+
+- **Build & smoke-test** — runs `lake build`, builds the `vmtests`
+  executable, runs the demo program, and fails if any `sorry` token
+  reaches the source tree.
+- **Lint** — re-builds the whole package with Mathlib's strict
+  linter set (`-Dlinter.style.longLine=true`,
+  `-Dlinter.unusedSimpArgs=true`, `-Dlinter.style.cdot=true`,
+  `-Dlinter.style.cases=true`, `-Dlinter.dupNamespace=true`, …),
+  fails on any linter warning, and then runs Batteries/Mathlib's
+  global `#lint` command (via `Lint.lean`) for an additional pass
+  covering missing doc-strings, `simpNF`, unused arguments, etc.
+  The `#lint` step is currently informational — its findings are
+  surfaced in logs without blocking the build.
+
+To reproduce the strict-lint locally:
+```sh
+lake clean
+lake build -- -Dlinter.unusedSimpArgs=true -Dlinter.style.longLine=true \
+  -Dlinter.style.cdot=true -Dlinter.style.cases=true \
+  -Dlinter.style.refine=true -Dlinter.dupNamespace=true
+lake env lean Lint.lean
+```
+
 ## Design overview
 
 ### Two semantics, one source of truth
