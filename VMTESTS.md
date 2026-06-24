@@ -91,9 +91,42 @@ but it remains a divergence between `stepF` and `Step`.
   running off the end of the code as a successful halt, so programs without an
   explicit trailing `STOP` (most push/dup/swap/jump tests) behave correctly.
 
-## Possible future work
-- Provide a concrete Keccak-256 (e.g. via `@[implemented_by]`) to lift the 23
-  keccak skips (notably all of vmSha3Test) and enable log-hash comparison.
-- Fix the evaluator limitations above (modular `EXP`, bounded memory ops, signed
-  `SMOD`/`SDIV`, push-data-aware jumpdest validation) to convert crashes/fails
-  into passes.
+## TODO / next steps
+Ordered by impact on the suite. Each item lists the tests it would unlock.
+
+### Evaluator fixes (turn crashes/fails into passes)
+- [ ] **Modular `EXP`** — make `UInt256.exp` use fast modular exponentiation
+      instead of computing `a^b` then `% 2^256` (`UInt256.lean:45`).
+      *Unlocks ~38 crashes* (`exp*`, `loop-exp*`).
+- [ ] **Bound memory ops** — add a size/offset guard in `readPadded` /
+      `writeBytes` so huge (`~2^256`) sizes fail gracefully instead of OOM/abort.
+      *Unlocks ~17 crashes* (`calldatacopy`/`codecopy`/`calldataload`/`log*`
+      `…TooHigh`).
+- [ ] **Signed `SMOD`/`SDIV`** — use truncate-toward-zero semantics (result takes
+      the dividend's sign) rather than Lean's Euclidean `Int` `%`/`/`
+      (`StepF.lean`, SMOD/SDIV). *Unlocks the 4 fails.*
+- [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
+      `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
+      (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
+- [ ] **Executable `StackOverflow`** — enforce the 1024-deep stack limit in
+      `stepF` (currently only in the relation `Step`), removing a `stepF`/`Step`
+      divergence.
+
+### Keccak (lift the 23 keccak skips)
+- [ ] Provide a concrete Keccak-256 (e.g. via `@[implemented_by]` on the `opaque`
+      `keccak256`). *Unlocks all of vmSha3Test + keccak-derived storage/code-hash
+      tests*, and enables **log-hash comparison** (currently logs aren't checked).
+
+### Harness improvements
+- [ ] **Gas-faithful mode** — once the evaluator has a real gas schedule, run with
+      each test's actual gas budget and compare the `gas` field, converting the
+      ~17 gas/fuel `incon` tests (`*MemExp`, `*OutOfGas*`, `*foreverOutOfGas`,
+      `loop_stacklimit_1021`) into pass/fail. Currently impossible under uniform
+      `Gas.cost = 1` + infinite gas.
+- [ ] **Storage extra-write detection** — comparison only checks the union of
+      pre/post slot keys, so a write to a slot named in neither is invisible.
+      Track written keys to close this blind spot.
+
+### Scope expansion
+- [ ] Once calls/transaction processing land, target **GeneralStateTests** (the
+      current/maintained suite) in addition to the frozen legacy VMTests.
