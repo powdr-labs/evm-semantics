@@ -1,0 +1,463 @@
+import EvmSemantics.EVM.Step
+
+/-!
+`stepF` — the executable shadow of the `Step` relation.
+
+`stepF : State → Except ExecutionException State` runs one EVM
+instruction and either returns the successor state or an exception.
+It mirrors the constructors of `Step` op-by-op. The intent is twofold:
+
+1. **Demo / smoke testing.** Lets us run small bytecodes end-to-end and
+   inspect outputs.
+2. **Soundness target.** Phase-8 lemma `stepF_sound : stepF s = .ok s'
+   → Step s s'` is proven opcode by opcode against this function.
+
+The implementation is **split into per-`Operation`-constructor helpers**
+(`stepF.stopArith`, `stepF.compBit`, …) so each piece is small,
+self-contained, and individually reasonable. The top-level `stepF`
+performs the halt-check / decode / gas-check and dispatches to the
+appropriate helper.
+
+Each helper takes both the original state `s` (for reads from `s.stack`,
+`s.memory`, etc.) and the gas-consumed state `s'` (used to construct the
+successor). Out-of-scope opcodes (CALL family, CREATE family,
+SELFDESTRUCT) are mapped to `InvalidInstruction` in v1.
+-/
+
+namespace EvmSemantics
+namespace EVM
+
+def underflow : Except ExecutionException State := .error .StackUnderflow
+def static    : Except ExecutionException State := .error .StaticModeViolation
+
+namespace stepF
+
+----------------------------------------------------------------------------
+-- 1. Stop + Arithmetic (StopArithOps, 12 ops).
+----------------------------------------------------------------------------
+
+def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionException State
+  | .STOP => .ok { s with halt := .Success, H_return := .empty }
+  | .ADD => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a + b) :: rest))
+    | _ => underflow
+  | .MUL => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a * b) :: rest))
+    | _ => underflow
+  | .SUB => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a - b) :: rest))
+    | _ => underflow
+  | .DIV => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a / b) :: rest))
+    | _ => underflow
+  | .SDIV => match s.stack with
+    | a :: b :: rest =>
+      .ok (s'.replaceStackAndIncrPC
+            (UInt256.ofSignedInt (a.toSignedNat / b.toSignedNat) :: rest))
+    | _ => underflow
+  | .MOD => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a % b) :: rest))
+    | _ => underflow
+  | .SMOD => match s.stack with
+    | a :: b :: rest =>
+      .ok (s'.replaceStackAndIncrPC
+            (UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat) :: rest))
+    | _ => underflow
+  | .ADDMOD => match s.stack with
+    | a :: b :: n :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.addMod a b n :: rest))
+    | _ => underflow
+  | .MULMOD => match s.stack with
+    | a :: b :: n :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.mulMod a b n :: rest))
+    | _ => underflow
+  | .EXP => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.exp a b :: rest))
+    | _ => underflow
+  | .SIGNEXTEND => match s.stack with
+    | b :: x :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.signExtend b x :: rest))
+    | _ => underflow
+
+----------------------------------------------------------------------------
+-- 2. Comparison & bitwise (CompareBitwiseOps, 14 ops).
+----------------------------------------------------------------------------
+
+def compBit (s s' : State) : Operation.CompareBitwiseOps → Except ExecutionException State
+  | .LT => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.lt a b :: rest))
+    | _ => underflow
+  | .GT => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.gt a b :: rest))
+    | _ => underflow
+  | .SLT => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.slt a b :: rest))
+    | _ => underflow
+  | .SGT => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.sgt a b :: rest))
+    | _ => underflow
+  | .EQ => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.eq a b :: rest))
+    | _ => underflow
+  | .ISZERO => match s.stack with
+    | a :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.isZero a :: rest))
+    | _ => underflow
+  | .AND => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.land a b :: rest))
+    | _ => underflow
+  | .OR => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.lor a b :: rest))
+    | _ => underflow
+  | .XOR => match s.stack with
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.xor a b :: rest))
+    | _ => underflow
+  | .NOT => match s.stack with
+    | a :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.lnot a :: rest))
+    | _ => underflow
+  | .BYTE => match s.stack with
+    | i :: x :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.byteAt i x :: rest))
+    | _ => underflow
+  | .SHL => match s.stack with
+    | sh :: v :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.shiftLeft v sh :: rest))
+    | _ => underflow
+  | .SHR => match s.stack with
+    | sh :: v :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.shiftRight v sh :: rest))
+    | _ => underflow
+  | .SAR => match s.stack with
+    | sh :: v :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.sar v sh :: rest))
+    | _ => underflow
+
+----------------------------------------------------------------------------
+-- 3. Keccak (1 op).
+----------------------------------------------------------------------------
+
+def keccak (s s' : State) : Operation.KeccakOps → Except ExecutionException State
+  | .KECCAK256 => match s.stack with
+    | offset :: size :: rest =>
+      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+      .ok (s'.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
+    | _ => underflow
+
+----------------------------------------------------------------------------
+-- 4. Environment reads (EnvOps, 16 ops).
+----------------------------------------------------------------------------
+
+def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
+  | .ADDRESS =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.codeOwner.toUInt256 :: s.stack))
+  | .BALANCE => match s.stack with
+    | a :: rest =>
+      .ok (s'.replaceStackAndIncrPC
+            ((s.accountMap (AccountAddress.ofUInt256 a)).balance :: rest))
+    | _ => underflow
+  | .ORIGIN => .ok (s'.replaceStackAndIncrPC (s.executionEnv.sender.toUInt256 :: s.stack))
+  | .CALLER => .ok (s'.replaceStackAndIncrPC (s.executionEnv.source.toUInt256 :: s.stack))
+  | .CALLVALUE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.weiValue :: s.stack))
+  | .CALLDATALOAD => match s.stack with
+    | i :: rest =>
+      let bs := MachineState.readPadded s.executionEnv.calldata i.toNat 32
+      let word := bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
+      .ok (s'.replaceStackAndIncrPC (UInt256.ofNat word :: rest))
+    | _ => underflow
+  | .CALLDATASIZE =>
+    .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.executionEnv.calldata.size :: s.stack))
+  | .CALLDATACOPY => match s.stack with
+    | destOff :: srcOff :: sz :: rest =>
+      let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
+      let μ' : MachineState :=
+        { s.toMachineState with
+            memory := MachineState.writeBytes s.memory bytes destOff.toNat
+            activeWords := UInt256.ofNat
+                            (MachineState.activeWordsAfter
+                              s.activeWords.toNat destOff.toNat sz.toNat) }
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .CODESIZE =>
+    .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.executionEnv.code.size :: s.stack))
+  | .CODECOPY => match s.stack with
+    | destOff :: srcOff :: sz :: rest =>
+      let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
+      let μ' : MachineState :=
+        { s.toMachineState with
+            memory := MachineState.writeBytes s.memory bytes destOff.toNat
+            activeWords := UInt256.ofNat
+                            (MachineState.activeWordsAfter
+                              s.activeWords.toNat destOff.toNat sz.toNat) }
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
+  | .EXTCODESIZE => match s.stack with
+    | a :: rest =>
+      let sz := (s.accountMap (AccountAddress.ofUInt256 a)).code.size
+      .ok (s'.replaceStackAndIncrPC (UInt256.ofNat sz :: rest))
+    | _ => underflow
+  | .EXTCODECOPY => match s.stack with
+    | a :: destOff :: srcOff :: sz :: rest =>
+      let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
+      let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
+      let μ' : MachineState :=
+        { s.toMachineState with
+            memory := MachineState.writeBytes s.memory bytes destOff.toNat
+            activeWords := UInt256.ofNat
+                            (MachineState.activeWordsAfter
+                              s.activeWords.toNat destOff.toNat sz.toNat) }
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .RETURNDATASIZE =>
+    .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.returnData.size :: s.stack))
+  | .RETURNDATACOPY => match s.stack with
+    | destOff :: srcOff :: sz :: rest =>
+      if srcOff.toNat + sz.toNat > s.returnData.size then
+        .error .InvalidMemoryAccess
+      else
+        let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat
+              activeWords := UInt256.ofNat
+                              (MachineState.activeWordsAfter
+                                s.activeWords.toNat destOff.toNat sz.toNat) }
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .EXTCODEHASH => match s.stack with
+    | a :: rest =>
+      .ok (s'.replaceStackAndIncrPC
+            ((s.accountMap (AccountAddress.ofUInt256 a)).codeHash :: rest))
+    | _ => underflow
+
+----------------------------------------------------------------------------
+-- 5. Block-context reads (BlockOps, 11 ops).
+----------------------------------------------------------------------------
+
+def block (s s' : State) : Operation.BlockOps → Except ExecutionException State
+  | .BLOCKHASH => match s.stack with
+    | n :: rest =>
+      .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.blockHash n :: rest))
+    | _ => underflow
+  | .COINBASE =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.coinbase.toUInt256 :: s.stack))
+  | .TIMESTAMP =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.timestamp :: s.stack))
+  | .NUMBER =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.number :: s.stack))
+  | .PREVRANDAO =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.prevRandao :: s.stack))
+  | .GASLIMIT =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.gasLimit :: s.stack))
+  | .CHAINID =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.chainId :: s.stack))
+  | .SELFBALANCE =>
+    .ok (s'.replaceStackAndIncrPC
+          ((s.accountMap s.executionEnv.codeOwner).balance :: s.stack))
+  | .BASEFEE =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.baseFeePerGas :: s.stack))
+  | .BLOBHASH => match s.stack with
+    | i :: rest =>
+      let h := (s.executionEnv.blobVersionedHashes[i.toNat]?).getD ⟨0⟩
+      .ok (s'.replaceStackAndIncrPC (h :: rest))
+    | _ => underflow
+  | .BLOBBASEFEE =>
+    .ok (s'.replaceStackAndIncrPC (s.executionEnv.header.blobBaseFee :: s.stack))
+
+----------------------------------------------------------------------------
+-- 6. Stack / memory / storage / flow (StackMemFlowOps, 15 ops).
+----------------------------------------------------------------------------
+
+def stackMemFlow (s s' : State) :
+    Operation.StackMemFlowOps → Except ExecutionException State
+  | .POP => match s.stack with
+    | _ :: rest => .ok (s'.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .MLOAD => match s.stack with
+    | offset :: rest =>
+      let (v, μ') := MachineState.mload s.toMachineState offset
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC (v :: rest))
+    | _ => underflow
+  | .MSTORE => match s.stack with
+    | offset :: value :: rest =>
+      let μ' := MachineState.mstore s.toMachineState offset value
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .MSTORE8 => match s.stack with
+    | offset :: value :: rest =>
+      let μ' := MachineState.mstore8 s.toMachineState offset value
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .SLOAD => match s.stack with
+    | key :: rest =>
+      .ok (s'.replaceStackAndIncrPC
+            ((s.accountMap s.executionEnv.codeOwner).storage key :: rest))
+    | _ => underflow
+  | .SSTORE =>
+    if ¬ s.executionEnv.permitStateMutation then static
+    else match s.stack with
+    | key :: value :: rest =>
+      let addr := s.executionEnv.codeOwner
+      let acc := s.accountMap addr
+      let acc' := { acc with storage := acc.storage.set key value }
+      let σ' := s.accountMap.set addr acc'
+      .ok ({ s' with accountMap := σ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .JUMP => match s.stack with
+    | dest :: rest =>
+      match Decode.decodeAt s.executionEnv.code dest.toNat with
+      | some (.JUMPDEST, none) => .ok { s' with pc := dest, stack := rest }
+      | _ => .error .BadJumpDestination
+    | _ => underflow
+  | .JUMPI => match s.stack with
+    | dest :: cond :: rest =>
+      if cond.toNat = 0 then
+        .ok (s'.replaceStackAndIncrPC rest)
+      else
+        match Decode.decodeAt s.executionEnv.code dest.toNat with
+        | some (.JUMPDEST, none) => .ok { s' with pc := dest, stack := rest }
+        | _ => .error .BadJumpDestination
+    | _ => underflow
+  | .PC       => .ok (s'.replaceStackAndIncrPC (s.pc :: s.stack))
+  | .JUMPDEST => .ok s'.incrPC
+  | .MSIZE    =>
+    .ok (s'.replaceStackAndIncrPC (MachineState.msize s.toMachineState :: s.stack))
+  | .GAS      => .ok (s'.replaceStackAndIncrPC (s.gasAvailable :: s.stack))
+  | .TLOAD => match s.stack with
+    | key :: rest =>
+      .ok (s'.replaceStackAndIncrPC
+            ((s.accountMap s.executionEnv.codeOwner).tstorage key :: rest))
+    | _ => underflow
+  | .TSTORE =>
+    if ¬ s.executionEnv.permitStateMutation then static
+    else match s.stack with
+    | key :: value :: rest =>
+      let addr := s.executionEnv.codeOwner
+      let acc := s.accountMap addr
+      let acc' := { acc with tstorage := acc.tstorage.set key value }
+      let σ' := s.accountMap.set addr acc'
+      .ok ({ s' with accountMap := σ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+  | .MCOPY => match s.stack with
+    | destOff :: srcOff :: sz :: rest =>
+      let μ' := MachineState.mcopy s.toMachineState destOff srcOff sz
+      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+    | _ => underflow
+
+----------------------------------------------------------------------------
+-- 7. PUSH / DUP / SWAP (single-field structures).
+----------------------------------------------------------------------------
+
+def push (s s' : State) (op : Operation.PushOp)
+    (argOpt : Option (UInt256 × Nat)) : Except ExecutionException State :=
+  match op.width.val, argOpt with
+  | 0, _              => .ok (s'.replaceStackAndIncrPC (⟨0⟩ :: s.stack))
+  | _+1, some (d, n)  => .ok (s'.replaceStackAndIncrPC (d :: s.stack) (pcΔ := n + 1))
+  | _+1, none         => .error .InvalidInstruction
+
+def dup (s s' : State) (op : Operation.DupOp) : Except ExecutionException State :=
+  match s.stack[op.idx.val]? with
+  | some v => .ok (s'.replaceStackAndIncrPC (v :: s.stack))
+  | none   => underflow
+
+def swap (s s' : State) (op : Operation.SwapOp) : Except ExecutionException State :=
+  match s.stack.exchange 0 (op.idx.val + 1) with
+  | some stk' => .ok (s'.replaceStackAndIncrPC stk')
+  | none      => underflow
+
+----------------------------------------------------------------------------
+-- 8. EIP-8024: DUPN / SWAPN / EXCHANGE.
+----------------------------------------------------------------------------
+
+def dupN (s s' : State) (op : Operation.DupNOp) : Except ExecutionException State :=
+  match s.stack[op.n.val]? with
+  | some v => .ok (s'.replaceStackAndIncrPC (v :: s.stack) (pcΔ := 2))
+  | none   => underflow
+
+def swapN (s s' : State) (op : Operation.SwapNOp) : Except ExecutionException State :=
+  match s.stack.exchange 0 (op.n.val + 1) with
+  | some stk' => .ok (s'.replaceStackAndIncrPC stk' (pcΔ := 2))
+  | none      => underflow
+
+def exchange (s s' : State) (op : Operation.ExchangeOp) : Except ExecutionException State :=
+  match s.stack.exchange (op.n + 1) (op.m + 1) with
+  | some stk' => .ok (s'.replaceStackAndIncrPC stk' (pcΔ := 2))
+  | none      => underflow
+
+----------------------------------------------------------------------------
+-- 9. Logging (LOG0-LOG4).
+----------------------------------------------------------------------------
+
+private def popN (stk : Stack UInt256) (k : Nat) : Option (List UInt256 × Stack UInt256) :=
+  go stk k []
+where
+  go (stk : Stack UInt256) (k : Nat) (acc : List UInt256) :
+      Option (List UInt256 × Stack UInt256) :=
+    match k, stk with
+    | 0, rest          => some (acc.reverse, rest)
+    | _+1, top :: rest => go rest (k-1) (top :: acc)
+    | _+1, []          => none
+
+def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State :=
+  if ¬ s.executionEnv.permitStateMutation then static
+  else
+    match s.stack with
+    | offset :: size :: rest =>
+      match popN rest op.topics.val with
+      | some (topics, rest') =>
+        let entry : LogEntry :=
+          { address := s.executionEnv.codeOwner
+            topics  := topics.toArray
+            data    := MachineState.readPadded s.memory offset.toNat size.toNat }
+        .ok ({ s' with substate := s.substate.appendLog entry }.replaceStackAndIncrPC rest')
+      | none => underflow
+    | _ => underflow
+
+----------------------------------------------------------------------------
+-- 10. System (SystemOps): RETURN, REVERT, INVALID, plus out-of-scope ops.
+----------------------------------------------------------------------------
+
+def system (s s' : State) : Operation.SystemOps → Except ExecutionException State
+  | .RETURN => match s.stack with
+    | offset :: size :: rest =>
+      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+      .ok { s' with halt := .Returned, H_return := bs, stack := rest }
+    | _ => underflow
+  | .REVERT => match s.stack with
+    | offset :: size :: rest =>
+      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+      .ok { s' with halt := .Reverted, H_return := bs, stack := rest }
+    | _ => underflow
+  | .INVALID => .error .InvalidInstruction
+  -- Out-of-scope in v1.
+  | .CREATE | .CREATE2 | .CALL | .CALLCODE
+  | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => .error .InvalidInstruction
+
+end stepF
+
+----------------------------------------------------------------------------
+-- Top-level dispatcher.
+----------------------------------------------------------------------------
+
+def stepF (s : State) : Except ExecutionException State := Id.run do
+  match s.halt with
+  | .Running =>
+    match h_d : s.decoded with
+    | none => .error .InvalidInstruction
+    | some (op, argOpt) =>
+      let cost := Gas.cost op
+      if h_g : cost ≤ s.gasAvailable.toNat then
+        let s' := s.consumeGas cost h_g
+        match op with
+        | .StopArith op    => stepF.stopArith    s s' op
+        | .CompBit op      => stepF.compBit      s s' op
+        | .Keccak op       => stepF.keccak       s s' op
+        | .Env op          => stepF.env          s s' op
+        | .Block op        => stepF.block        s s' op
+        | .StackMemFlow op => stepF.stackMemFlow s s' op
+        | .Push op         => stepF.push         s s' op argOpt
+        | .Dup op          => stepF.dup          s s' op
+        | .Swap op         => stepF.swap         s s' op
+        | .DupN op         => stepF.dupN         s s' op
+        | .SwapN op        => stepF.swapN        s s' op
+        | .Exchange op     => stepF.exchange     s s' op
+        | .Log op          => stepF.log          s s' op
+        | .System op       => stepF.system       s s' op
+      else
+        .error .OutOfGas
+  | _ => .error .InvalidInstruction
+
+end EVM
+end EvmSemantics
