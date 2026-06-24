@@ -23,7 +23,7 @@ hang only loses that one test instead of aborting the whole run.
 ```
 pass=495  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
 ```
-Of the 526 tests that are neither skipped nor crash, **495 pass (94%)**.
+Of the 523 tests that are neither skipped nor crash, **495 pass (95%)**.
 
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
