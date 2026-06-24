@@ -139,26 +139,33 @@ def beToNat (bs : ByteArray) : Nat :=
   bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
 
 /-- Read the (opcode, optional argument-value × width) at `pc` in `code`.
-    Returns `none` if the byte is outside the supported instruction set. -/
-def decodeAt (code : ByteArray) (pc : Nat) : Option (Operation × Option (UInt256 × Nat)) := do
-  let b ← if h : pc < code.size then some code[pc] else none
-  let op ← opcodeOf b
-  match op with
-  | .Push ⟨w, _⟩ =>
-    let bs := code.extract (pc + 1) (pc + 1 + w)
-    let n := beToNat bs
-    return (op, some (UInt256.ofNat n, w))
-  | .DupN _ =>
-    -- 0xe6 followed by 1 immediate byte
-    let imm := if h : pc + 1 < code.size then code[pc + 1]'h else 0
-    return (.DupN ⟨imm.toNat, by have := imm.toNat_lt; omega⟩, none)
-  | .SwapN _ =>
-    let imm := if h : pc + 1 < code.size then code[pc + 1]'h else 0
-    return (.SwapN ⟨imm.toNat, by have := imm.toNat_lt; omega⟩, none)
-  | .Exchange _ =>
-    let imm := if h : pc + 1 < code.size then code[pc + 1]'h else 0
-    return (.Exchange ⟨imm.toNat, by have := imm.toNat_lt; omega⟩, none)
-  | _ => return (op, none)
+
+    Past the end of the bytecode (`pc ≥ code.size`) the machine reads an
+    implicit `STOP`: the Yellow Paper treats code as zero-padded, and `0x00`
+    is `STOP`. This makes a program that simply runs off the end halt with
+    success rather than `InvalidInstruction`. Within `code`, an unassigned
+    byte still decodes to `none` (→ `InvalidInstruction`). -/
+def decodeAt (code : ByteArray) (pc : Nat) : Option (Operation × Option (UInt256 × Nat)) :=
+  if h : pc < code.size then do
+    let op ← opcodeOf code[pc]
+    match op with
+    | .Push ⟨w, _⟩ =>
+      let bs := code.extract (pc + 1) (pc + 1 + w)
+      let n := beToNat bs
+      return (op, some (UInt256.ofNat n, w))
+    | .DupN _ =>
+      -- 0xe6 followed by 1 immediate byte
+      let imm := if h : pc + 1 < code.size then code[pc + 1]'h else 0
+      return (.DupN ⟨imm.toNat, by have := imm.toNat_lt; omega⟩, none)
+    | .SwapN _ =>
+      let imm := if h : pc + 1 < code.size then code[pc + 1]'h else 0
+      return (.SwapN ⟨imm.toNat, by have := imm.toNat_lt; omega⟩, none)
+    | .Exchange _ =>
+      let imm := if h : pc + 1 < code.size then code[pc + 1]'h else 0
+      return (.Exchange ⟨imm.toNat, by have := imm.toNat_lt; omega⟩, none)
+    | _ => return (op, none)
+  else
+    some (.STOP, none)
 
 end Decode
 end EVM
