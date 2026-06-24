@@ -42,7 +42,20 @@ def addMod (a b n : UInt256) : UInt256 :=
   if n.val.val = 0 then ⟨0⟩ else ofNat ((a.toNat + b.toNat) % n.toNat)
 def mulMod (a b n : UInt256) : UInt256 :=
   if n.val.val = 0 then ⟨0⟩ else ofNat ((a.toNat * b.toNat) % n.toNat)
-def exp (a b : UInt256) : UInt256 := ofNat (a.toNat ^ b.toNat % UInt256.size)
+/--
+Modular exponentiation `a ^ b mod 2^256`, computed via square-and-multiply so
+that intermediate values never exceed `2^256`. Recurses on `e / 2`, which
+terminates since `e / 2 < e` whenever `e ≠ 0`.
+-/
+def expAux (base acc e : Nat) : Nat :=
+  if h : e = 0 then acc
+  else
+    let acc' := if e % 2 = 1 then (acc * base) % UInt256.size else acc
+    expAux ((base * base) % UInt256.size) acc' (e / 2)
+  termination_by e
+  decreasing_by exact Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
+
+def exp (a b : UInt256) : UInt256 := ofNat (expAux (a.toNat % UInt256.size) 1 b.toNat)
 
 def land (a b : UInt256) : UInt256 := ⟨Fin.land a.val b.val⟩
 def lor (a b : UInt256) : UInt256  := ⟨Fin.lor a.val b.val⟩
