@@ -21,9 +21,9 @@ hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
 ```
-pass=491  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
+pass=495  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
 ```
-Of the 522 tests that are neither skipped nor crash, **491 pass (94%)**.
+Of the 526 tests that are neither skipped nor crash, **495 pass (94%)**.
 
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
@@ -57,14 +57,6 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
   `log*` …`TooHigh`): `readPadded` / `writeBytes` allocate `size` / `offset+size`
   bytes with no bound, so a ~`2^256` size OOMs/aborts. Needs a size guard (the
   real EVM bounds this via memory-expansion gas).
-
-### FAIL (4) — signed-arithmetic sign convention (`vmArithmeticTest`)
-`SMOD` / `SDIV` disagree with the EVM on the sign of the result. The EVM
-truncates toward zero (the result takes the dividend's sign); the Lean `Int`
-`%` / `/` used in `UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat)`
-(`StepF.lean`, SMOD/SDIV) uses a Euclidean / T-division convention.
-- `smod0`, `smod2`: got `1`, expected `-2 mod 2^256`.
-- `smod8_byZero`, `sdiv_dejavu`: off-by-sign / off-by-one.
 
 ### INCONCLUSIVE (28) — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
@@ -102,9 +94,10 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       `writeBytes` so huge (`~2^256`) sizes fail gracefully instead of OOM/abort.
       *Unlocks ~17 crashes* (`calldatacopy`/`codecopy`/`calldataload`/`log*`
       `…TooHigh`).
-- [ ] **Signed `SMOD`/`SDIV`** — use truncate-toward-zero semantics (result takes
-      the dividend's sign) rather than Lean's Euclidean `Int` `%`/`/`
-      (`StepF.lean`, SMOD/SDIV). *Unlocks the 4 fails.*
+- [x] **Signed `SMOD`/`SDIV`** — use truncate-toward-zero semantics (result takes
+      the dividend's sign) rather than Lean's Euclidean `Int` `%`/`/`. Done via
+      `UInt256.sdiv`/`smod` (`Int.tdiv`/`Int.tmod` + div-by-zero=0 guard).
+      *Unlocked the 4 fails.*
 - [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
       `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
       (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
