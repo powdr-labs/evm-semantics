@@ -9,8 +9,8 @@ It mirrors the constructors of `Step` op-by-op. The intent is twofold:
 
 1. **Demo / smoke testing.** Lets us run small bytecodes end-to-end and
    inspect outputs.
-2. **Soundness target.** Phase-8 lemma `stepF_sound : stepF s = .ok s'
-   → Step s s'` is proven opcode by opcode against this function.
+2. **Soundness target.** The lemma `stepF_sound : stepF s = .ok s' →
+   Step s s'` (in `Equiv.lean`) is proven against this function.
 
 The implementation is **split into per-`Operation`-constructor helpers**
 (`stepF.stopArith`, `stepF.compBit`, …) so each piece is small,
@@ -22,6 +22,11 @@ Each helper takes both the original state `s` (for reads from `s.stack`,
 `s.memory`, etc.) and the gas-consumed state `s'` (used to construct the
 successor). Out-of-scope opcodes (CALL family, CREATE family,
 SELFDESTRUCT) are mapped to `InvalidInstruction` in v1.
+
+The LOG branch uses an auxiliary `popN` helper (defined in section 9
+below) to pop the variable number of topics. `popN_correct` proves it
+preserves the list invariant `topics.length = k ∧ stk = topics ++ rest`,
+which `log_sound` uses to recover the witness list expected by `Step.log`.
 -/
 
 namespace EvmSemantics
@@ -380,7 +385,15 @@ def exchange (s s' : State) (op : Operation.ExchangeOp) : Except ExecutionExcept
 -- 9. Logging (LOG0-LOG4).
 ----------------------------------------------------------------------------
 
-private def popN (stk : Stack UInt256) (k : Nat) : Option (List UInt256 × Stack UInt256) :=
+/-- Pop the top `k` elements of `stk` (preserving their order in the
+    output list); returns `none` if `stk` has fewer than `k` elements.
+
+    The order is recovered by accumulating into `acc` (which fills in
+    reverse) and reversing once at the base case. The companion lemma
+    `popN_correct` (below) certifies the relation
+    `popN stk k = some (topics, rest) ↔ topics.length = k ∧ stk = topics ++ rest`,
+    which is what `log_sound` needs to reconstruct the `Step.log` witness. -/
+def popN (stk : Stack UInt256) (k : Nat) : Option (List UInt256 × Stack UInt256) :=
   go stk k []
 where
   go (stk : Stack UInt256) (k : Nat) (acc : List UInt256) :
@@ -389,6 +402,49 @@ where
     | 0, rest          => some (acc.reverse, rest)
     | _+1, top :: rest => go rest (k-1) (top :: acc)
     | _+1, []          => none
+
+/-- Generalisation of `popN_correct` to the accumulator-passing `go`.
+    States that the `taken` prefix popped off `stk` exists, has length `k`,
+    and that the final `topics` list equals `acc.reverse ++ taken`. The
+    base case `acc = []` gives `popN_correct`. -/
+theorem popN_go_correct (k : Nat) :
+    ∀ (stk : Stack UInt256) (acc topics rest : List UInt256),
+    popN.go stk k acc = some (topics, rest) →
+    ∃ taken : List UInt256,
+      taken.length = k ∧ stk = taken ++ rest ∧ topics = acc.reverse ++ taken := by
+  induction k with
+  | zero =>
+    intro stk acc topics rest h
+    unfold popN.go at h
+    simp at h
+    obtain ⟨h_topics, h_rest⟩ := h
+    refine ⟨[], rfl, ?_, ?_⟩
+    · simp [← h_rest]
+    · simp [← h_topics]
+  | succ k ih =>
+    intro stk acc topics rest h
+    match stk with
+    | [] => unfold popN.go at h; simp at h
+    | top :: rest_stk =>
+      unfold popN.go at h
+      simp at h
+      obtain ⟨taken, h_len, h_eq, h_topics⟩ := ih rest_stk (top :: acc) topics rest h
+      refine ⟨top :: taken, ?_, ?_, ?_⟩
+      · simp [h_len]
+      · simp [h_eq]
+      · simp [h_topics]
+
+/-- Correctness of `popN`: if `popN stk k = some (topics, rest)` then the
+    output list has the requested length and partitions the input stack
+    into a prefix (`topics`) and a suffix (`rest`). -/
+theorem popN_correct (stk : Stack UInt256) (k : Nat) (topics rest : List UInt256)
+    (h : popN stk k = some (topics, rest)) :
+    topics.length = k ∧ stk = topics ++ rest := by
+  unfold popN at h
+  obtain ⟨taken, h_len, h_eq, h_topics⟩ := popN_go_correct k stk [] topics rest h
+  simp at h_topics
+  subst h_topics
+  exact ⟨h_len, h_eq⟩
 
 def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State :=
   if ¬ s.executionEnv.permitStateMutation then static
