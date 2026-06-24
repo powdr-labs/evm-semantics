@@ -216,7 +216,10 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
   | KECCAK256 =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      cases h; exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.readSizeOk size.toNat
+      · simp [h_bnd] at h
+        cases h; exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
 
@@ -267,13 +270,19 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
   | RETURN =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      cases h; exact .return_ s offset size rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.readSizeOk size.toNat
+      · simp [h_bnd] at h
+        cases h; exact .return_ s offset size rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | REVERT =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      cases h; exact .revert s offset size rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.readSizeOk size.toNat
+      · simp [h_bnd] at h
+        cases h; exact .revert s offset size rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | INVALID =>
@@ -389,21 +398,30 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      cases h; exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
+      · simp [h_bnd] at h
+        cases h; exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
   | CODECOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      cases h; exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
+      · simp [h_bnd] at h
+        cases h; exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
   | EXTCODECOPY =>
     match h_stack : s.stack, h with
     | a :: dOff :: sOff :: sz :: rest, h =>
-      cases h; exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
+      · simp [h_bnd] at h
+        cases h; exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h        => exact absurd h (by intro hh; cases hh)
     | [_], h       => exact absurd h (by intro hh; cases hh)
     | [_, _], h    => exact absurd h (by intro hh; cases hh)
@@ -411,12 +429,14 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | RETURNDATACOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      by_cases h_oob : sOff.toNat + sz.toNat > s.returnData.size
-      · simp [h_stack, h_oob] at h
-      · simp [h_stack, h_oob] at h
-        cases h
-        exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-                (Nat.le_of_not_lt h_oob)
+      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
+      · by_cases h_oob : sOff.toNat + sz.toNat > s.returnData.size
+        · simp [h_stack, h_bnd, h_oob] at h
+        · simp [h_stack, h_bnd, h_oob] at h
+          cases h
+          exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+                  (Nat.le_of_not_lt h_oob)
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
@@ -446,13 +466,19 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MSTORE =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
-      cases h; exact .mstore s offset value rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.memBoundsOk offset.toNat 32
+      · simp [h_bnd] at h
+        cases h; exact .mstore s offset value rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
   | MSTORE8 =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
-      cases h; exact .mstore8 s offset value rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.memBoundsOk offset.toNat 1
+      · simp [h_bnd] at h
+        cases h; exact .mstore8 s offset value rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
   | SLOAD =>
@@ -583,7 +609,10 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MCOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      cases h; exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
+      · simp [h_bnd] at h
+        cases h; exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
@@ -628,22 +657,26 @@ theorem log_sound (s : State) (op : Operation.LogOp)
   · simp [h_perm] at h
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      match h_pop : stepF.popN rest op.topics.val, h with
-      | some (topics, rest'), h =>
-        simp [h_pop] at h
-        cases h
-        obtain ⟨n⟩ := op
-        have ⟨h_len, h_split⟩ := stepF.popN_correct rest n.val topics rest' h_pop
-        have h_perm' : s.executionEnv.permitStateMutation = true := by
-          simp at h_perm; exact h_perm
-        have h_stack' : s.stack = offset :: size :: topics ++ rest' := by
-          rw [h_stack, h_split]; rfl
-        exact Step.log s n offset size topics rest' argOpt h_dec h_running h_perm'
-                       h_gas h_len h_stack'
-      | none, h =>
-        simp [h_pop] at h
-        unfold underflow at h
-        cases h
+      by_cases h_bnd : MachineState.readSizeOk size.toNat
+      · simp only [h_bnd, not_true, if_false] at h
+        cases h_pop : stepF.popN rest op.topics.val with
+        | some p =>
+          obtain ⟨topics, rest'⟩ := p
+          simp [h_pop] at h
+          cases h
+          obtain ⟨n⟩ := op
+          have ⟨h_len, h_split⟩ := stepF.popN_correct rest n.val topics rest' h_pop
+          have h_perm' : s.executionEnv.permitStateMutation = true := by
+            simp at h_perm; exact h_perm
+          have h_stack' : s.stack = offset :: size :: topics ++ rest' := by
+            rw [h_stack, h_split]; rfl
+          exact Step.log s n offset size topics rest' argOpt h_dec h_running h_perm'
+                         h_gas h_len h_stack'
+        | none =>
+          simp [h_pop] at h
+          unfold underflow at h
+          cases h
+      · simp [h_bnd, memBounds] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
 

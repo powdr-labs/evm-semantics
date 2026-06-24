@@ -34,6 +34,11 @@ namespace EVM
 
 def underflow : Except ExecutionException State := .error .StackUnderflow
 def static    : Except ExecutionException State := .error .StaticModeViolation
+/-- Exceptional halt raised when a memory offset/size is so large that
+    honouring it would require an absurd allocation (see
+    `MachineState.maxMemSize`). The real EVM rejects these via unpayable
+    memory-expansion gas; here we surface the same kind of failure. -/
+def memBounds : Except ExecutionException State := .error .InvalidMemoryAccess
 
 namespace stepF
 
@@ -136,8 +141,10 @@ def compBit (s s' : State) : Operation.CompareBitwiseOps → Except ExecutionExc
 def keccak (s s' : State) : Operation.KeccakOps → Except ExecutionException State
   | .KECCAK256 => match s.stack with
     | offset :: size :: rest =>
-      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok (s'.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
+      if ¬ MachineState.readSizeOk size.toNat then memBounds
+      else
+        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+        .ok (s'.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -157,6 +164,8 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
   | .CALLVALUE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.weiValue :: s.stack))
   | .CALLDATALOAD => match s.stack with
     | i :: rest =>
+      -- A `readPadded` of a fixed 32 bytes allocates 32 bytes regardless of the
+      -- offset `i` (out-of-range reads zero-pad), so no bound is needed here.
       let bs := MachineState.readPadded s.executionEnv.calldata i.toNat 32
       let word := bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
       .ok (s'.replaceStackAndIncrPC (UInt256.ofNat word :: rest))
@@ -165,27 +174,31 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.executionEnv.calldata.size :: s.stack))
   | .CALLDATACOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
-      let μ' : MachineState :=
-        { s.toMachineState with
-            memory := MachineState.writeBytes s.memory bytes destOff.toNat
-            activeWords := UInt256.ofNat
-                            (MachineState.activeWordsAfter
-                              s.activeWords.toNat destOff.toNat sz.toNat) }
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      if ¬ MachineState.memBoundsOk destOff.toNat sz.toNat then memBounds
+      else
+        let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat
+              activeWords := UInt256.ofNat
+                              (MachineState.activeWordsAfter
+                                s.activeWords.toNat destOff.toNat sz.toNat) }
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
     | _ => underflow
   | .CODESIZE =>
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.executionEnv.code.size :: s.stack))
   | .CODECOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
-      let μ' : MachineState :=
-        { s.toMachineState with
-            memory := MachineState.writeBytes s.memory bytes destOff.toNat
-            activeWords := UInt256.ofNat
-                            (MachineState.activeWordsAfter
-                              s.activeWords.toNat destOff.toNat sz.toNat) }
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      if ¬ MachineState.memBoundsOk destOff.toNat sz.toNat then memBounds
+      else
+        let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat
+              activeWords := UInt256.ofNat
+                              (MachineState.activeWordsAfter
+                                s.activeWords.toNat destOff.toNat sz.toNat) }
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
     | _ => underflow
   | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
   | .EXTCODESIZE => match s.stack with
@@ -195,21 +208,24 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | _ => underflow
   | .EXTCODECOPY => match s.stack with
     | a :: destOff :: srcOff :: sz :: rest =>
-      let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
-      let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
-      let μ' : MachineState :=
-        { s.toMachineState with
-            memory := MachineState.writeBytes s.memory bytes destOff.toNat
-            activeWords := UInt256.ofNat
-                            (MachineState.activeWordsAfter
-                              s.activeWords.toNat destOff.toNat sz.toNat) }
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      if ¬ MachineState.memBoundsOk destOff.toNat sz.toNat then memBounds
+      else
+        let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
+        let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat
+              activeWords := UInt256.ofNat
+                              (MachineState.activeWordsAfter
+                                s.activeWords.toNat destOff.toNat sz.toNat) }
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
     | _ => underflow
   | .RETURNDATASIZE =>
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.returnData.size :: s.stack))
   | .RETURNDATACOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      if srcOff.toNat + sz.toNat > s.returnData.size then
+      if ¬ MachineState.memBoundsOk destOff.toNat sz.toNat then memBounds
+      else if srcOff.toNat + sz.toNat > s.returnData.size then
         .error .InvalidMemoryAccess
       else
         let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
@@ -272,18 +288,24 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .MLOAD => match s.stack with
     | offset :: rest =>
+      -- MLOAD only reads (via `readPadded`, a fixed 32 bytes) and never grows
+      -- memory storage, so a huge offset zero-pads safely; no bound needed.
       let (v, μ') := MachineState.mload s.toMachineState offset
       .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC (v :: rest))
     | _ => underflow
   | .MSTORE => match s.stack with
     | offset :: value :: rest =>
-      let μ' := MachineState.mstore s.toMachineState offset value
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      if ¬ MachineState.memBoundsOk offset.toNat 32 then memBounds
+      else
+        let μ' := MachineState.mstore s.toMachineState offset value
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
     | _ => underflow
   | .MSTORE8 => match s.stack with
     | offset :: value :: rest =>
-      let μ' := MachineState.mstore8 s.toMachineState offset value
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      if ¬ MachineState.memBoundsOk offset.toNat 1 then memBounds
+      else
+        let μ' := MachineState.mstore8 s.toMachineState offset value
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
     | _ => underflow
   | .SLOAD => match s.stack with
     | key :: rest =>
@@ -337,8 +359,10 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .MCOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      let μ' := MachineState.mcopy s.toMachineState destOff srcOff sz
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      if ¬ MachineState.memBoundsOk destOff.toNat sz.toNat then memBounds
+      else
+        let μ' := MachineState.mcopy s.toMachineState destOff srcOff sz
+        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -451,7 +475,8 @@ def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State 
   else
     match s.stack with
     | offset :: size :: rest =>
-      match popN rest op.topics.val with
+      if ¬ MachineState.readSizeOk size.toNat then memBounds
+      else match popN rest op.topics.val with
       | some (topics, rest') =>
         let entry : LogEntry :=
           { address := s.executionEnv.codeOwner
@@ -468,13 +493,17 @@ def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State 
 def system (s s' : State) : Operation.SystemOps → Except ExecutionException State
   | .RETURN => match s.stack with
     | offset :: size :: rest =>
-      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok { s' with halt := .Returned, H_return := bs, stack := rest }
+      if ¬ MachineState.readSizeOk size.toNat then memBounds
+      else
+        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+        .ok { s' with halt := .Returned, H_return := bs, stack := rest }
     | _ => underflow
   | .REVERT => match s.stack with
     | offset :: size :: rest =>
-      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok { s' with halt := .Reverted, H_return := bs, stack := rest }
+      if ¬ MachineState.readSizeOk size.toNat then memBounds
+      else
+        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+        .ok { s' with halt := .Reverted, H_return := bs, stack := rest }
     | _ => underflow
   | .INVALID => .error .InvalidInstruction
   -- Out-of-scope in v1.

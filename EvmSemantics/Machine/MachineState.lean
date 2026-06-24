@@ -28,12 +28,54 @@ structure MachineState where
 
 namespace MachineState
 
-/-- Read `n` bytes from `bs` starting at `start`, zero-padding past the end. -/
+/-- Upper bound (in bytes) on any memory offset+size the evaluator will touch.
+
+    The real EVM has no hard cap, but it prices every byte of memory expansion
+    via gas whose cost grows quadratically, so reaching even a few MiB is
+    already economically impossible and `~2^256` offsets are unreachable. This
+    evaluator does not yet model memory-expansion gas, so without a guard the
+    pure helpers `readPadded`/`writeBytes` would try to allocate up to `2^256`
+    bytes and OOM/abort the process.
+
+    We pick `2^32` (4 GiB): far larger than anything any real bytecode or test
+    reaches, yet small enough that `offset + size` exceeding it is a reliable
+    signal of an attacker-supplied `~2^256` value. Out-of-range accesses are
+    rejected as an exceptional halt (`InvalidMemoryAccess`) by the callers,
+    matching how a real client would fail such a transaction (out of gas). -/
+def maxMemSize : Nat := 2 ^ 32
+
+/-- Whether *writing* the byte range `[offset, offset + size)` into memory stays
+    within `maxMemSize`. `writeBytes` grows the backing `ByteArray` to
+    `offset + size`, so this is the quantity that must be bounded to avoid a
+    giant allocation. Used by the step function to reject huge memory writes
+    with an exceptional halt. -/
+def memBoundsOk (offset size : Nat) : Bool := offset + size ≤ maxMemSize
+
+/-- Whether *reading* `size` bytes (via `readPadded`) stays within `maxMemSize`.
+
+    Unlike a write, a `readPadded` from a huge *offset* is harmless: it
+    zero-pads and allocates only `size` bytes regardless of the offset (matching
+    the EVM, where out-of-range reads read as zero). So only the requested
+    `size` must be bounded — guarding the offset too would wrongly reject the
+    legitimate zero-padding behaviour exercised by the `…DataIndexTooHigh` /
+    `…BigOffset` tests. -/
+def readSizeOk (size : Nat) : Bool := size ≤ maxMemSize
+
+/-- Read `n` bytes from `bs` starting at `start`, zero-padding past the end.
+
+    `start` is clamped to `bs.size` before being passed to `ByteArray.extract`.
+    This is semantically transparent — bytes at or past the end read as zero
+    either way — but it avoids handing a `~2^256` index to the runtime's
+    `extract`, which would otherwise OOM/abort even when only a small `n` bytes
+    are requested (e.g. CALLDATALOAD/CALLDATACOPY/LOG with a huge offset, which
+    the EVM treats as a cheap zero-padded read). The total allocation is exactly
+    `n` bytes (`take` real + `pad` zeros), independent of `start`. -/
 def readPadded (bs : ByteArray) (start n : Nat) : ByteArray :=
-  let avail := if start ≤ bs.size then bs.size - start else 0
+  let start' := Nat.min start bs.size
+  let avail := bs.size - start'
   let take  := Nat.min avail n
   let pad   := n - take
-  let prefix1 := bs.extract start (start + take)
+  let prefix1 := bs.extract start' (start' + take)
   prefix1 ++ ByteArray.mk (Array.replicate pad 0)
 
 /-- Write `bytes` into `bs` starting at `start`, growing `bs` with zeros if

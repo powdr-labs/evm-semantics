@@ -21,9 +21,9 @@ hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
 ```
-pass=491  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
+pass=503  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=33  crash=38
 ```
-Of the 522 tests that are neither skipped nor crash, **491 pass (94%)**.
+Of the 540 tests that are neither skipped nor crash, **503 pass (93%)**.
 
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
@@ -48,15 +48,17 @@ Of the 522 tests that are neither skipped nor crash, **491 pass (94%)**.
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.
 
-### CRASH (55) — unbounded `Nat` allocation aborts the process
+### CRASH (38) — unbounded `Nat` allocation aborts the process
 - **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`): `UInt256.exp`
   computes `a.toNat ^ b.toNat` *in full* before taking `% 2^256`
   (`UInt256.lean:45`) → GMP "Nat.pow exponent is too big". Needs modular
   exponentiation.
-- **Huge memory offset/size** (17: `calldatacopy`/`codecopy`/`calldataload`/
-  `log*` …`TooHigh`): `readPadded` / `writeBytes` allocate `size` / `offset+size`
-  bytes with no bound, so a ~`2^256` size OOMs/aborts. Needs a size guard (the
-  real EVM bounds this via memory-expansion gas).
+
+The huge-memory-offset/size crashes (17: `calldatacopy`/`codecopy`/`calldataload`/
+`log*` …`TooHigh`) are now **fixed** — see "Bound memory ops" below. The
+zero-padding cases (`calldata*`/`codecopy`/`calldataload` with a huge *source*
+offset) now pass; the `log*…TooHigh` cases land as `incon` (the EVM expects a
+memory-expansion OOG halt the gas-ignoring harness can't reproduce).
 
 ### FAIL (4) — signed-arithmetic sign convention (`vmArithmeticTest`)
 `SMOD` / `SDIV` disagree with the EVM on the sign of the result. The EVM
@@ -66,7 +68,7 @@ truncates toward zero (the result takes the dividend's sign); the Lean `Int`
 - `smod0`, `smod2`: got `1`, expected `-2 mod 2^256`.
 - `smod8_byZero`, `sdiv_dejavu`: off-by-sign / off-by-one.
 
-### INCONCLUSIVE (28) — mostly outside the evaluator's scope; ~11 are real gaps
+### INCONCLUSIVE (33) — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
   `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
   `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The
@@ -98,10 +100,12 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
 - [ ] **Modular `EXP`** — make `UInt256.exp` use fast modular exponentiation
       instead of computing `a^b` then `% 2^256` (`UInt256.lean:45`).
       *Unlocks ~38 crashes* (`exp*`, `loop-exp*`).
-- [ ] **Bound memory ops** — add a size/offset guard in `readPadded` /
-      `writeBytes` so huge (`~2^256`) sizes fail gracefully instead of OOM/abort.
-      *Unlocks ~17 crashes* (`calldatacopy`/`codecopy`/`calldataload`/`log*`
-      `…TooHigh`).
+- [x] **Bound memory ops** — `readPadded` now clamps the read offset (huge
+      offsets zero-pad instead of feeding `~2^256` to `extract`), and the `stepF`
+      memory ops guard the write extent (`offset + size`) and read size against
+      `MachineState.maxMemSize`, halting with `InvalidMemoryAccess` instead of
+      OOM/abort. *Eliminated the ~17 `…TooHigh` crashes* — the zero-padding cases
+      now pass; `log*…TooHigh` is `incon` (needs memory-expansion-gas OOG).
 - [ ] **Signed `SMOD`/`SDIV`** — use truncate-toward-zero semantics (result takes
       the dividend's sign) rather than Lean's Euclidean `Int` `%`/`/`
       (`StepF.lean`, SMOD/SDIV). *Unlocks the 4 fails.*
