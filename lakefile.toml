@@ -13,3 +13,7 @@ name = "EvmSemantics"
 [[lean_exe]]
 name = "evm_semantics"
 root = "Main"
+
+[[lean_exe]]
+name = "vmtests"
+root = "VMRunner"
