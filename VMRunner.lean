@@ -36,7 +36,7 @@ def hexVal (c : Char) : Nat :=
   else 0
 
 def strip0x (s : String) : String :=
-  if s.startsWith "0x" ∨ s.startsWith "0X" then String.mk (s.toList.drop 2) else s
+  if s.startsWith "0x" ∨ s.startsWith "0X" then String.ofList (s.toList.drop 2) else s
 
 def hexToNat (s : String) : Nat :=
   (strip0x s).foldl (fun acc c => acc * 16 + hexVal c) 0
@@ -51,7 +51,7 @@ def hexToBytes (s : String) : ByteArray := Id.run do
   let cs := if cs0.length % 2 == 1 then '0' :: cs0 else cs0
   let mut out : ByteArray := .empty
   let mut rest := cs
-  while h : rest.length ≥ 2 do
+  while rest.length ≥ 2 do
     match rest with
     | hi :: lo :: tl =>
       out := out.push (UInt8.ofNat (hexVal hi * 16 + hexVal lo))

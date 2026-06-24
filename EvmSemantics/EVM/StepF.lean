@@ -488,7 +488,7 @@ end stepF
 def stepF (s : State) : Except ExecutionException State := Id.run do
   match s.halt with
   | .Running =>
-    match h_d : s.decoded with
+    match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
       let cost := Gas.cost op
