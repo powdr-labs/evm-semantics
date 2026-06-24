@@ -412,8 +412,8 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
       by_cases h_oob : sOff.toNat + sz.toNat > s.returnData.size
-      · simp [h_stack, h_oob] at h
-      · simp [h_stack, h_oob] at h
+      · simp [h_oob] at h
+      · simp [h_oob] at h
         cases h
         exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
                 (Nat.le_of_not_lt h_oob)
@@ -440,7 +440,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     | offset :: rest, h =>
       cases h_load : MachineState.mload s.toMachineState offset with
       | mk v μ' =>
-        simp [h_stack, h_load] at h; cases h
+        simp [h_load] at h; cases h
         exact .mload s offset rest v μ' argOpt h_dec h_running h_gas h_stack h_load
     | [], h => exact absurd h (by intro hh; cases hh)
   | MSTORE =>
@@ -524,12 +524,12 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         simp [h_cond] at h
         match h_target : Decode.decodeAt s.executionEnv.code dest.toNat, h with
         | some (.JUMPDEST, none), h =>
-          simp [h_target] at h
+          simp at h
           cases h
           apply Step.jumpi_taken s dest cond rest argOpt h_dec h_running h_gas h_stack
           · exact h_cond
           · exact h_target
-        | some (op', some _), h => simp [h_target] at h
+        | some (op', some _), h => simp at h
         | some (.StopArith _, none), h
         | some (.CompBit _, none), h
         | some (.Keccak _, none), h
@@ -556,8 +556,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         | some (.SwapN _, none), h
         | some (.Exchange _, none), h
         | some (.Log _, none), h
-        | some (.System _, none), h => simp [h_target] at h
-        | none, h => simp [h_target] at h
+        | some (.System _, none), h => simp at h
+        | none, h => simp at h
     | [], h => exact absurd h (by intro hh; cases hh)
     | [_], h => exact absurd h (by intro hh; cases hh)
   | PC       => cases h; exact .pc s argOpt h_dec h_running h_gas
