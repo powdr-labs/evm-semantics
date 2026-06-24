@@ -33,13 +33,17 @@ test that now FAILs/CRASHes) as a GitHub warning plus a report in the run
 summary. The full output and normalized summary are uploaded as artifacts.
 
 - Baseline: `.github/vmtests-baseline.txt` (aggregate counts + the set of
-  FAIL/CRASH test ids).
+  FAIL/CRASH test ids), generated against the corpus revision pinned as
+  `CORPUS_REV` in the workflow.
 - When an evaluator fix turns failures into passes, the report lists them as
   improvements — refresh the baseline so it tracks the new floor:
   ```
   ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests > raw.txt
   .github/scripts/vmtests_summary.sh raw.txt > .github/vmtests-baseline.txt
   ```
+  If you regenerate against a newer corpus, bump `CORPUS_REV` in
+  `.github/workflows/ci.yml` in the same commit — the baseline and the pinned
+  corpus revision must always move together.
 
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,

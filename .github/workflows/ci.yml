@@ -55,13 +55,22 @@ jobs:
       - name: Build vmtests runner
         run: lake build vmtests
 
-      # Sparse + blobless clone of just the VMTests corpus (~11 MB) rather than
-      # the full ~2.7 GB legacytests checkout.
+      # Sparse + blobless fetch of just the VMTests corpus (~11 MB) rather than
+      # the full ~2.7 GB legacytests checkout, pinned to the exact revision the
+      # committed baseline was generated against. Bump CORPUS_REV together with
+      # .github/vmtests-baseline.txt when refreshing the baseline, never alone —
+      # otherwise the baseline would be compared against a different corpus.
       - name: Fetch VMTests corpus
+        env:
+          CORPUS_REV: 1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb
         run: |
-          git clone --depth 1 --filter=blob:none --sparse \
-            https://github.com/ethereum/legacytests corpus
-          git -C corpus sparse-checkout set Constantinople/VMTests
+          mkdir corpus && cd corpus
+          git init -q
+          git remote add origin https://github.com/ethereum/legacytests
+          git sparse-checkout init --cone
+          git sparse-checkout set Constantinople/VMTests
+          git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
+          git checkout -q FETCH_HEAD
 
       - name: Run full VMTests suite
         continue-on-error: true
@@ -72,11 +81,22 @@ jobs:
       - name: Summarize and compare against baseline
         if: always()
         run: |
-          .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt \
-            || echo "(failed to generate summary from vmtests output)"
-          .github/scripts/vmtests_check.sh \
-            .github/vmtests-baseline.txt vmtests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY" \
-            || true
+          # Only compare if a complete summary was produced. A failed/partial
+          # vmtests run yields no parseable aggregate line, so vmtests_summary.sh
+          # exits non-zero; in that case skip the comparison rather than diff an
+          # empty summary (which would falsely report "no regressions, many
+          # improvements").
+          if .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt; then
+            .github/scripts/vmtests_check.sh \
+              .github/vmtests-baseline.txt vmtests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## VMTests regression report"
+              echo
+              echo "⚠️ The vmtests run did not produce a parseable summary (incomplete run, missing output, or an output-format change), so the regression comparison was **skipped** to avoid false results. See the \`vmtests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload VMTests report
         if: always()
