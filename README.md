@@ -167,4 +167,4 @@ no new ideas required, just careful match-elaboration work.
 
 ## License
 
-(unspecified — placeholder)
+Apache2, as specified in LICENSE-APACHE2.
