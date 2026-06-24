@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Only keep the latest run per branch/PR; cancel superseded ones.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Installs elan + the toolchain pinned in `lean-toolchain`, restores a
+      # build cache, and fetches Mathlib's prebuilt olean cache so Mathlib is
+      # never compiled from source on the runner.
+      - name: Set up Lean and fetch Mathlib cache
+        uses: leanprover/lean-action@v1
+
+      - name: Build and fail on any linter warning
+        run: |
+          # Rebuild just this project's modules (Mathlib & other dependency
+          # oleans live under .lake/packages and are left untouched), so the
+          # linters re-emit their diagnostics, then fail if any appear.
+          rm -rf .lake/build
+          set -o pipefail
+          lake build evm_semantics vmtests 2>&1 | tee build.log
+          if grep -E "warning:" build.log; then
+            echo "::error::Linter warnings detected — see the build log above."
+            exit 1
+          fi
+          echo "Build succeeded with no linter warnings."
