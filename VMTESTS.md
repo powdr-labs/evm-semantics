@@ -1,8 +1,9 @@
-# Running ethereum/tests against the evaluator — Phase 1
+# VMTests harness
 
-Harness: `VMRunner.lean` (exe `vmtests`). Drives the real verified `stepF`/`run`
-over the legacy **VMTests** suite (the only suite matching a calls-free,
-no-transaction, uniform-gas evaluator).
+`VMRunner.lean` (executable `vmtests`) runs the legacy ethereum/tests **VMTests**
+suite against the verified evaluator (`stepF` / `run`). VMTests is the suite that
+matches this evaluator's scope: single-frame EVM execution, no inter-contract
+calls, no transaction processing, uniform gas.
 
 ## How to run
 ```
@@ -15,70 +16,84 @@ lake build vmtests
 # single test:
 ./.lake/build/bin/vmtests --file <path>/.../add0.json
 ```
-Each test runs in its own child process (`--file` mode) so an evaluator panic or
+Each test runs in its own child process (`--file` mode), so an evaluator panic or
 hang only loses that one test instead of aborting the whole run.
 
-## Result (609 tests)
+## Current results (609 tests)
 ```
 pass=491  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
 ```
-Of the 522 tests that aren't skipped/crashed, **491 pass (94%)**.
+Of the 522 tests that are neither skipped nor crash, **491 pass (94%)**.
 
-## Design decisions (per the agreed plan)
-- **Ignore gas**: inject `gasAvailable = 2^63` so `OutOfGas` never fires; never
-  compare the `gas` field. Gas model is uniform (`Gas.cost = 1`) anyway.
-- **Skip GAS opcode (0x5a)** tests: the injected gas would poison the pushed
-  value (→ wrong stored/returned data). 2 tests.
-- **Skip unsupported opcodes** (CALL/CALLCODE/DELEGATECALL/STATICCALL/CREATE/
-  CREATE2/SELFDESTRUCT) via a bytecode pre-scan. 6 tests.
-- **Skip keccak** (KECCAK256 / EXTCODEHASH): `keccak256` is `opaque` and returns
-  0 at runtime. 23 tests (all of vmSha3Test + a few others). Lift in phase 2.
-- **Compare** storage (over pre∪post slot keys), return-data, balance, nonce.
-  Logs not compared (need RLP + real keccak).
-- **Implicit STOP**: previously `stepF` returned `InvalidInstruction` when `pc`
-  ran past the end of the code, but the Yellow Paper halts there with a STOP
-  (code is zero-padded; `0x00` = STOP). This is now **fixed in the evaluator**:
-  `Decode.decodeAt` returns `(STOP, none)` for `pc ≥ code.size`, so both `stepF`
-  and the relation `Step` (via `Step.stop`) agree. Without this, ~150
-  otherwise-correct tests (most push/dup/swap/jump) failed.
+## How the harness works
+- **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
+  and never compares the `gas` field. (The evaluator's gas model is uniform —
+  `Gas.cost = 1` — so the field isn't meaningful to compare anyway.)
+- **Tests using the `GAS` opcode (0x5a) are skipped** (2). With injected gas the
+  pushed value is wrong, which would corrupt any stored/returned result.
+- **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan:
+  CALL / CALLCODE / DELEGATECALL / STATICCALL / CREATE / CREATE2 / SELFDESTRUCT
+  are not implemented by the evaluator.
+- **Tests using keccak are skipped** (23) — KECCAK256 / EXTCODEHASH. `keccak256`
+  is `opaque` and returns 0 at runtime, so any result depending on it (all of
+  vmSha3Test, keccak-derived storage slots, code hashes) would not match.
+- **Comparison** covers storage (over the union of pre/post slot keys),
+  return-data, balance, and nonce. Logs are not compared (would need RLP encoding
+  plus a real keccak).
+- **Classification.** A test with a `post` expects success; absence of `post`
+  expects an exceptional halt. Out-of-gas / out-of-fuel cases that the evaluator
+  can't reproduce under infinite gas are reported as `incon` rather than
+  pass/fail. A child that aborts (panic) or times out is reported as `crash`.
 
-## Findings — genuine evaluator issues surfaced
+## Known evaluator limitations surfaced by the suite
+These are gaps in the evaluator (not the harness), in rough order of impact.
 
-### FAIL (4) — signed-arithmetic semantics (`vmArithmeticTest`)
-`SMOD`/`SDIV` disagree with the EVM by the sign convention of the result.
-EVM truncates toward zero (result takes the dividend's sign); Lean's `Int` `%`/`/`
-used in `UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat)` (StepF.lean:61-64)
-uses a different (Euclidean/T-division) convention.
+### CRASH (55) — unbounded `Nat` allocation aborts the process
+- **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`): `UInt256.exp`
+  computes `a.toNat ^ b.toNat` *in full* before taking `% 2^256`
+  (`UInt256.lean:45`) → GMP "Nat.pow exponent is too big". Needs modular
+  exponentiation.
+- **Huge memory offset/size** (17: `calldatacopy`/`codecopy`/`calldataload`/
+  `log*` …`TooHigh`): `readPadded` / `writeBytes` allocate `size` / `offset+size`
+  bytes with no bound, so a ~`2^256` size OOMs/aborts. Needs a size guard (the
+  real EVM bounds this via memory-expansion gas).
+
+### FAIL (4) — signed-arithmetic sign convention (`vmArithmeticTest`)
+`SMOD` / `SDIV` disagree with the EVM on the sign of the result. The EVM
+truncates toward zero (the result takes the dividend's sign); the Lean `Int`
+`%` / `/` used in `UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat)`
+(`StepF.lean`, SMOD/SDIV) uses a Euclidean / T-division convention.
 - `smod0`, `smod2`: got `1`, expected `-2 mod 2^256`.
 - `smod8_byZero`, `sdiv_dejavu`: off-by-sign / off-by-one.
 
-### CRASH (55) — unbounded `Nat` allocation (process aborts)
-- **`EXP` with a large exponent (38: exp* + loop-exp*)**: `UInt256.exp` computes
-  `a.toNat ^ b.toNat` *fully* before `% 2^256` (UInt256.lean:45) → GMP
-  "Nat.pow exponent is too big". Needs fast modular exponentiation.
-- **Huge memory offset/size (17: calldatacopy/codecopy/calldataload/log*…TooHigh)**:
-  `readPadded`/`writeBytes` allocate `size`/`offset+size` bytes with no bound, so
-  a `2^256`-ish size OOMs/aborts. Needs a size guard (real EVM caps via gas).
-
-### INCONCLUSIVE (28) — mostly not the evaluator's fault, but 11 are real
+### INCONCLUSIVE (28) — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
-  `DynamicJumpPathologicalTest{1,2,3}`): real EVM rejects a JUMP whose target is a
-  `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). `stepF`
-  JUMP just re-decodes the target byte (StepF.lean:300) with no push-data-aware
-  jumpdest analysis, so it accepts and halts Success. **Real soundness gap.**
+  `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
+  `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The
+  evaluator's JUMP just re-decodes the target byte with no push-data-aware
+  jumpdest analysis, so it accepts the jump and halts successfully. **Real
+  soundness gap.**
 - **~10 explicit out-of-gas / memory-expansion-gas** (`*MemExp`, `*OutOfGas*`,
-  `loop_stacklimit_1021`): expect an OOG halt we can't reproduce with infinite gas.
-- **7 fuel-exhausted** (`*foreverOutOfGas`, `loop-*`, `ackermann33`): infinite /
-  very long loops the real EVM stops via gas.
+  `loop_stacklimit_1021`): expect an OOG halt that can't be reproduced with
+  infinite gas.
+- **7 fuel-exhausted** (`*foreverOutOfGas`, `loop-*`, `ackermann33`): infinite or
+  very long loops that the real EVM stops via gas.
 
-### Fixed in this PR
-- **End-of-code implicit STOP** (`Decode.decodeAt`): see above.
+### StackOverflow not raised executably
+`stepF` enforces no 1024-deep stack limit; the cap exists only in the relation
+`Step` (`Step.lean`). No VMTest in the suite currently turns this into a mismatch,
+but it remains a divergence between `stepF` and `Step`.
 
-### Also note (not a failure here, but a known stepF gap)
-`stepF` never raises `StackOverflow` (no 1024-depth cap; only the relation has it,
-Step.lean:887). No VMTest in this run exercised it into a mismatch, but it remains
-a divergence.
+## Evaluator behavior relied upon
+- **End-of-code implicit STOP.** `Decode.decodeAt` returns `(STOP, none)` for
+  `pc ≥ code.size`, matching the Yellow Paper's zero-padding of code
+  (`0x00` = STOP). Both `stepF` and the relation `Step` (via `Step.stop`) treat
+  running off the end of the code as a successful halt, so programs without an
+  explicit trailing `STOP` (most push/dup/swap/jump tests) behave correctly.
 
-## Phase 2 (optional, not done)
-Supply a concrete Keccak-256 via `@[implemented_by]` to unlock the 23 keccak
-skips (esp. all of vmSha3Test) + log-hash comparison.
+## Possible future work
+- Provide a concrete Keccak-256 (e.g. via `@[implemented_by]`) to lift the 23
+  keccak skips (notably all of vmSha3Test) and enable log-hash comparison.
+- Fix the evaluator limitations above (modular `EXP`, bounded memory ops, signed
+  `SMOD`/`SDIV`, push-data-aware jumpdest validation) to convert crashes/fails
+  into passes.
