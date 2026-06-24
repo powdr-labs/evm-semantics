@@ -24,7 +24,7 @@ executable functions, so that reasoning is more direct.
 | 5 | Small-step exception rules (`Step`, 9 generic constructors) | ✅ |
 | 6 | Big-step relation (`Eval`) + reflexive-transitive closure `Steps` | ✅ |
 | 7 | Executable shadow (`stepF`) + demo (`Main.lean`) | ✅ |
-| 8 | Soundness `stepF s = .ok s' → Step s s'` | 🟡 partial |
+| 8 | Soundness `stepF s = .ok s' → Step s s'` | ✅ (no `sorry`) |
 
 **Demo (`Main.lean`)** runs `PUSH1 5 ; PUSH1 3 ; ADD ; STOP` through the
 executable shadow, producing stack `[8]` and `halt = Success`. Confirms
@@ -136,25 +136,26 @@ emit a structured result.
 
 ### Soundness lemmas
 
-`EVM/Equiv.lean` establishes
-`stepF_sound : stepF s = .ok s' → Step s s'` in two layers:
+`EVM/Equiv.lean` establishes `stepF_sound : stepF s = .ok s' → Step s s'`
+**without any `sorry`**. The proof is layered:
 
-- **Per-helper soundness lemmas** (10 closed without `sorry`):
-  - `stopArith_sound`, `compBit_sound`, `keccak_sound`
-  - `env_sound`, `block_sound`, `system_sound`
-  - `dup_sound`, `swap_sound`
-  - `dupN_sound`, `swapN_sound`, `exchange_sound`
-  - `stackMemFlow_sound` (13/15 cases proven; JUMP and JUMPI deferred)
-- **Headline `stepF_sound`** — assembles helper-soundness lemmas
-  through the outer halt/decode/gas dispatch. Currently a single
-  `sorry` (fighting Lean 4's `match`-with-equation elaborator in the
-  outer dispatcher).
-- Deferred: `push_sound` (needs a decoder invariant linking
-  `op.width` to the immediate-width in `argOpt`), `log_sound` (needs
-  inversion of the `popN` helper).
+- **Headline theorem `stepF_sound`** — unfolds `stepF`, splits on
+  halt/decode/gas, then dispatches to the 14 per-helper soundness
+  lemmas based on the top-level `Operation` constructor.
+- **Per-helper soundness lemmas** — all 14 closed:
+  `stopArith_sound`, `compBit_sound`, `keccak_sound`, `env_sound`,
+  `block_sound`, `system_sound`, `stackMemFlow_sound`, `push_sound`,
+  `log_sound`, `dup_sound`, `swap_sound`, `dupN_sound`, `swapN_sound`,
+  `exchange_sound`.
+- **Supporting lemma `popN_correct`** (in `StepF.lean`) — by induction
+  on `k`, shows that if `popN stk k = some (topics, rest)` then
+  `topics.length = k` and `stk = topics ++ rest`. Used by `log_sound`
+  to recover the list-of-topics witness needed by `Step.log`.
 
-The remaining sorries are structurally similar to the proven cases —
-no new ideas required, just careful match-elaboration work.
+A small design tweak was needed to make the proof go through:
+`Step.pushN` now takes the immediate-width as an explicit parameter
+(`immWidth : Nat`) rather than tying it to `k.val`, sidestepping a
+decoder invariant that would otherwise need a separate lemma.
 
 ## Reference and credits
 
