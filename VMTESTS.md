@@ -25,6 +25,22 @@ pass=491  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
 ```
 Of the 522 tests that are neither skipped nor crash, **491 pass (94%)**.
 
+## CI regression check
+CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
+`.github/workflows/ci.yml`): it never blocks a merge, but compares the run
+against a committed baseline and surfaces any regression (a previously-passing
+test that now FAILs/CRASHes) as a GitHub warning plus a report in the run
+summary. The full output and normalized summary are uploaded as artifacts.
+
+- Baseline: `.github/vmtests-baseline.txt` (aggregate counts + the set of
+  FAIL/CRASH test ids).
+- When an evaluator fix turns failures into passes, the report lists them as
+  improvements — refresh the baseline so it tracks the new floor:
+  ```
+  ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests > raw.txt
+  .github/scripts/vmtests_summary.sh raw.txt > .github/vmtests-baseline.txt
+  ```
+
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
   and never compares the `gas` field. (The evaluator's gas model is uniform —

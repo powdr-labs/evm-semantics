@@ -37,3 +37,52 @@ jobs:
             exit 1
           fi
           echo "Build succeeded with no linter warnings."
+
+  vmtests:
+    name: VMTests regression report
+    runs-on: ubuntu-latest
+    # Non-gating: this job reports the VMTests pass/fail picture and flags
+    # regressions, but never blocks the PR. The known-failure baseline lives in
+    # .github/vmtests-baseline.txt.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Lean and fetch Mathlib cache
+        uses: leanprover/lean-action@v1
+
+      - name: Build vmtests runner
+        run: lake build vmtests
+
+      # Sparse + blobless clone of just the VMTests corpus (~11 MB) rather than
+      # the full ~2.7 GB legacytests checkout.
+      - name: Fetch VMTests corpus
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse \
+            https://github.com/ethereum/legacytests corpus
+          git -C corpus sparse-checkout set Constantinople/VMTests
+
+      - name: Run full VMTests suite
+        continue-on-error: true
+        run: |
+          ./.lake/build/bin/vmtests corpus/Constantinople/VMTests \
+            | tee vmtests-output.txt
+
+      - name: Summarize and compare against baseline
+        if: always()
+        run: |
+          .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt \
+            || echo "(failed to generate summary from vmtests output)"
+          .github/scripts/vmtests_check.sh \
+            .github/vmtests-baseline.txt vmtests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY" \
+            || true
+
+      - name: Upload VMTests report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vmtests-report
+          path: |
+            vmtests-output.txt
+            vmtests-summary.txt
