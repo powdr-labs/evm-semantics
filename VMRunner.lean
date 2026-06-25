@@ -1,5 +1,7 @@
-import EvmSemantics
-import Lean.Data.Json
+module
+
+public import EvmSemantics
+public import Lean.Data.Json
 
 /-!
 `VMRunner` — Phase-1 harness that runs the legacy ethereum/tests **VMTests**
@@ -22,6 +24,8 @@ Usage: `vmtests <path-to-Constantinople/VMTests>`
 open Lean
 open EvmSemantics
 open EvmSemantics.EVM
+
+@[expose] public section
 
 namespace VMRunner
 

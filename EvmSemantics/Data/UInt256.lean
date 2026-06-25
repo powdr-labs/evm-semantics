@@ -1,4 +1,6 @@
-import Mathlib.Data.Fin.Basic
+module
+
+public import Mathlib.Data.Fin.Basic
 
 /-!
 `UInt256` — 256-bit unsigned EVM words.
@@ -7,6 +9,8 @@ A faithful subset of `EvmYul.UInt256`. We model it as a `Fin (2^256)` wrapper,
 provide modular arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise ops, comparisons,
 and a small zoo of conversions used by the relational rules.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 
@@ -99,7 +103,24 @@ def toSignedNat (a : UInt256) : Int :=
 def ofSignedInt (z : Int) : UInt256 :=
   ofNat ((z % (UInt256.size : Int)).toNat)
 
-/-- SLT: signed less-than, returning `1` or `0`. -/
+/-- Signed division (EVM `SDIV`): truncate toward zero, taking the
+    dividend's sign; division by zero yields `0`.  Uses `Int.tdiv`
+    (truncation toward zero) rather than Lean's default `Int./`
+    (Euclidean), matching the EVM convention.  The `SDIV(-2^255, -1)`
+    overflow edge case is handled automatically by the two's-complement
+    round-trip through `ofSignedInt`. -/
+def sdiv (a b : UInt256) : UInt256 :=
+  if b.toNat = 0 then ⟨0⟩
+  else ofSignedInt (a.toSignedNat.tdiv b.toSignedNat)
+
+/-- Signed modulo (EVM `SMOD`): remainder takes the dividend's sign;
+    modulo by zero yields `0`.  Uses `Int.tmod` (truncation toward zero)
+    rather than Lean's default `Int.%` (Euclidean), matching the EVM
+    convention. -/
+def smod (a b : UInt256) : UInt256 :=
+  if b.toNat = 0 then ⟨0⟩
+  else ofSignedInt (a.toSignedNat.tmod b.toSignedNat)
+
 def slt (a b : UInt256) : UInt256 :=
   if a.toSignedNat < b.toSignedNat then ofNat 1 else ofNat 0
 /-- SGT: signed greater-than. -/

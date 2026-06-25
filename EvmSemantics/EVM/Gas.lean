@@ -1,5 +1,7 @@
-import EvmSemantics.EVM.Operation
-import Batteries.Tactic.Lint.Misc
+module
+
+public import EvmSemantics.EVM.Operation
+public import Batteries.Tactic.Lint.Misc
 
 /-!
 `Gas` — the gas-cost function used by the step relation.
@@ -10,6 +12,8 @@ not faithful to the Yellow Paper fee schedule, but it preserves the
 exhausted, and proofs that quantify over gas consumption still type-check.
 Swapping in the real Yellow Paper schedule later is local to this file.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

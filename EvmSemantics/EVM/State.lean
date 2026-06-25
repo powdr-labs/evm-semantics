@@ -1,7 +1,9 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.Data.Stack
-import EvmSemantics.Machine.SharedState
-import EvmSemantics.EVM.Exception
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Stack
+public import EvmSemantics.Machine.SharedState
+public import EvmSemantics.EVM.Exception
 
 /-!
 `EVM.State` — the per-execution-frame state that the small-step relation
@@ -9,6 +11,8 @@ acts on. Extends `SharedState` with EVM-specific fields: program counter,
 stack, exec-length counter, and a `halt` flag indicating that execution
 has terminated (along with how — success, revert, or exception).
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

@@ -1,11 +1,15 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.State.Account
-import EvmSemantics.State.BlockHeader
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.State.Account
+public import EvmSemantics.State.BlockHeader
 
 /-!
 `ExecutionEnv` — the per-frame execution environment `I` from the Yellow
 Paper. For v1 (no calls) this is fixed once at the start of a run.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

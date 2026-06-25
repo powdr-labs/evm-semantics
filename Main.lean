@@ -1,4 +1,8 @@
-import EvmSemantics
+module
+
+public import EvmSemantics
+
+@[expose] public section
 
 open EvmSemantics EvmSemantics.EVM
 

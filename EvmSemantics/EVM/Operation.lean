@@ -1,3 +1,5 @@
+module
+
 import Batteries.Tactic.Lint.Misc
 import Batteries.Tactic.Lint.Simp
 
@@ -9,6 +11,8 @@ We use the same hierarchical grouping but drop the `OperationType` parameter
 rather than `BOp`) — only the standard mnemonic opcode names (`ADD`, `STOP`,
 …) remain short.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

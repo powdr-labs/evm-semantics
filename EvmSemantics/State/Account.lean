@@ -1,4 +1,6 @@
-import EvmSemantics.Data.UInt256
+module
+
+public import EvmSemantics.Data.UInt256
 
 /-!
 `AccountAddress` and `Account`.
@@ -11,6 +13,8 @@ there is no `Option`-cluttered API.
 
 Updates are `Function.update`: `s.set k v = fun k' => if k' = k then v else s k'`.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

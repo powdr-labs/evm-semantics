@@ -1,3 +1,5 @@
+module
+
 /-!
 `Stack α` — a thin list-backed stack with the `popₙ` helpers used by EVM
 opcodes. Faithful to the reference's `EvmYul.Data.Stack`.
@@ -5,6 +7,8 @@ opcodes. Faithful to the reference's `EvmYul.Data.Stack`.
 We keep `push` cons-to-front, so `stack[0]` is the top of the stack.
 The depth limit (1024) is enforced by the semantics, not the data type.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

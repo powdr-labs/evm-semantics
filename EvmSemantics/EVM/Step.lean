@@ -1,6 +1,8 @@
-import EvmSemantics.EVM.State
-import EvmSemantics.EVM.Decode
-import EvmSemantics.EVM.Gas
+module
+
+public import EvmSemantics.EVM.State
+public import EvmSemantics.EVM.Decode
+public import EvmSemantics.EVM.Gas
 
 /-!
 `Step` — the small-step relation `Step : EVM.State → EVM.State → Prop`.
@@ -29,6 +31,8 @@ the same inductive at the bottom of the file. They are parametric in
 `op` where possible — one rule per failure mode rather than one per
 (op, failure-mode) pair.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 
@@ -119,7 +123,7 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .SDIV ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = a :: b :: rest)
       : Step s ((s.consumeGas (Gas.cost .SDIV) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofSignedInt (a.toSignedNat / b.toSignedNat) :: rest))
+                  (UInt256.sdiv a b :: rest))
 
   /-- MOD: pop `a`, `b`; push `a % b` (0 if `b = 0`). -/
   | mod (s : State) (a b : UInt256) (rest : Stack UInt256)
@@ -138,7 +142,7 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .SMOD ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = a :: b :: rest)
       : Step s ((s.consumeGas (Gas.cost .SMOD) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat) :: rest))
+                  (UInt256.smod a b :: rest))
 
   /-- ADDMOD: pop `a`, `b`, `n`; push `(a + b) mod n`. -/
   | addmod (s : State) (a b n : UInt256) (rest : Stack UInt256)
