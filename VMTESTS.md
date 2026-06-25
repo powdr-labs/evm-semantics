@@ -20,11 +20,17 @@ Each test runs in its own child process (`--file` mode), so an evaluator panic o
 hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
-Will be refreshed once the memory-expansion-gas branch is merged and the
-baseline regenerated. Pre-merge counts on `origin/main`:
 ```
-pass=533  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=17
+pass=558 (gas-checked=32) fail=0 skip=31 (unsup=6 keccak=23 gas=2) incon=20 crash=0
 ```
+- **gas-checked=32** — tests whose bytecode uses only opcodes with a fixed
+  Yellow-Paper cost (no SSTORE/SLOAD/COPYs/EXP/LOG/CALL family) are run with
+  the test's actual `exec.gas` budget, and the remaining `gas` field is
+  compared against the corpus expectation.
+- The remaining 526 passes still run in gas-ignored mode (`gasAvailable = 2^63`),
+  because their bytecode contains at least one opcode whose real-EVM cost has
+  a dynamic component (cold/warm, per-word, per-byte, value-dependent SSTORE).
+  See `Gas.cost` in `EvmSemantics/EVM/Gas.lean` for the per-opcode status.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -47,11 +53,18 @@ summary. The full output and normalized summary are uploaded as artifacts.
   corpus revision must always move together.
 
 ## How the harness works
-- **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
-  and never compares the `gas` field. (The evaluator's gas model is uniform —
-  `Gas.cost = 1` — so the field isn't meaningful to compare anyway.)
-- **Tests using the `GAS` opcode (0x5a) are skipped** (2). With injected gas the
-  pushed value is wrong, which would corrupt any stored/returned result.
+- **Two gas modes, picked per test by a bytecode pre-scan.**
+  - *Gas-checked* mode: the test's bytecode contains only opcodes whose
+    `Gas.cost` matches the Yellow-Paper fee schedule exactly (no cold/warm,
+    no per-word/byte/topic). Then the test runs with `exec.gas` as its real
+    budget, and the remaining `gas` field is compared against the corpus.
+  - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
+    compare `gas`. Used whenever any opcode has a dynamic component our
+    schedule doesn't model (SSTORE, SLOAD, BALANCE, EXT*, *COPY, EXP, LOG,
+    CALL family, SELFDESTRUCT, CREATE family).
+- **Tests using the `GAS` opcode (0x5a) are skipped** (2) only when the test
+  cannot use gas-checked mode anyway. With the real gas budget the value
+  `GAS` pushes is honest; under hugeGas it would be corrupt.
 - **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan:
   CALL / CALLCODE / DELEGATECALL / STATICCALL / CREATE / CREATE2 / SELFDESTRUCT
   are not implemented by the evaluator.
@@ -80,18 +93,18 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
   past end) pass; `log*…TooHigh` lands as `incon` (real EVM expects a
   memory-expansion OOG halt the gas-ignoring harness can't reproduce).
 
-### INCONCLUSIVE — mostly outside the evaluator's scope; ~11 are real gaps
+### INCONCLUSIVE (20) — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
   `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
   `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The
   evaluator's JUMP just re-decodes the target byte with no push-data-aware
   jumpdest analysis, so it accepts the jump and halts successfully. **Real
   soundness gap.**
-- **~10 explicit out-of-gas / memory-expansion-gas** (`*MemExp`, `*OutOfGas*`,
-  `loop_stacklimit_1021`): expect an OOG halt that can't be reproduced with
-  infinite gas.
-- **7 fuel-exhausted** (`*foreverOutOfGas`, `loop-*`, `ackermann33`): infinite or
-  very long loops that the real EVM stops via gas.
+- **Remaining OOG / fuel-exhausted tests** (`*MemExp`, `*OutOfGas*`,
+  `*foreverOutOfGas`, `loop-*`, `ackermann33`, `loop_stacklimit_1021`): the
+  EVM stops these via gas; we either don't model that opcode's cost yet
+  (so the test isn't gas-checked) or the loop legitimately runs to the
+  evaluator's `fuel = 2_000_000` cap.
 
 ### StackOverflow not raised executably
 `stepF` enforces no 1024-deep stack limit; the cap exists only in the relation
@@ -121,12 +134,28 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       `keccak256`). *Unlocks all of vmSha3Test + keccak-derived storage/code-hash
       tests*, and enables **log-hash comparison** (currently logs aren't checked).
 
+### Evaluator: model dynamic gas costs (lift more tests into gas-checked mode)
+The current schedule has the right *base* cost for every opcode but treats the
+following as cost = 1 with a `TODO(dynamic)` comment in `Gas.lean`, because
+their real cost has a state-dependent component we don't yet track:
+
+- [ ] **SSTORE** (EIP-2200 + EIP-3529 — depends on `(original, current, new)`
+      and cold/warm). Highest-impact: SSTORE is how almost every test stores
+      its result, so a correct cost here would lift ~450 tests into
+      gas-checked mode.
+- [ ] **SLOAD / BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** —
+      EIP-2929 cold/warm split (2600 / 100). Needs an
+      `accessedAccounts` / `accessedSlots` set in `Substate`.
+- [ ] **KECCAK256** (`30 + 6 * ⌈size/32⌉`), **CALLDATACOPY / CODECOPY /
+      RETURNDATACOPY / MCOPY** (`3 + 3 * ⌈size/32⌉`), **LOG** (`375 +
+      375*topics + 8*size`), **EXP** (`10 + 50 * byteLen(exponent)`) — each
+      is a small per-word/per-byte/per-topic add-on to the base cost. The
+      `size`/`byteLen` operand is already on the stack; the additions are
+      pure arithmetic.
+
 ### Harness improvements
-- [ ] **Gas-faithful mode** — once the evaluator has a real gas schedule, run with
-      each test's actual gas budget and compare the `gas` field, converting the
-      ~17 gas/fuel `incon` tests (`*MemExp`, `*OutOfGas*`, `*foreverOutOfGas`,
-      `loop_stacklimit_1021`) into pass/fail. Currently impossible under uniform
-      `Gas.cost = 1` + infinite gas.
+- [x] **Gas-faithful mode** for fixed-cost-only tests — done (gas-checked=32
+      so far). Adding the dynamic costs above grows that bucket.
 - [ ] **Storage extra-write detection** — comparison only checks the union of
       pre/post slot keys, so a write to a slot named in neither is invisible.
       Track written keys to close this blind spot.
