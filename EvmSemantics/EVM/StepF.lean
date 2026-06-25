@@ -32,7 +32,9 @@ which `log_sound` uses to recover the witness list expected by `Step.log`.
 namespace EvmSemantics
 namespace EVM
 
+/-- Sugar for the stack-underflow exception result. -/
 def underflow : Except ExecutionException State := .error .StackUnderflow
+/-- Sugar for the static-mode-violation exception result. -/
 def static    : Except ExecutionException State := .error .StaticModeViolation
 
 namespace stepF
@@ -41,8 +43,9 @@ namespace stepF
 -- 1. Stop + Arithmetic (StopArithOps, 12 ops).
 ----------------------------------------------------------------------------
 
+/-- Execute one StopArithOps opcode (STOP + 11 arithmetic ops). -/
 def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionException State
-  | .STOP => .ok { s with halt := .Success, H_return := .empty }
+  | .STOP => .ok { s with halt := .Success, hReturn := .empty }
   | .ADD => match s.stack with
     | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a + b) :: rest))
     | _ => underflow
@@ -85,6 +88,7 @@ def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionExcept
 -- 2. Comparison & bitwise (CompareBitwiseOps, 14 ops).
 ----------------------------------------------------------------------------
 
+/-- Execute one CompareBitwiseOps opcode (LT/GT/EQ + bitwise + shifts). -/
 def compBit (s s' : State) : Operation.CompareBitwiseOps → Except ExecutionException State
   | .LT => match s.stack with
     | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.lt a b :: rest))
@@ -133,6 +137,7 @@ def compBit (s s' : State) : Operation.CompareBitwiseOps → Except ExecutionExc
 -- 3. Keccak (1 op).
 ----------------------------------------------------------------------------
 
+/-- Execute the single KeccakOps opcode (KECCAK256). -/
 def keccak (s s' : State) : Operation.KeccakOps → Except ExecutionException State
   | .KECCAK256 => match s.stack with
     | offset :: size :: rest =>
@@ -144,6 +149,7 @@ def keccak (s s' : State) : Operation.KeccakOps → Except ExecutionException St
 -- 4. Environment reads (EnvOps, 16 ops).
 ----------------------------------------------------------------------------
 
+/-- Execute one EnvOps opcode (ADDRESS / CALL* / CODE* / RETURNDATA*). -/
 def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
   | .ADDRESS =>
     .ok (s'.replaceStackAndIncrPC (s.executionEnv.codeOwner.toUInt256 :: s.stack))
@@ -231,6 +237,7 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
 -- 5. Block-context reads (BlockOps, 11 ops).
 ----------------------------------------------------------------------------
 
+/-- Execute one BlockOps opcode (block-context reads + BLOB*). -/
 def block (s s' : State) : Operation.BlockOps → Except ExecutionException State
   | .BLOCKHASH => match s.stack with
     | n :: rest =>
@@ -265,6 +272,7 @@ def block (s s' : State) : Operation.BlockOps → Except ExecutionException Stat
 -- 6. Stack / memory / storage / flow (StackMemFlowOps, 15 ops).
 ----------------------------------------------------------------------------
 
+/-- Execute one StackMemFlowOps opcode. -/
 def stackMemFlow (s s' : State) :
     Operation.StackMemFlowOps → Except ExecutionException State
   | .POP => match s.stack with
@@ -345,6 +353,7 @@ def stackMemFlow (s s' : State) :
 -- 7. PUSH / DUP / SWAP (single-field structures).
 ----------------------------------------------------------------------------
 
+/-- Execute a PUSH (PUSH0 through PUSH32). -/
 def push (s s' : State) (op : Operation.PushOp)
     (argOpt : Option (UInt256 × Nat)) : Except ExecutionException State :=
   match op.width.val, argOpt with
@@ -352,11 +361,13 @@ def push (s s' : State) (op : Operation.PushOp)
   | _+1, some (d, n)  => .ok (s'.replaceStackAndIncrPC (d :: s.stack) (pcΔ := n + 1))
   | _+1, none         => .error .InvalidInstruction
 
+/-- Execute a DUP (DUP1 through DUP16). -/
 def dup (s s' : State) (op : Operation.DupOp) : Except ExecutionException State :=
   match s.stack[op.idx.val]? with
   | some v => .ok (s'.replaceStackAndIncrPC (v :: s.stack))
   | none   => underflow
 
+/-- Execute a SWAP (SWAP1 through SWAP16). -/
 def swap (s s' : State) (op : Operation.SwapOp) : Except ExecutionException State :=
   match s.stack.exchange 0 (op.idx.val + 1) with
   | some stk' => .ok (s'.replaceStackAndIncrPC stk')
@@ -366,16 +377,19 @@ def swap (s s' : State) (op : Operation.SwapOp) : Except ExecutionException Stat
 -- 8. EIP-8024: DUPN / SWAPN / EXCHANGE.
 ----------------------------------------------------------------------------
 
+/-- Execute the EIP-8024 DUPN opcode. -/
 def dupN (s s' : State) (op : Operation.DupNOp) : Except ExecutionException State :=
   match s.stack[op.n.val]? with
   | some v => .ok (s'.replaceStackAndIncrPC (v :: s.stack) (pcΔ := 2))
   | none   => underflow
 
+/-- Execute the EIP-8024 SWAPN opcode. -/
 def swapN (s s' : State) (op : Operation.SwapNOp) : Except ExecutionException State :=
   match s.stack.exchange 0 (op.n.val + 1) with
   | some stk' => .ok (s'.replaceStackAndIncrPC stk' (pcΔ := 2))
   | none      => underflow
 
+/-- Execute the EIP-8024 EXCHANGE opcode. -/
 def exchange (s s' : State) (op : Operation.ExchangeOp) : Except ExecutionException State :=
   match s.stack.exchange (op.n + 1) (op.m + 1) with
   | some stk' => .ok (s'.replaceStackAndIncrPC stk' (pcΔ := 2))
@@ -396,6 +410,8 @@ def exchange (s s' : State) (op : Operation.ExchangeOp) : Except ExecutionExcept
 def popN (stk : Stack UInt256) (k : Nat) : Option (List UInt256 × Stack UInt256) :=
   go stk k []
 where
+  /-- Tail-recursive worker: accumulate the popped elements into `acc`
+      (in reverse), reversing once at the base case. -/
   go (stk : Stack UInt256) (k : Nat) (acc : List UInt256) :
       Option (List UInt256 × Stack UInt256) :=
     match k, stk with
@@ -446,6 +462,7 @@ theorem popN_correct (stk : Stack UInt256) (k : Nat) (topics rest : List UInt256
   subst h_topics
   exact ⟨h_len, h_eq⟩
 
+/-- Execute a LOG (LOG0 through LOG4). -/
 def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State :=
   if ¬ s.executionEnv.permitStateMutation then static
   else
@@ -465,16 +482,17 @@ def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State 
 -- 10. System (SystemOps): RETURN, REVERT, INVALID, plus out-of-scope ops.
 ----------------------------------------------------------------------------
 
+/-- Execute one SystemOps opcode (RETURN/REVERT/INVALID; CREATE/CALL family stubbed). -/
 def system (s s' : State) : Operation.SystemOps → Except ExecutionException State
   | .RETURN => match s.stack with
     | offset :: size :: rest =>
       let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok { s' with halt := .Returned, H_return := bs, stack := rest }
+      .ok { s' with halt := .Returned, hReturn := bs, stack := rest }
     | _ => underflow
   | .REVERT => match s.stack with
     | offset :: size :: rest =>
       let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok { s' with halt := .Reverted, H_return := bs, stack := rest }
+      .ok { s' with halt := .Reverted, hReturn := bs, stack := rest }
     | _ => underflow
   | .INVALID => .error .InvalidInstruction
   -- Out-of-scope in v1.
@@ -487,6 +505,7 @@ end stepF
 -- Top-level dispatcher.
 ----------------------------------------------------------------------------
 
+/-- Top-level executable shadow — halt/decode/gas dispatch into per-group helpers. -/
 def stepF (s : State) : Except ExecutionException State := Id.run do
   match s.halt with
   | .Running =>

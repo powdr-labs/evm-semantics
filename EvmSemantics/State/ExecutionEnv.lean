@@ -9,6 +9,7 @@ Paper. For v1 (no calls) this is fixed once at the start of a run.
 
 namespace EvmSemantics
 
+/-- Per-frame execution environment `I` (Yellow Paper §9.3). -/
 structure ExecutionEnv where
   /-- `Iₐ` — the address of the contract currently being executed. -/
   codeOwner : AccountAddress

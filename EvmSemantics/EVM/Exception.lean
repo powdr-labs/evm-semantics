@@ -5,6 +5,7 @@ EVM step relation. Mirrors `EvmYul.EVM.Exception.ExecutionException`.
 
 namespace EvmSemantics
 
+/-- The eight ways an EVM frame can halt with an error. -/
 inductive ExecutionException where
   | OutOfFuel
   | InvalidInstruction
