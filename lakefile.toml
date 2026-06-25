@@ -2,6 +2,10 @@ name = "evm_semantics"
 version = "0.1.0"
 defaultTargets = ["evm_semantics"]
 
+# Enforce a 100-column line limit (comments and docstrings included) via
+# Mathlib's text-based style linter
+leanOptions = { weak.linter.style.longLine = true }
+
 # Use Batteries' `runLinter` script as the lint driver (same approach as
 # Mathlib's lakefile). `lake lint` will build and execute this driver
 # against the modules listed in `lintDriverArgs`. The driver runs the

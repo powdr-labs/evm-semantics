@@ -1,5 +1,7 @@
 module
 
+import Mathlib.Tactic.Linter.Style
+
 /-!
 `ExecutionException` — the eight halt-with-error conditions used by the
 EVM step relation. Mirrors `EvmYul.EVM.Exception.ExecutionException`.
