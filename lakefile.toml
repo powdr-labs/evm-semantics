@@ -2,6 +2,15 @@ name = "evm_semantics"
 version = "0.1.0"
 defaultTargets = ["evm_semantics"]
 
+# Use Batteries' `runLinter` script as the lint driver (same approach as
+# Mathlib's lakefile). `lake lint` will build and execute this driver
+# against the modules listed in `lintDriverArgs`. The driver runs the
+# `#lint` suite (Batteries' linters: simpNF, unused arguments, missing
+# docs, ...) on every declaration whose root namespace matches the
+# argument.
+lintDriver = "batteries/runLinter"
+lintDriverArgs = ["EvmSemantics"]
+
 [[require]]
 name = "mathlib"
 git = "https://github.com/leanprover-community/mathlib4.git"

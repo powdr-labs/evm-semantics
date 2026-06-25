@@ -13,13 +13,21 @@ CHAINID-via-state).
 
 namespace EvmSemantics
 
+/-- Block header `H` — only the fields v1 reads. -/
 structure BlockHeader where
+  /-- `H_c` — beneficiary (miner) address. -/
   coinbase     : AccountAddress
+  /-- `H_s` — block timestamp (seconds since epoch). -/
   timestamp    : UInt256
+  /-- `H_i` — block number. -/
   number       : UInt256
+  /-- `H_a` — `PREVRANDAO` mix (post-Merge replacement for difficulty). -/
   prevRandao   : UInt256
+  /-- `H_l` — block gas limit. -/
   gasLimit     : UInt256
+  /-- `H_f` — EIP-1559 base fee per gas. -/
   baseFeePerGas : UInt256
+  /-- Chain ID (EIP-155). -/
   chainId      : UInt256
   /-- Used by `BLOCKHASH`. For unknown block numbers the implementation
       should return 0; we abstract over the lookup so the relation can

@@ -38,6 +38,15 @@ jobs:
           fi
           echo "Build succeeded with no linter warnings."
 
+      # Runs the lint driver configured in `lakefile.toml`
+      # (`batteries/runLinter EvmSemantics`) — the same driver Mathlib
+      # uses for its own CI gate. It checks declarations missing
+      # doc-strings, simp lemmas not in simp-normal-form, unused
+      # arguments, dangerous instances, etc. Allow-listed findings live
+      # in `scripts/nolints.json`; regenerate via `lake lint -- --update`.
+      - name: Run `lake lint` (Batteries' `runLinter`)
+        run: lake lint
+
   vmtests:
     name: VMTests regression report
     runs-on: ubuntu-latest

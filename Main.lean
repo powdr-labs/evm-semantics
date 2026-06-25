@@ -15,7 +15,7 @@ def initState (code : ByteArray) (gas : Nat) : State :=
       blobVersionedHashes := #[] }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
-        memory := .empty, returnData := .empty, H_return := .empty }
+        memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap := AccountMap.empty
     substate := Substate.empty
     executionEnv := env
