@@ -93,10 +93,13 @@ def Gas.baseCost : Operation → Nat
     | .MLOAD | .MSTORE | .MSTORE8 | .MCOPY                   => 3
     | .JUMP                                                  => 8
     | .JUMPI                                                 => 10
-    -- SLOAD: Constantinople pre-Istanbul flat fee (EIP-150 set it to 200).
-    -- TODO(dynamic): Istanbul EIP-1884 raised this to 800; Berlin EIP-2929
-    -- introduced the cold/warm split (2100 / 100). Not yet modelled.
-    | .SLOAD                                                 => 200
+    -- SLOAD: the ethereum/tests legacy "Constantinople" corpus was
+    -- generated against the original Frontier flat fee (50). Tangerine
+    -- Whistle (EIP-150) repriced it to 200 in 2016, Istanbul (EIP-1884)
+    -- to 800, Berlin (EIP-2929) to 100 warm / 2100 cold. We match the
+    -- corpus's 50 so the gas-checked bucket is honest; bump this when
+    -- moving to a more recent corpus.
+    | .SLOAD                                                 => 50
     -- SSTORE has no static cost — the *dynamic* cost is computed by
     -- `Gas.sstoreCost` based on the (current, new) value pair and charged
     -- by the SSTORE handler in `stepF`. (Constantinople / EIP-1283 also
