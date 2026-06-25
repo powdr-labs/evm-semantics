@@ -142,9 +142,15 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   ByteArray → pc → Option (Operation × Option (UInt256 × Nat))` returning the
   operation plus any PUSH immediate (value + width). Reading past code end
   decodes as `STOP` (Yellow-Paper zero-padding).
-- **`Gas.lean`** — `Gas.cost : Operation → Nat`. Fixed-cost opcodes are faithful
-  to the fee schedule; dynamic ones are stubbed at a base cost with a
-  `TODO(dynamic)` marker (see `AGENTS.md` / `VMTESTS.md` for which).
+- **`Gas.lean`** — `Gas.cost : Operation → Nat`, the real Yellow-Paper *base*
+  fee for every opcode. Two kinds of dynamic cost are not yet modelled: (a)
+  state-dependent opcodes (SSTORE/SLOAD, EIP-2929 cold/warm `BALANCE`/`EXT*`,
+  and the out-of-scope CALL/CREATE/SELFDESTRUCT family) are stubbed at cost `1`
+  with an explicit `TODO(dynamic)` comment; (b) per-word/byte/topic add-ons
+  (EXP, the `*COPY` ops, LOG, KECCAK256) carry their correct static base only,
+  with no `TODO(dynamic)` marker — so don't expect that marker to enumerate
+  every non-comparable opcode (`VMRunner.gasComparableOpcode` is the actual
+  gate). See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
   halted `State` into the flat success/returned/reverted/exception sum.
 
@@ -158,15 +164,16 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
 ## Data flow of one execution step
 
 `stepF` (and the relation `Step` it shadows) turn one running `State` into the
-next. The flow:
+next; the surrounding `run` loop owns the halt guard, since `stepF` itself just
+errors on an already-halted state. The flow of one `run` iteration:
 
 ```mermaid
 flowchart TD
-    Start([State s]) --> Halt{s.halt = Running?}
-    Halt -->|no| Done([return s unchanged])
-    Halt -->|yes| Dec["decodeAt code pc<br/>(Decode.lean)"]
-    Dec -->|none / past end| Stop["halt = Success<br/>(implicit STOP)"]
-    Dec -->|"some (op, imm)"| GasChk{"Gas.cost op<br/>≤ gasAvailable?"}
+    Start([run iteration: State s]) --> Halt{s.halt = Running?}
+    Halt -->|no| Done([run returns s; loop ends])
+    Halt -->|yes| Dec["stepF s → decodeAt code pc<br/>(Decode.lean)"]
+    Dec -->|"none: unassigned byte"| Invalid["error InvalidInstruction"]
+    Dec -->|"some (op, imm)<br/>(past code end ⇒ STOP)"| GasChk{"Gas.cost op<br/>≤ gasAvailable?"}
     GasChk -->|no| OOG["error OutOfGas"]
     GasChk -->|yes| Consume["consumeGas<br/>(proof-carrying)"]
     Consume --> Dispatch{"dispatch on<br/>Operation group"}
@@ -184,8 +191,13 @@ flowchart TD
 The dispatch arms map one-to-one to the `stepF.*` helpers in `StepF.lean`
 (`stopArith`, `compBit`, `keccak`, `env`, `block`, `stackMemFlow`, `push`,
 `dup`, `swap`, `dupN`, `swapN`, `exchange`, `log`, `system`) — and one-to-one to
-the soundness lemmas in `Equiv.lean`. Neither `stepF` nor `Step` loops on its
-own; iteration to a halt is the `run` fuel loop in each executable.
+the soundness lemmas in `Equiv.lean`. The halting opcodes are ordinary `ok s'`
+outcomes that set `s'.halt` (STOP ⇒ `Success` in `stopArith`; RETURN/REVERT ⇒
+`Returned`/`Reverted` in `system`) — including the implicit STOP from running
+off the end of the code. Neither `stepF` nor `Step` loops on its own; iteration
+to a halt is the `run` fuel loop in each executable, which is also what skips
+already-halted states — `stepF` called directly on a non-`Running` state just
+returns `.error .InvalidInstruction`.
 
 ## The three views and the soundness bridge
 
@@ -206,7 +218,7 @@ flowchart LR
 
 - **`Step`** (`EVM/Step.lean`) — each success constructor names its premises
   explicitly: `h_op` (decoded operation), `h_running`, `h_gas`
-  (`Gas.cost op ≤ gasAvailable.toNat`), and the `h_stack` shape. `consumeGas`
+  (`Gas.cost op ≤ s.gasAvailable`, a `Nat` `≤`), and the `h_stack` shape. `consumeGas`
   takes the gas-sufficiency proof as an argument so the saturating subtraction
   is provably safe. `keccak256` is an `opaque` function here. Halted states have
   no successors (`Step.not_from_halted`).

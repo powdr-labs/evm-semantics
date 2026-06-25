@@ -41,9 +41,10 @@ exported and does not go through `stepF`.
   it with `nomatch h` / `simp at h` / `exact absurd h …` rather than fabricating
   a transition.
 - **Constructor premises must line up.** A `Step` success constructor takes
-  `h_op` (`s.decoded = some (.OP, imm)`), `h_running`, `h_gas`
-  (`Gas.cost op ≤ s.gasAvailable.toNat`), and the `h_stack` shape. Supply each
-  from the helper's match context; `consumeGas` needs the gas proof explicitly.
+  `h_op` (`s.decoded = some (.OP, arg)`), `h_running`, `h_gas`
+  (`Gas.cost op ≤ s.gasAvailable` — `gasAvailable` is a `Nat`, no `.toNat`), and
+  the `h_stack` shape. Supply each from the helper's match context; `consumeGas`
+  needs the gas proof explicitly.
 - **List witnesses.** `log_sound` recovers the topics list via
   `popN_correct` (in `StepF.lean`): `popN stk k = some (topics, rest)` implies
   `topics.length = k ∧ stk = topics ++ rest`. Reuse it rather than re-inducting.
@@ -55,12 +56,22 @@ exported and does not go through `stepF`.
 
 If you changed `Step.lean` / `StepF.lean` for an opcode (see "Adding or changing
 an opcode" in `AGENTS.md`), extend the matching `*_sound` helper so it still
-closes, then verify with `lake build` (warning-clean) and `lake lint`. Confirm
-no `sorry` crept in:
+closes, then verify against the targets CI builds (warning-clean) and `lake
+lint`:
 
 ```sh
-grep -rn "sorry" EvmSemantics/EVM/Equiv.lean   # must print nothing
-lake build EvmSemantics
+lake build evm_semantics vmtests   # CI's targets, not just the library
+lake lint
+```
+
+A real proof hole makes the build emit a `declaration uses 'sorry'` warning,
+which CI's warning gate fails on — so a clean build *is* the no-`sorry` check.
+A textual `grep` is not reliable here: `Equiv.lean`'s own docstring contains the
+phrase `` (no `sorry`) ``, so `grep sorry` reports a false positive. If you grep
+anyway, expect only that docstring line:
+
+```sh
+grep -n 'sorry' EvmSemantics/EVM/Equiv.lean   # only the docstring "(no `sorry`)" should match
 ```
 
 ## Reporting

@@ -147,13 +147,17 @@ on any warning) and `lake lint` on every push and PR.
 Every success constructor of `Step` follows this anatomy:
 
 ```lean
-| add (s : State) (a b : UInt256) (rest : Stack UInt256)
-      (h_op      : s.decoded = some (.ADD, none))
+| add (s : State) (a b : UInt256) (rest : List UInt256)
+      (arg       : Option (UInt256 × Nat))
+      (h_op      : s.decoded = some (.ADD, arg))
       (h_running : s.halt = .Running)
-      (h_gas     : Gas.cost .ADD ≤ s.gasAvailable.toNat)
+      (h_gas     : Gas.cost .ADD ≤ s.gasAvailable)
       (h_stack   : s.stack = a :: b :: rest)
     : Step s ((s.consumeGas (Gas.cost .ADD) h_gas).replaceStackAndIncrPC ((a + b) :: rest))
 ```
+
+(`gasAvailable` is a `Nat`, so the gas premise is a plain `Nat` `≤`; the operand
+stack is `List UInt256`.)
 
 `consumeGas` takes the gas-sufficiency proof as an explicit argument so
 the saturating Nat subtraction is provably safe — no truncation

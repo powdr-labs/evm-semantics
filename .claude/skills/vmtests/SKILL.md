@@ -25,8 +25,12 @@ lake build vmtests
 ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests   # full suite
 ./.lake/build/bin/vmtests --file <path>/.../add0.json                 # single test
 ```
-Each test runs in its own child process (`--file` mode under the hood), so a
-panic or hang loses only that test, not the run.
+The full suite runs tests as **in-process Lean `Task`s** across `jobs` workers
+(`-j N` / `VMTESTS_JOBS`, default 8) — there is **no subprocess isolation** (a
+deliberate ~7× speedup over the old subprocess-per-file design). A worker `Task`
+that throws is recorded as a `crash`, but a hard panic aborts the *whole run*.
+Use `--file` to run a single test in its own process when you need to isolate
+one that panics.
 
 ## Reading the summary
 
@@ -39,8 +43,9 @@ Line looks like: `pass=… (gas-checked=…) fail=… skip=… (unsup/keccak/gas
   where gas-checked mode isn't available).
 - **incon** — out-of-gas / fuel-exhausted cases the infinite-gas harness can't
   reproduce, plus the ~11 jump-into-PUSH-data tests (a real soundness gap).
-- **crash** — child panicked or timed out. Should be 0; a new crash is a real
-  regression — investigate with `--file` on that test.
+- **crash** — a worker `Task` threw and the parent recorded it (a hard panic
+  instead aborts the whole run). Should be 0; a new crash is a real regression —
+  isolate it with `--file` on that test.
 
 ## Refresh the baseline (after an evaluator fix turns fails into passes)
 

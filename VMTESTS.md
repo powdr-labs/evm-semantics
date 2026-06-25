@@ -16,8 +16,11 @@ lake build vmtests
 # single test:
 ./.lake/build/bin/vmtests --file <path>/.../add0.json
 ```
-Each test runs in its own child process (`--file` mode), so an evaluator panic or
-hang only loses that one test instead of aborting the whole run.
+The full suite runs tests as in-process Lean `Task`s across `jobs` workers (`-j`
+/ `VMTESTS_JOBS`, default 8) — there is no subprocess isolation (a deliberate
+~7× speedup over the old subprocess-per-file design), so a hard evaluator panic
+aborts the whole run; a `Task` that merely throws is recorded as one `crash`.
+Use `--file <one>.json` to run a single test in its own process for isolation.
 
 ## Current results (609 tests)
 ```
@@ -77,7 +80,8 @@ summary. The full output and normalized summary are uploaded as artifacts.
 - **Classification.** A test with a `post` expects success; absence of `post`
   expects an exceptional halt. Out-of-gas / out-of-fuel cases that the evaluator
   can't reproduce under infinite gas are reported as `incon` rather than
-  pass/fail. A child that aborts (panic) or times out is reported as `crash`.
+  pass/fail. A worker `Task` that throws is reported as `crash` (a hard panic
+  aborts the whole run instead).
 
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.

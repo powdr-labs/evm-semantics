@@ -29,9 +29,16 @@ pin, and the non-negotiable conventions this skill enforces.
    To check the way CI does:
    ```sh
    rm -rf .lake/build
-   lake build evm_semantics vmtests 2>&1 | tee build.log
-   grep -E "warning:" build.log && echo "FAIL: warnings present" || echo "clean"
+   set -o pipefail                                   # else tee masks a build failure
+   lake build evm_semantics vmtests 2>&1 | tee build.log || exit 1
+   if grep -E "warning:" build.log; then
+     echo "FAIL: warnings present"; exit 1           # warnings must fail the check
+   fi
+   echo "clean"
    ```
+   `set -o pipefail` and the explicit `exit 1` matter for scripted use: without
+   them a hard build failure is hidden by `tee`'s zero exit, and a warning hit
+   would still exit successfully — exactly the CI gate's own form.
    The most common warning is the **100-column line limit**
    (`linter.style.longLine`, configured in `lakefile.toml`) — it counts
    comments and docstrings too. Wrap any line over 100 chars.
