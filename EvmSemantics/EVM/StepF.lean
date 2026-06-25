@@ -57,16 +57,14 @@ def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionExcept
     | _ => underflow
   | .SDIV => match s.stack with
     | a :: b :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            (UInt256.ofSignedInt (a.toSignedNat / b.toSignedNat) :: rest))
+      .ok (s'.replaceStackAndIncrPC (UInt256.sdiv a b :: rest))
     | _ => underflow
   | .MOD => match s.stack with
     | a :: b :: rest => .ok (s'.replaceStackAndIncrPC ((a % b) :: rest))
     | _ => underflow
   | .SMOD => match s.stack with
     | a :: b :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            (UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat) :: rest))
+      .ok (s'.replaceStackAndIncrPC (UInt256.smod a b :: rest))
     | _ => underflow
   | .ADDMOD => match s.stack with
     | a :: b :: n :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.addMod a b n :: rest))

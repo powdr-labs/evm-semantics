@@ -114,7 +114,7 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .SDIV ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = a :: b :: rest)
       : Step s ((s.consumeGas (Gas.cost .SDIV) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofSignedInt (a.toSignedNat / b.toSignedNat) :: rest))
+                  (UInt256.sdiv a b :: rest))
 
   /-- MOD: pop `a`, `b`; push `a % b` (0 if `b = 0`). -/
   | mod (s : State) (a b : UInt256) (rest : Stack UInt256)
@@ -133,7 +133,7 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .SMOD ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = a :: b :: rest)
       : Step s ((s.consumeGas (Gas.cost .SMOD) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat) :: rest))
+                  (UInt256.smod a b :: rest))
 
   /-- ADDMOD: pop `a`, `b`, `n`; push `(a + b) mod n`. -/
   | addmod (s : State) (a b n : UInt256) (rest : Stack UInt256)
