@@ -1,7 +1,6 @@
 module
 
 public import EvmSemantics.Data.UInt256
-public import EvmSemantics.Data.Stack
 public import EvmSemantics.Machine.SharedState
 public import EvmSemantics.EVM.Exception
 
@@ -29,7 +28,7 @@ namespace EVM
 
 structure State extends EvmSemantics.SharedState where
   pc         : UInt256
-  stack      : Stack UInt256
+  stack      : List UInt256
   execLength : Nat
   halt       : HaltKind
   deriving Inhabited
@@ -42,7 +41,7 @@ def isRunning (s : State) : Bool :=
 def isHalted (s : State) : Bool := ! s.isRunning
 
 /-- Push a new stack and advance the pc by `pcΔ` (default 1). -/
-def replaceStackAndIncrPC (s : State) (stk : Stack UInt256) (pcΔ : Nat := 1) : State :=
+def replaceStackAndIncrPC (s : State) (stk : List UInt256) (pcΔ : Nat := 1) : State :=
   { s with stack := stk, pc := s.pc + UInt256.ofNat pcΔ }
 
 def incrPC (s : State) (pcΔ : Nat := 1) : State :=

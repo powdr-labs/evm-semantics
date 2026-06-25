@@ -395,11 +395,11 @@ def exchange (s s' : State) (op : Operation.ExchangeOp) : Except ExecutionExcept
     `popN_correct` (below) certifies the relation
     `popN stk k = some (topics, rest) ↔ topics.length = k ∧ stk = topics ++ rest`,
     which is what `log_sound` needs to reconstruct the `Step.log` witness. -/
-def popN (stk : Stack UInt256) (k : Nat) : Option (List UInt256 × Stack UInt256) :=
+def popN (stk : List UInt256) (k : Nat) : Option (List UInt256 × List UInt256) :=
   go stk k []
 where
-  go (stk : Stack UInt256) (k : Nat) (acc : List UInt256) :
-      Option (List UInt256 × Stack UInt256) :=
+  go (stk : List UInt256) (k : Nat) (acc : List UInt256) :
+      Option (List UInt256 × List UInt256) :=
     match k, stk with
     | 0, rest          => some (acc.reverse, rest)
     | _+1, top :: rest => go rest (k-1) (top :: acc)
@@ -410,7 +410,7 @@ where
     and that the final `topics` list equals `acc.reverse ++ taken`. The
     base case `acc = []` gives `popN_correct`. -/
 theorem popN_go_correct (k : Nat) :
-    ∀ (stk : Stack UInt256) (acc topics rest : List UInt256),
+    ∀ (stk : List UInt256) (acc topics rest : List UInt256),
     popN.go stk k acc = some (topics, rest) →
     ∃ taken : List UInt256,
       taken.length = k ∧ stk = taken ++ rest ∧ topics = acc.reverse ++ taken := by
@@ -439,7 +439,7 @@ theorem popN_go_correct (k : Nat) :
 /-- Correctness of `popN`: if `popN stk k = some (topics, rest)` then the
     output list has the requested length and partitions the input stack
     into a prefix (`topics`) and a suffix (`rest`). -/
-theorem popN_correct (stk : Stack UInt256) (k : Nat) (topics rest : List UInt256)
+theorem popN_correct (stk : List UInt256) (k : Nat) (topics rest : List UInt256)
     (h : popN stk k = some (topics, rest)) :
     topics.length = k ∧ stk = topics ++ rest := by
   unfold popN at h

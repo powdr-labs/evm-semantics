@@ -34,6 +34,18 @@ the same inductive at the bottom of the file. They are parametric in
 
 @[expose] public section
 
+namespace List
+
+/-- Swap the elements at indices `i` and `j` (zero-indexed from the head
+    of the list, i.e. the top of the stack). Returns `none` if either
+    index is out of range. Used by the `SWAP` / `SWAPN` / `EXCHANGE` rules. -/
+def exchange (s : List α) (i j : Nat) : Option (List α) := do
+  let xi ← s[i]?
+  let xj ← s[j]?
+  return (s.set i xj).set j xi
+
+end List
+
 namespace EvmSemantics
 
 /-- Opaque Keccak-256 hash. The relational semantics never inspects the
@@ -75,7 +87,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- ADD: pop `a`, `b`; push `a + b`. -/
-  | add (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | add (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.ADD, arg))
         (h_running : s.halt = .Running)
@@ -84,7 +96,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .ADD) h_gas).replaceStackAndIncrPC ((a + b) :: rest))
 
   /-- MUL: pop `a`, `b`; push `a * b`. -/
-  | mul (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | mul (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MUL, arg))
         (h_running : s.halt = .Running)
@@ -93,7 +105,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .MUL) h_gas).replaceStackAndIncrPC ((a * b) :: rest))
 
   /-- SUB: pop `a`, `b`; push `a - b`. -/
-  | sub (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | sub (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SUB, arg))
         (h_running : s.halt = .Running)
@@ -102,7 +114,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .SUB) h_gas).replaceStackAndIncrPC ((a - b) :: rest))
 
   /-- DIV: pop `a`, `b`; push `a / b` (0 if `b = 0`). -/
-  | div (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | div (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.DIV, arg))
         (h_running : s.halt = .Running)
@@ -111,7 +123,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .DIV) h_gas).replaceStackAndIncrPC ((a / b) :: rest))
 
   /-- SDIV: signed division. -/
-  | sdiv (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | sdiv (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SDIV, arg))
         (h_running : s.halt = .Running)
@@ -121,7 +133,7 @@ inductive Step : State → State → Prop
                   (UInt256.sdiv a b :: rest))
 
   /-- MOD: pop `a`, `b`; push `a % b` (0 if `b = 0`). -/
-  | mod (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | mod (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MOD, arg))
         (h_running : s.halt = .Running)
@@ -130,7 +142,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .MOD) h_gas).replaceStackAndIncrPC ((a % b) :: rest))
 
   /-- SMOD: signed modulo. -/
-  | smod (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | smod (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SMOD, arg))
         (h_running : s.halt = .Running)
@@ -140,7 +152,7 @@ inductive Step : State → State → Prop
                   (UInt256.smod a b :: rest))
 
   /-- ADDMOD: pop `a`, `b`, `n`; push `(a + b) mod n`. -/
-  | addmod (s : State) (a b n : UInt256) (rest : Stack UInt256)
+  | addmod (s : State) (a b n : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.ADDMOD, arg))
         (h_running : s.halt = .Running)
@@ -150,7 +162,7 @@ inductive Step : State → State → Prop
                   (UInt256.addMod a b n :: rest))
 
   /-- MULMOD: pop `a`, `b`, `n`; push `(a * b) mod n`. -/
-  | mulmod (s : State) (a b n : UInt256) (rest : Stack UInt256)
+  | mulmod (s : State) (a b n : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MULMOD, arg))
         (h_running : s.halt = .Running)
@@ -160,7 +172,7 @@ inductive Step : State → State → Prop
                   (UInt256.mulMod a b n :: rest))
 
   /-- EXP: pop `a`, `b`; push `a ^ b mod 2^256`. -/
-  | exp (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | exp (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.EXP, arg))
         (h_running : s.halt = .Running)
@@ -170,7 +182,7 @@ inductive Step : State → State → Prop
                   (UInt256.exp a b :: rest))
 
   /-- SIGNEXTEND: pop `b`, `x`; sign-extend `x` from byte index `b`. -/
-  | signextend (s : State) (b x : UInt256) (rest : Stack UInt256)
+  | signextend (s : State) (b x : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SIGNEXTEND, arg))
         (h_running : s.halt = .Running)
@@ -183,7 +195,7 @@ inductive Step : State → State → Prop
   -- Comparison & bitwise.
   ----------------------------------------------------------------------------
 
-  | lt (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | lt (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.LT, arg))
         (h_running : s.halt = .Running)
@@ -192,7 +204,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .LT) h_gas).replaceStackAndIncrPC
                   (UInt256.lt a b :: rest))
 
-  | gt (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | gt (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.GT, arg))
         (h_running : s.halt = .Running)
@@ -201,7 +213,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .GT) h_gas).replaceStackAndIncrPC
                   (UInt256.gt a b :: rest))
 
-  | slt (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | slt (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SLT, arg))
         (h_running : s.halt = .Running)
@@ -210,7 +222,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .SLT) h_gas).replaceStackAndIncrPC
                   (UInt256.slt a b :: rest))
 
-  | sgt (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | sgt (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SGT, arg))
         (h_running : s.halt = .Running)
@@ -219,7 +231,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .SGT) h_gas).replaceStackAndIncrPC
                   (UInt256.sgt a b :: rest))
 
-  | eq (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | eq (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.EQ, arg))
         (h_running : s.halt = .Running)
@@ -228,7 +240,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .EQ) h_gas).replaceStackAndIncrPC
                   (UInt256.eq a b :: rest))
 
-  | iszero (s : State) (a : UInt256) (rest : Stack UInt256)
+  | iszero (s : State) (a : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.ISZERO, arg))
         (h_running : s.halt = .Running)
@@ -237,7 +249,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .ISZERO) h_gas).replaceStackAndIncrPC
                   (UInt256.isZero a :: rest))
 
-  | and (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | and (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.AND, arg))
         (h_running : s.halt = .Running)
@@ -246,7 +258,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .AND) h_gas).replaceStackAndIncrPC
                   (UInt256.land a b :: rest))
 
-  | or (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | or (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.OR, arg))
         (h_running : s.halt = .Running)
@@ -255,7 +267,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .OR) h_gas).replaceStackAndIncrPC
                   (UInt256.lor a b :: rest))
 
-  | xor_ (s : State) (a b : UInt256) (rest : Stack UInt256)
+  | xor_ (s : State) (a b : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.XOR, arg))
         (h_running : s.halt = .Running)
@@ -264,7 +276,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .XOR) h_gas).replaceStackAndIncrPC
                   (UInt256.xor a b :: rest))
 
-  | not (s : State) (a : UInt256) (rest : Stack UInt256)
+  | not (s : State) (a : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.NOT, arg))
         (h_running : s.halt = .Running)
@@ -273,7 +285,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .NOT) h_gas).replaceStackAndIncrPC
                   (UInt256.lnot a :: rest))
 
-  | byte_ (s : State) (i x : UInt256) (rest : Stack UInt256)
+  | byte_ (s : State) (i x : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.BYTE, arg))
         (h_running : s.halt = .Running)
@@ -282,7 +294,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .BYTE) h_gas).replaceStackAndIncrPC
                   (UInt256.byteAt i x :: rest))
 
-  | shl (s : State) (shift v : UInt256) (rest : Stack UInt256)
+  | shl (s : State) (shift v : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SHL, arg))
         (h_running : s.halt = .Running)
@@ -291,7 +303,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .SHL) h_gas).replaceStackAndIncrPC
                   (UInt256.shiftLeft v shift :: rest))
 
-  | shr (s : State) (shift v : UInt256) (rest : Stack UInt256)
+  | shr (s : State) (shift v : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SHR, arg))
         (h_running : s.halt = .Running)
@@ -300,7 +312,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .SHR) h_gas).replaceStackAndIncrPC
                   (UInt256.shiftRight v shift :: rest))
 
-  | sar (s : State) (shift v : UInt256) (rest : Stack UInt256)
+  | sar (s : State) (shift v : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SAR, arg))
         (h_running : s.halt = .Running)
@@ -314,7 +326,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- KECCAK256: pop offset, size; push hash of memory[offset..offset+size]. -/
-  | keccak256 (s : State) (offset size : UInt256) (rest : Stack UInt256)
+  | keccak256 (s : State) (offset size : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.KECCAK256, arg))
         (h_running : s.halt = .Running)
@@ -337,7 +349,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .ADDRESS) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.codeOwner.toUInt256 :: s.stack))
 
-  | balance (s : State) (addr : UInt256) (rest : Stack UInt256)
+  | balance (s : State) (addr : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.BALANCE, arg))
         (h_running : s.halt = .Running)
@@ -372,7 +384,7 @@ inductive Step : State → State → Prop
 
   /-- CALLDATALOAD: pop `i`; push 32 bytes of calldata starting at `i`,
       zero-padded if past the end. -/
-  | calldataload (s : State) (i : UInt256) (rest : Stack UInt256)
+  | calldataload (s : State) (i : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.CALLDATALOAD, arg))
         (h_running : s.halt = .Running)
@@ -393,7 +405,7 @@ inductive Step : State → State → Prop
                   (UInt256.ofNat s.executionEnv.calldata.size :: s.stack))
 
   /-- CALLDATACOPY: pop destOffset, srcOffset, size; copy calldata to memory. -/
-  | calldatacopy (s : State) (destOff srcOff sz : UInt256) (rest : Stack UInt256)
+  | calldatacopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.CALLDATACOPY, arg))
         (h_running : s.halt = .Running)
@@ -419,7 +431,7 @@ inductive Step : State → State → Prop
                   (UInt256.ofNat s.executionEnv.code.size :: s.stack))
 
   /-- CODECOPY: pop destOffset, srcOffset, size; copy current code to memory. -/
-  | codecopy (s : State) (destOff srcOff sz : UInt256) (rest : Stack UInt256)
+  | codecopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.CODECOPY, arg))
         (h_running : s.halt = .Running)
@@ -444,7 +456,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .GASPRICE) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.gasPrice :: s.stack))
 
-  | extcodesize (s : State) (addr : UInt256) (rest : Stack UInt256)
+  | extcodesize (s : State) (addr : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.EXTCODESIZE, arg))
         (h_running : s.halt = .Running)
@@ -455,7 +467,7 @@ inductive Step : State → State → Prop
 
   /-- EXTCODECOPY: pop addr, destOffset, srcOffset, size; copy external
       code bytes to memory. -/
-  | extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (rest : Stack UInt256)
+  | extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.EXTCODECOPY, arg))
         (h_running : s.halt = .Running)
@@ -483,7 +495,7 @@ inductive Step : State → State → Prop
 
   /-- RETURNDATACOPY: pop destOffset, srcOffset, size; copy returndata to memory.
       Out-of-bounds reads raise `InvalidMemoryAccess` (handled in Phase 5). -/
-  | returndatacopy (s : State) (destOff srcOff sz : UInt256) (rest : Stack UInt256)
+  | returndatacopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.RETURNDATACOPY, arg))
         (h_running : s.halt = .Running)
@@ -501,7 +513,7 @@ inductive Step : State → State → Prop
            { (s.consumeGas (Gas.cost .RETURNDATACOPY) h_gas) with toMachineState := μ' }
              |>.replaceStackAndIncrPC rest)
 
-  | extcodehash (s : State) (addr : UInt256) (rest : Stack UInt256)
+  | extcodehash (s : State) (addr : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.EXTCODEHASH, arg))
         (h_running : s.halt = .Running)
@@ -514,7 +526,7 @@ inductive Step : State → State → Prop
   -- Block-context reads.
   ----------------------------------------------------------------------------
 
-  | blockhash (s : State) (n : UInt256) (rest : Stack UInt256)
+  | blockhash (s : State) (n : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.BLOCKHASH, arg))
         (h_running : s.halt = .Running)
@@ -587,7 +599,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .BASEFEE) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.baseFeePerGas :: s.stack))
 
-  | blobhash (s : State) (i : UInt256) (rest : Stack UInt256) (h : UInt256)
+  | blobhash (s : State) (i : UInt256) (rest : List UInt256) (h : UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.BLOBHASH, arg))
         (h_running : s.halt = .Running)
@@ -598,7 +610,7 @@ inductive Step : State → State → Prop
                   (h :: rest))
 
   /-- BLOBHASH when index is out of range — push 0. -/
-  | blobhash_oob (s : State) (i : UInt256) (rest : Stack UInt256)
+  | blobhash_oob (s : State) (i : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.BLOBHASH, arg))
         (h_running : s.halt = .Running)
@@ -620,7 +632,7 @@ inductive Step : State → State → Prop
   -- Stack manipulation: POP, PUSHk, DUPn, SWAPn.
   ----------------------------------------------------------------------------
 
-  | pop (s : State) (a : UInt256) (rest : Stack UInt256)
+  | pop (s : State) (a : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.POP, arg))
         (h_running : s.halt = .Running)
@@ -663,7 +675,7 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost (.Dup ⟨n⟩)) h_gas).replaceStackAndIncrPC (v :: s.stack))
 
   /-- SWAPn: swap top with `stack[n+1]`. -/
-  | swap (s : State) (n : Fin 16) (stk' : Stack UInt256)
+  | swap (s : State) (n : Fin 16) (stk' : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.Swap ⟨n⟩, arg))
         (h_running : s.halt = .Running)
@@ -676,7 +688,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- MLOAD: pop offset; push the 32-byte word at memory[offset]. -/
-  | mload (s : State) (offset : UInt256) (rest : Stack UInt256)
+  | mload (s : State) (offset : UInt256) (rest : List UInt256)
         (v : UInt256) (μ' : MachineState)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MLOAD, arg))
@@ -688,7 +700,7 @@ inductive Step : State → State → Prop
                   |>.replaceStackAndIncrPC (v :: rest))
 
   /-- MSTORE: pop offset, value; write `value` as 32 bytes at memory[offset]. -/
-  | mstore (s : State) (offset value : UInt256) (rest : Stack UInt256)
+  | mstore (s : State) (offset value : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MSTORE, arg))
         (h_running : s.halt = .Running)
@@ -700,7 +712,7 @@ inductive Step : State → State → Prop
              |>.replaceStackAndIncrPC rest)
 
   /-- MSTORE8: pop offset, value; write the low byte of `value` at memory[offset]. -/
-  | mstore8 (s : State) (offset value : UInt256) (rest : Stack UInt256)
+  | mstore8 (s : State) (offset value : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MSTORE8, arg))
         (h_running : s.halt = .Running)
@@ -720,7 +732,7 @@ inductive Step : State → State → Prop
                   (MachineState.msize s.toMachineState :: s.stack))
 
   /-- MCOPY: pop destOffset, srcOffset, size; copy memory[src..src+sz] to dest. -/
-  | mcopy (s : State) (destOff srcOff sz : UInt256) (rest : Stack UInt256)
+  | mcopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.MCOPY, arg))
         (h_running : s.halt = .Running)
@@ -736,7 +748,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- SLOAD: pop key; push storage[key] from the executing contract. -/
-  | sload (s : State) (key : UInt256) (rest : Stack UInt256)
+  | sload (s : State) (key : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SLOAD, arg))
         (h_running : s.halt = .Running)
@@ -747,7 +759,7 @@ inductive Step : State → State → Prop
 
   /-- SSTORE: pop key, value; write storage[key] := value. Requires
       static-mode permission. -/
-  | sstore (s : State) (key value : UInt256) (rest : Stack UInt256)
+  | sstore (s : State) (key value : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SSTORE, arg))
         (h_running : s.halt = .Running)
@@ -763,7 +775,7 @@ inductive Step : State → State → Prop
              |>.replaceStackAndIncrPC rest)
 
   /-- TLOAD: like SLOAD but reads from transient storage. -/
-  | tload (s : State) (key : UInt256) (rest : Stack UInt256)
+  | tload (s : State) (key : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.TLOAD, arg))
         (h_running : s.halt = .Running)
@@ -773,7 +785,7 @@ inductive Step : State → State → Prop
                   (((s.accountMap s.executionEnv.codeOwner).tstorage key) :: rest))
 
   /-- TSTORE: like SSTORE but writes to transient storage. -/
-  | tstore (s : State) (key value : UInt256) (rest : Stack UInt256)
+  | tstore (s : State) (key value : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.TSTORE, arg))
         (h_running : s.halt = .Running)
@@ -793,7 +805,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- JUMP: pop destination; set `pc := dest` if the destination is a JUMPDEST. -/
-  | jump (s : State) (dest : UInt256) (rest : Stack UInt256)
+  | jump (s : State) (dest : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.JUMP, arg))
         (h_running : s.halt = .Running)
@@ -805,7 +817,7 @@ inductive Step : State → State → Prop
 
   /-- JUMPI (taken): pop dest, cond; if `cond ≠ 0` and dest is a JUMPDEST,
       set `pc := dest`. -/
-  | jumpi_taken (s : State) (dest cond : UInt256) (rest : Stack UInt256)
+  | jumpi_taken (s : State) (dest cond : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.JUMPI, arg))
         (h_running : s.halt = .Running)
@@ -817,7 +829,7 @@ inductive Step : State → State → Prop
       : Step s { (s.consumeGas (Gas.cost .JUMPI) h_gas) with pc := dest, stack := rest }
 
   /-- JUMPI (not taken): pop dest, cond; if `cond = 0`, fall through to `pc + 1`. -/
-  | jumpi_notTaken (s : State) (dest cond : UInt256) (rest : Stack UInt256)
+  | jumpi_notTaken (s : State) (dest cond : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.JUMPI, arg))
         (h_running : s.halt = .Running)
@@ -859,7 +871,7 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
       : Step s { s with halt := .Success, H_return := .empty }
 
-  | return_ (s : State) (offset size : UInt256) (rest : Stack UInt256)
+  | return_ (s : State) (offset size : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.RETURN, arg))
         (h_running : s.halt = .Running)
@@ -870,7 +882,7 @@ inductive Step : State → State → Prop
            { (s.consumeGas (Gas.cost .RETURN) h_gas) with
               halt := .Returned, H_return := bs, stack := rest })
 
-  | revert (s : State) (offset size : UInt256) (rest : Stack UInt256)
+  | revert (s : State) (offset size : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.REVERT, arg))
         (h_running : s.halt = .Running)
@@ -887,7 +899,7 @@ inductive Step : State → State → Prop
 
   /-- LOG `n`: pop offset, size, then `n` topics; append a log entry. -/
   | log (s : State) (n : Fin 5) (offset size : UInt256)
-        (topics : List UInt256) (rest : Stack UInt256)
+        (topics : List UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.Log ⟨n⟩, arg))
         (h_running  : s.halt = .Running)
@@ -919,7 +931,7 @@ inductive Step : State → State → Prop
                   (v :: s.stack) (pcΔ := 2))
 
   /-- SWAPN with immediate `n`: swap top with `stack[n+1]`. PC += 2. -/
-  | swapN (s : State) (n : Fin 256) (stk' : Stack UInt256)
+  | swapN (s : State) (n : Fin 256) (stk' : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SwapN ⟨n⟩, arg))
         (h_running : s.halt = .Running)
@@ -930,7 +942,7 @@ inductive Step : State → State → Prop
 
   /-- EXCHANGE with packed immediate `b`: swap `stack[n+1]` and `stack[m+1]`
       where `n = b >>> 4` and `m = b &&& 0xf`. PC += 2. -/
-  | exchange (s : State) (b : Fin 256) (stk' : Stack UInt256)
+  | exchange (s : State) (b : Fin 256) (stk' : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.Exchange ⟨b⟩, arg))
         (h_running : s.halt = .Running)
@@ -1003,7 +1015,7 @@ inductive Step : State → State → Prop
       : Step s (s.haltWith .StaticModeViolation)
 
   /-- JUMP to a destination that is not a `JUMPDEST` (or off the code). -/
-  | jumpBadDest (s : State) (dest : UInt256) (rest : Stack UInt256)
+  | jumpBadDest (s : State) (dest : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.JUMP, arg))
         (h_running : s.halt = .Running)
@@ -1013,7 +1025,7 @@ inductive Step : State → State → Prop
       : Step s (s.haltWith .BadJumpDestination)
 
   /-- JUMPI with `cond ≠ 0` but destination is not a `JUMPDEST`. -/
-  | jumpiBadDest (s : State) (dest cond : UInt256) (rest : Stack UInt256)
+  | jumpiBadDest (s : State) (dest cond : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.JUMPI, arg))
         (h_running : s.halt = .Running)
@@ -1024,7 +1036,7 @@ inductive Step : State → State → Prop
       : Step s (s.haltWith .BadJumpDestination)
 
   /-- RETURNDATACOPY with `srcOffset + size > returnData.size`. -/
-  | returndatacopyOob (s : State) (destOff srcOff sz : UInt256) (rest : Stack UInt256)
+  | returndatacopyOob (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.RETURNDATACOPY, arg))
         (h_running : s.halt = .Running)
