@@ -216,14 +216,9 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
   | KECCAK256 =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).activeWords.toNat
-          offset.toNat size.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).canExpandMemory
+                         offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
         exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -278,14 +273,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
   | RETURN =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).activeWords.toNat
-          offset.toNat size.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).canExpandMemory
+                         offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
         exact .return_ s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -295,14 +285,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
   | REVERT =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).activeWords.toNat
-          offset.toNat size.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).canExpandMemory
+                         offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
         exact .revert s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -422,14 +407,9 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).activeWords.toNat
-          dOff.toNat sz.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).canExpandMemory
+                         dOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
         exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -440,14 +420,9 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | CODECOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).activeWords.toNat
-          dOff.toNat sz.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).canExpandMemory
+                         dOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
         exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -458,14 +433,9 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | EXTCODECOPY =>
     match h_stack : s.stack, h with
     | a :: dOff :: sOff :: sz :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).activeWords.toNat
-          dOff.toNat sz.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).canExpandMemory
+                         dOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
         exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -480,14 +450,9 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
       by_cases h_oob : sOff.toNat + sz.toNat > s.returnData.size
       · simp [h_oob] at h
       · simp [h_oob] at h
-        simp only [chargeMem] at h
-        by_cases h_mem :
-          MachineState.memCost (MachineState.activeWordsAfter
-            (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).activeWords.toNat
-            dOff.toNat sz.toNat)
-          - MachineState.memCost
-              (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).activeWords.toNat
-          ≤ (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).gasAvailable.toNat
+        unfold chargeMem at h
+        by_cases h_mem : (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).canExpandMemory
+                           dOff.toNat sz.toNat
         · simp [h_mem] at h
           cases h
           exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
@@ -514,14 +479,9 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MLOAD =>
     match h_stack : s.stack, h with
     | offset :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).activeWords.toNat
-          offset.toNat 32)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).canExpandMemory
+                         offset.toNat 32
       · simp [h_mem] at h
         cases h_load : MachineState.mload
                          ((s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).consumeMemExp
@@ -534,14 +494,9 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MSTORE =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).activeWords.toNat
-          offset.toNat 32)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).canExpandMemory
+                         offset.toNat 32
       · simp [h_mem] at h
         cases h
         exact .mstore s offset value rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -551,14 +506,9 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MSTORE8 =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).activeWords.toNat
-          offset.toNat 1)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).canExpandMemory
+                         offset.toNat 1
       · simp [h_mem] at h
         cases h
         exact .mstore8 s offset value rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -693,17 +643,9 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MCOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      simp only [chargeMem2] at h
-      by_cases h_mem :
-        MachineState.memCost
-          (MachineState.activeWordsAfter
-            (MachineState.activeWordsAfter
-              (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).activeWords.toNat
-              dOff.toNat sz.toNat)
-            sOff.toNat sz.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).gasAvailable.toNat
+      unfold chargeMem2 at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).canExpandMemory2
+                         dOff.toNat sz.toNat sOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
         exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
@@ -752,14 +694,9 @@ theorem log_sound (s : State) (op : Operation.LogOp)
   · simp [h_perm] at h
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      simp only [chargeMem] at h
-      by_cases h_mem :
-        MachineState.memCost (MachineState.activeWordsAfter
-          (s.consumeGas (Gas.cost (.Log op)) h_gas).activeWords.toNat
-          offset.toNat size.toNat)
-        - MachineState.memCost
-            (s.consumeGas (Gas.cost (.Log op)) h_gas).activeWords.toNat
-        ≤ (s.consumeGas (Gas.cost (.Log op)) h_gas).gasAvailable.toNat
+      unfold chargeMem at h
+      by_cases h_mem : (s.consumeGas (Gas.cost (.Log op)) h_gas).canExpandMemory
+                         offset.toNat size.toNat
       · simp [h_mem] at h
         cases h_pop : stepF.popN rest op.topics.val with
         | some p =>

@@ -47,14 +47,22 @@ namespace State
 def consumeGas (s : State) (n : Nat) (_h : n ≤ s.gasAvailable.toNat) : State :=
   { s with gasAvailable := UInt256.ofNat (s.gasAvailable.toNat - n) }
 
+/-- `s` has enough gas to pay the memory-expansion cost for touching
+    `[offset, offset+sz)`. Used as the precondition of `consumeMemExp` and
+    as the `h_mem` hypothesis on the memory-touching `Step` rules. -/
+abbrev canExpandMemory (s : State) (offset sz : Nat) : Prop :=
+  MachineState.memExpansionDelta s.activeWords.toNat offset sz ≤ s.gasAvailable.toNat
+
+/-- Two-range version of `canExpandMemory`, for MCOPY (read and write ranges). -/
+abbrev canExpandMemory2 (s : State) (off1 sz1 off2 sz2 : Nat) : Prop :=
+  MachineState.memExpansionDelta2 s.activeWords.toNat off1 sz1 off2 sz2 ≤ s.gasAvailable.toNat
+
 /-- Charge memory-expansion gas for the byte range `[offset, offset+sz)` and
     advance the active-words high-water mark. The hypothesis `h` witnesses
     that the expansion cost fits in the available gas (it is *not* combined
     with op cost — callers are expected to first `consumeGas` for the op and
     then call this on the resulting state, mirroring `stepF.chargeMem`). -/
-def consumeMemExp (s : State) (offset sz : Nat)
-    (h : MachineState.memCost (MachineState.activeWordsAfter s.activeWords.toNat offset sz)
-         - MachineState.memCost s.activeWords.toNat ≤ s.gasAvailable.toNat) : State :=
+def consumeMemExp (s : State) (offset sz : Nat) (h : s.canExpandMemory offset sz) : State :=
   let new := MachineState.activeWordsAfter s.activeWords.toNat offset sz
   let cost := MachineState.memCost new - MachineState.memCost s.activeWords.toNat
   { (s.consumeGas cost h) with activeWords := UInt256.ofNat new }
@@ -63,10 +71,7 @@ def consumeMemExp (s : State) (offset sz : Nat)
     the source read range and the destination write range. Charges expansion
     gas for the union of the two ranges. -/
 def consumeMemExp2 (s : State) (off1 sz1 off2 sz2 : Nat)
-    (h : MachineState.memCost
-           (MachineState.activeWordsAfter
-              (MachineState.activeWordsAfter s.activeWords.toNat off1 sz1) off2 sz2)
-         - MachineState.memCost s.activeWords.toNat ≤ s.gasAvailable.toNat) : State :=
+    (h : s.canExpandMemory2 off1 sz1 off2 sz2) : State :=
   let new1 := MachineState.activeWordsAfter s.activeWords.toNat off1 sz1
   let new2 := MachineState.activeWordsAfter new1 off2 sz2
   let cost := MachineState.memCost new2 - MachineState.memCost s.activeWords.toNat
@@ -333,12 +338,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .KECCAK256 ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = offset :: size :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .KECCAK256) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .KECCAK256) h_gas).canExpandMemory
                        offset.toNat size.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .KECCAK256) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .KECCAK256) h_gas).gasAvailable.toNat)
       : Step s
           (let bytes := MachineState.readPadded s.memory offset.toNat size.toNat
            ((s.consumeGas (Gas.cost .KECCAK256) h_gas).consumeMemExp
@@ -419,12 +420,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .CALLDATACOPY ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .CALLDATACOPY) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .CALLDATACOPY) h_gas).canExpandMemory
                        destOff.toNat sz.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .CALLDATACOPY) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .CALLDATACOPY) h_gas).gasAvailable.toNat)
       : Step s
           (let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
            let s'' := (s.consumeGas (Gas.cost .CALLDATACOPY) h_gas).consumeMemExp
@@ -449,12 +446,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .CODECOPY ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .CODECOPY) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .CODECOPY) h_gas).canExpandMemory
                        destOff.toNat sz.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .CODECOPY) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .CODECOPY) h_gas).gasAvailable.toNat)
       : Step s
           (let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
            let s'' := (s.consumeGas (Gas.cost .CODECOPY) h_gas).consumeMemExp
@@ -489,12 +482,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .EXTCODECOPY ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = addr :: destOff :: srcOff :: sz :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .EXTCODECOPY) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .EXTCODECOPY) h_gas).canExpandMemory
                        destOff.toNat sz.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .EXTCODECOPY) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .EXTCODECOPY) h_gas).gasAvailable.toNat)
       : Step s
           (let extCode := (s.accountMap (AccountAddress.ofUInt256 addr)).code
            let bytes := MachineState.readPadded extCode srcOff.toNat sz.toNat
@@ -522,12 +511,8 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .RETURNDATACOPY ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
         (h_inbounds : srcOff.toNat + sz.toNat ≤ s.returnData.size)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .RETURNDATACOPY) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .RETURNDATACOPY) h_gas).canExpandMemory
                        destOff.toNat sz.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .RETURNDATACOPY) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .RETURNDATACOPY) h_gas).gasAvailable.toNat)
       : Step s
           (let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
            let s'' := (s.consumeGas (Gas.cost .RETURNDATACOPY) h_gas).consumeMemExp
@@ -719,12 +704,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .MLOAD ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = offset :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .MLOAD) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .MLOAD) h_gas).canExpandMemory
                        offset.toNat 32)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .MLOAD) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .MLOAD) h_gas).gasAvailable.toNat)
         (h_load    : MachineState.mload
                        ((s.consumeGas (Gas.cost .MLOAD) h_gas).consumeMemExp
                           offset.toNat 32 h_mem).toMachineState offset = (v, μ'))
@@ -739,12 +720,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .MSTORE ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = offset :: value :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .MSTORE) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .MSTORE) h_gas).canExpandMemory
                        offset.toNat 32)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .MSTORE) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .MSTORE) h_gas).gasAvailable.toNat)
       : Step s
           (let s'' := (s.consumeGas (Gas.cost .MSTORE) h_gas).consumeMemExp
                         offset.toNat 32 h_mem
@@ -758,12 +735,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .MSTORE8 ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = offset :: value :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .MSTORE8) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .MSTORE8) h_gas).canExpandMemory
                        offset.toNat 1)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .MSTORE8) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .MSTORE8) h_gas).gasAvailable.toNat)
       : Step s
           (let s'' := (s.consumeGas (Gas.cost .MSTORE8) h_gas).consumeMemExp
                         offset.toNat 1 h_mem
@@ -787,15 +760,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .MCOPY ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
-        (h_mem     : MachineState.memCost
-                       (MachineState.activeWordsAfter
-                         (MachineState.activeWordsAfter
-                           (s.consumeGas (Gas.cost .MCOPY) h_gas).activeWords.toNat
-                           destOff.toNat sz.toNat)
-                         srcOff.toNat sz.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .MCOPY) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .MCOPY) h_gas).gasAvailable.toNat)
+        (h_mem     : (s.consumeGas (Gas.cost .MCOPY) h_gas).canExpandMemory2
+                       destOff.toNat sz.toNat srcOff.toNat sz.toNat)
       : Step s
           (let s'' := (s.consumeGas (Gas.cost .MCOPY) h_gas).consumeMemExp2
                         destOff.toNat sz.toNat srcOff.toNat sz.toNat h_mem
@@ -936,12 +902,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .RETURN ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = offset :: size :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .RETURN) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .RETURN) h_gas).canExpandMemory
                        offset.toNat size.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .RETURN) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .RETURN) h_gas).gasAvailable.toNat)
       : Step s
           (let bs := MachineState.readPadded s.memory offset.toNat size.toNat
            let s'' := (s.consumeGas (Gas.cost .RETURN) h_gas).consumeMemExp
@@ -954,12 +916,8 @@ inductive Step : State → State → Prop
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .REVERT ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = offset :: size :: rest)
-        (h_mem     : MachineState.memCost (MachineState.activeWordsAfter
-                       (s.consumeGas (Gas.cost .REVERT) h_gas).activeWords.toNat
+        (h_mem     : (s.consumeGas (Gas.cost .REVERT) h_gas).canExpandMemory
                        offset.toNat size.toNat)
-                     - MachineState.memCost
-                         (s.consumeGas (Gas.cost .REVERT) h_gas).activeWords.toNat
-                     ≤ (s.consumeGas (Gas.cost .REVERT) h_gas).gasAvailable.toNat)
       : Step s
           (let bs := MachineState.readPadded s.memory offset.toNat size.toNat
            let s'' := (s.consumeGas (Gas.cost .REVERT) h_gas).consumeMemExp
@@ -980,12 +938,8 @@ inductive Step : State → State → Prop
         (h_gas      : Gas.cost (.Log ⟨n⟩) ≤ s.gasAvailable.toNat)
         (h_topics_n : topics.length = n.val)
         (h_stack    : s.stack = offset :: size :: topics ++ rest)
-        (h_mem      : MachineState.memCost (MachineState.activeWordsAfter
-                        (s.consumeGas (Gas.cost (.Log ⟨n⟩)) h_gas).activeWords.toNat
+        (h_mem      : (s.consumeGas (Gas.cost (.Log ⟨n⟩)) h_gas).canExpandMemory
                         offset.toNat size.toNat)
-                      - MachineState.memCost
-                          (s.consumeGas (Gas.cost (.Log ⟨n⟩)) h_gas).activeWords.toNat
-                      ≤ (s.consumeGas (Gas.cost (.Log ⟨n⟩)) h_gas).gasAvailable.toNat)
       : Step s
           (let entry : LogEntry :=
              { address := s.executionEnv.codeOwner

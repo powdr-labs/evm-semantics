@@ -53,6 +53,12 @@ def memCost (a : Nat) : Nat := 3 * a + a ^ 2 / 512
 def memExpansionDelta (curr offset sz : Nat) : Nat :=
   memCost (activeWordsAfter curr offset sz) - memCost curr
 
+/-- Two-range version of `memExpansionDelta`, used by MCOPY which touches
+    both the source-read range `[off1, off1+sz1)` and the destination-write
+    range `[off2, off2+sz2)`. The expansion is charged for the union. -/
+def memExpansionDelta2 (curr off1 sz1 off2 sz2 : Nat) : Nat :=
+  memCost (activeWordsAfter (activeWordsAfter curr off1 sz1) off2 sz2) - memCost curr
+
 /-- Read `n` bytes from `bs` starting at `start`, zero-padding past the end.
 
     `start` is clamped to `bs.size` before being passed to `ByteArray.extract`.

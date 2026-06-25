@@ -41,9 +41,7 @@ def static    : Except ExecutionException State := .error .StaticModeViolation
     is also what protects the runtime from OOM on absurd offsets/sizes — see
     `MachineState.memExpansionDelta`). -/
 def chargeMem (s : State) (offset sz : Nat) : Except ExecutionException State :=
-  let new := MachineState.activeWordsAfter s.activeWords.toNat offset sz
-  let cost := MachineState.memCost new - MachineState.memCost s.activeWords.toNat
-  if h : cost ≤ s.gasAvailable.toNat then
+  if h : s.canExpandMemory offset sz then
     .ok (s.consumeMemExp offset sz h)
   else
     .error .OutOfGas
@@ -51,10 +49,7 @@ def chargeMem (s : State) (offset sz : Nat) : Except ExecutionException State :=
 /-- Two-range version of `chargeMem`, used by MCOPY which touches both the
     source-read and destination-write ranges. -/
 def chargeMem2 (s : State) (off1 sz1 off2 sz2 : Nat) : Except ExecutionException State :=
-  let new1 := MachineState.activeWordsAfter s.activeWords.toNat off1 sz1
-  let new2 := MachineState.activeWordsAfter new1 off2 sz2
-  let cost := MachineState.memCost new2 - MachineState.memCost s.activeWords.toNat
-  if h : cost ≤ s.gasAvailable.toNat then
+  if h : s.canExpandMemory2 off1 sz1 off2 sz2 then
     .ok (s.consumeMemExp2 off1 sz1 off2 sz2 h)
   else
     .error .OutOfGas
