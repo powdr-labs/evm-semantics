@@ -1,20 +1,25 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.EVM.Operation
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.EVM.Operation
 
 /-!
 `Decode` — the bytecode-byte → `Operation` mapping, plus the function
-`opAt` that reads an opcode (with its immediate, if any) from the
+`decodeAt` that reads an opcode (with its immediate, if any) from the
 execution-environment's bytecode at a given program counter.
 
 For PUSH instructions, the immediate data is returned as a separate
 `(UInt256 × Nat)` argument (value + width-in-bytes), matching the
 reference's `decode`. For the EIP-8024 ops (DUPN/SWAPN/EXCHANGE), the
-single immediate byte is folded into the `Operation` value itself, so
+single immediate byte is folded into the `Operation` value itself
+(via the `Fin 256` field on `DupNOp` / `SwapNOp` / `ExchangeOp`), so
 no separate argument is needed.
 
 The byte→opcode map mirrors the Yellow Paper instruction table; we
 return `none` for any byte not assigned to a v1-supported instruction.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

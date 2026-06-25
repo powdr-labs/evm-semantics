@@ -1,24 +1,38 @@
-import EvmSemantics.EVM.State
-import EvmSemantics.EVM.Decode
-import EvmSemantics.EVM.Gas
+module
+
+public import EvmSemantics.EVM.State
+public import EvmSemantics.EVM.Decode
+public import EvmSemantics.EVM.Gas
 
 /-!
 `Step` — the small-step relation `Step : EVM.State → EVM.State → Prop`.
 
-Each rule has the same anatomy:
+Each *success* rule has the same anatomy:
 
-1. **Decoding hypothesis** — `Decode.decodeAt s.executionEnv.code s.pc.toNat = some (op, …)`
-2. **Running hypothesis** — `s.halt = .Running`
-3. **Static-mode hypothesis** (only for state-mutating ops) —
-   `s.executionEnv.permitStateMutation = true`
-4. **Gas hypothesis** — `Gas.cost op ≤ s.gasAvailable.toNat`
-5. **Stack-shape hypothesis** — `s.stack = a :: b :: rest` (or similar)
-6. **Output-state computation** — the successor state given by `Function.update`
-   / record updaters / `s.consumeGas` / `s.replaceStackAndIncrPC`.
+1. **Argument-polymorphism parameter** `arg : Option (UInt256 × Nat)` —
+   the immediate-argument slot the decoder returns for PUSH-like ops
+   (`none` for everything else). Quantifying it lets the soundness
+   proof thread whatever the decoder produced without first proving
+   an `argOpt = none` invariant.
+2. **Decoding hypothesis** —
+   `s.decoded = some (op, arg)` where `s.decoded = Decode.decodeAt s.executionEnv.code s.pc.toNat`.
+3. **Running hypothesis** — `s.halt = .Running`.
+4. **Static-mode hypothesis** (only for state-mutating ops) —
+   `s.executionEnv.permitStateMutation = true`.
+5. **Gas hypothesis** — `Gas.cost op ≤ s.gasAvailable.toNat`. Passed
+   explicitly to `consumeGas` so the saturating `Nat` subtraction is
+   provably safe — no truncation case-splits downstream.
+6. **Stack-shape hypothesis** — `s.stack = a :: b :: rest` (or similar).
+7. **Output-state computation** — the successor state given by record
+   updaters / `s.consumeGas` / `s.replaceStackAndIncrPC`.
 
-Exception rules (stack-underflow, out-of-gas, …) live in `Step.Exception`
-constructors (Phase 5).
+*Exception* rules (stack-underflow, out-of-gas, bad-jump, …) live in
+the same inductive at the bottom of the file. They are parametric in
+`op` where possible — one rule per failure mode rather than one per
+(op, failure-mode) pair.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 
@@ -104,7 +118,7 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .SDIV ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = a :: b :: rest)
       : Step s ((s.consumeGas (Gas.cost .SDIV) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofSignedInt (a.toSignedNat / b.toSignedNat) :: rest))
+                  (UInt256.sdiv a b :: rest))
 
   /-- MOD: pop `a`, `b`; push `a % b` (0 if `b = 0`). -/
   | mod (s : State) (a b : UInt256) (rest : Stack UInt256)
@@ -123,7 +137,7 @@ inductive Step : State → State → Prop
         (h_gas     : Gas.cost .SMOD ≤ s.gasAvailable.toNat)
         (h_stack   : s.stack = a :: b :: rest)
       : Step s ((s.consumeGas (Gas.cost .SMOD) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat) :: rest))
+                  (UInt256.smod a b :: rest))
 
   /-- ADDMOD: pop `a`, `b`, `n`; push `(a + b) mod n`. -/
   | addmod (s : State) (a b n : UInt256) (rest : Stack UInt256)

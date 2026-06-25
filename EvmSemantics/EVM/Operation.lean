@@ -1,3 +1,5 @@
+module
+
 /-!
 `Operation` — the EVM instruction set, mirrored from `EvmYul.Operations`.
 
@@ -6,6 +8,8 @@ We use the same hierarchical grouping but drop the `OperationType` parameter
 rather than `BOp`) — only the standard mnemonic opcode names (`ADD`, `STOP`,
 …) remain short.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

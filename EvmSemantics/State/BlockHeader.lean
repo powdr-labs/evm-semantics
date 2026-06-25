@@ -1,11 +1,15 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.State.Account
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.State.Account
 
 /-!
 A minimal `BlockHeader` carrying only the fields the v1 step relation
 reads (COINBASE / TIMESTAMP / NUMBER / PREVRANDAO / GASLIMIT / BASEFEE /
 CHAINID-via-state).
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

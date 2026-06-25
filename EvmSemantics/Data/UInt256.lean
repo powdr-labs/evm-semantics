@@ -1,4 +1,6 @@
-import Mathlib.Data.Fin.Basic
+module
+
+public import Mathlib.Data.Fin.Basic
 
 /-!
 `UInt256` — 256-bit unsigned EVM words.
@@ -7,6 +9,8 @@ A faithful subset of `EvmYul.UInt256`. We model it as a `Fin (2^256)` wrapper,
 provide modular arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise ops, comparisons,
 and a small zoo of conversions used by the relational rules.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 
@@ -43,9 +47,18 @@ def addMod (a b n : UInt256) : UInt256 :=
 def mulMod (a b n : UInt256) : UInt256 :=
   if n.val.val = 0 then ⟨0⟩ else ofNat ((a.toNat * b.toNat) % n.toNat)
 /--
-Modular exponentiation `a ^ b mod 2^256`, computed via square-and-multiply so
-that intermediate values never exceed `2^256`. Recurses on `e / 2`, which
-terminates since `e / 2 < e` whenever `e ≠ 0`.
+`EXP` specification: `a ^ b mod 2^256`. This is the clean mathematical
+definition used by the relational semantics (`Step`). It is never *evaluated*
+(the relation is a `Prop`), so the full `a.toNat ^ b.toNat` is harmless here.
+The executable interpreter uses `expFast` instead — see the note there.
+-/
+def exp (a b : UInt256) : UInt256 := ofNat (a.toNat ^ b.toNat % UInt256.size)
+
+/--
+Square-and-multiply helper for `expFast`: returns `acc * base ^ e mod 2^256`,
+reducing modulo `2^256` after every multiply and square so intermediate values
+never exceed `2^256`. Recurses on `e / 2`, which terminates since `e / 2 < e`
+whenever `e ≠ 0`.
 -/
 def expAux (base acc e : Nat) : Nat :=
   if h : e = 0 then acc
@@ -55,7 +68,52 @@ def expAux (base acc e : Nat) : Nat :=
   termination_by e
   decreasing_by exact Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
 
-def exp (a b : UInt256) : UInt256 := ofNat (expAux (a.toNat % UInt256.size) 1 b.toNat)
+/--
+Fast modular exponentiation for the *interpreter* (`stepF`). Computing `exp`
+directly would build `a.toNat ^ b.toNat` as a full `Nat` before reducing,
+which aborts the process (GMP "Nat.pow exponent is too big") for large
+exponents. `expFast` reduces modulo `2^256` at every step instead, and
+`expFast_eq_exp` proves it agrees with the `exp` specification, so the
+executable evaluator and the relational semantics stay in sync.
+-/
+def expFast (a b : UInt256) : UInt256 := ofNat (expAux (a.toNat % UInt256.size) 1 b.toNat)
+
+/-- `expAux base acc e` computes `acc * base ^ e` modulo `2^256`. -/
+theorem expAux_modEq (base acc e : Nat) :
+    expAux base acc e % size = (acc * base ^ e) % size := by
+  induction e using Nat.strong_induction_on generalizing base acc with
+  | _ e ih =>
+    unfold expAux
+    split
+    · next h => subst h; simp
+    · next h =>
+      have hlt : e / 2 < e := Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
+      rw [ih (e/2) hlt]
+      have hpow : base ^ e = (base * base) ^ (e / 2) * base ^ (e % 2) := by
+        rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_add]
+        congr 1; omega
+      rw [hpow]
+      have key : ∀ A : Nat,
+          (A * (base * base % size) ^ (e / 2)) % size
+            = (A * (base * base) ^ (e / 2)) % size := by
+        intro A
+        conv_rhs => rw [Nat.mul_mod, Nat.pow_mod]
+        conv_lhs => rw [Nat.mul_mod]
+      have hpar : e % 2 = 0 ∨ e % 2 = 1 := by omega
+      rcases hpar with hpar | hpar
+      · rw [if_neg (by omega), hpar, Nat.pow_zero, Nat.mul_one, key acc]
+      · rw [if_pos hpar, hpar, Nat.pow_one, key (acc * base % size)]
+        rw [Nat.mul_mod (acc*base%size), Nat.mod_mod, ← Nat.mul_mod]
+        congr 1
+        rw [Nat.mul_assoc, Nat.mul_comm base ((base*base)^(e/2))]
+
+/-- The interpreter's `expFast` agrees with the `exp` specification. -/
+theorem expFast_eq_exp (a b : UInt256) : expFast a b = exp a b := by
+  unfold expFast exp ofNat
+  congr 1
+  apply Fin.ext
+  simp only [Fin.ofNat]
+  rw [expAux_modEq, Nat.one_mul, Nat.mod_mod, ← Nat.pow_mod]
 
 def land (a b : UInt256) : UInt256 := ⟨Fin.land a.val b.val⟩
 def lor (a b : UInt256) : UInt256  := ⟨Fin.lor a.val b.val⟩
@@ -91,6 +149,24 @@ def toSignedNat (a : UInt256) : Int :=
 
 def ofSignedInt (z : Int) : UInt256 :=
   ofNat ((z % (UInt256.size : Int)).toNat)
+
+/-- Signed division (EVM `SDIV`): truncate toward zero, taking the
+    dividend's sign; division by zero yields `0`.  Uses `Int.tdiv`
+    (truncation toward zero) rather than Lean's default `Int./`
+    (Euclidean), matching the EVM convention.  The `SDIV(-2^255, -1)`
+    overflow edge case is handled automatically by the two's-complement
+    round-trip through `ofSignedInt`. -/
+def sdiv (a b : UInt256) : UInt256 :=
+  if b.toNat = 0 then ⟨0⟩
+  else ofSignedInt (a.toSignedNat.tdiv b.toSignedNat)
+
+/-- Signed modulo (EVM `SMOD`): remainder takes the dividend's sign;
+    modulo by zero yields `0`.  Uses `Int.tmod` (truncation toward zero)
+    rather than Lean's default `Int.%` (Euclidean), matching the EVM
+    convention. -/
+def smod (a b : UInt256) : UInt256 :=
+  if b.toNat = 0 then ⟨0⟩
+  else ofSignedInt (a.toSignedNat.tmod b.toSignedNat)
 
 def slt (a b : UInt256) : UInt256 :=
   if a.toSignedNat < b.toSignedNat then ofNat 1 else ofNat 0
