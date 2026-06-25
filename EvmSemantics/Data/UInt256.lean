@@ -81,16 +81,16 @@ def expAux (base acc e : Nat) : Nat :=
   decreasing_by exact Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
 
 /--
-Fast modular exponentiation for the *interpreter* (`stepF`). Computing `exp`
-directly would build `a.toNat ^ b.toNat` as a full `Nat` before reducing,
-which aborts the process (GMP "Nat.pow exponent is too big") for large
-exponents. `expFast` reduces modulo `2^256` at every step instead, and
-`expFast_eq_exp` proves it agrees with the `exp` specification, so the
-executable evaluator and the relational semantics stay in sync.
+Fast modular exponentiation for the *interpreter* (`stepF`) using square and multiply.
 -/
 def expFast (a b : UInt256) : UInt256 := ofNat (expAux (a.toNat % UInt256.size) 1 b.toNat)
 
-/-- `expAux base acc e` computes `acc * base ^ e` modulo `2^256`. -/
+/-- `expAux base acc e` computes `acc * base ^ e` modulo `2^256`.
+
+    The squared base in the recursive call is reduced mod `size` after every
+    square; `Nat.pow_mod` (`n^m % k = (n%k)^m % k`) lets us pull that inner
+    reduction out of the surrounding multiplication and modulo, so the
+    recursive step is just routine `mul_mod` / `pow_mod` shuffling. -/
 theorem expAux_modEq (base acc e : Nat) :
     expAux base acc e % size = (acc * base ^ e) % size := by
   induction e using Nat.strong_induction_on generalizing base acc with
@@ -105,18 +105,11 @@ theorem expAux_modEq (base acc e : Nat) :
         rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_add]
         congr 1; omega
       rw [hpow]
-      have key : ∀ A : Nat,
-          (A * (base * base % size) ^ (e / 2)) % size
-            = (A * (base * base) ^ (e / 2)) % size := by
-        intro A
-        conv_rhs => rw [Nat.mul_mod, Nat.pow_mod]
-        conv_lhs => rw [Nat.mul_mod]
-      have hpar : e % 2 = 0 ∨ e % 2 = 1 := by omega
-      rcases hpar with hpar | hpar
-      · rw [if_neg (by omega), hpar, Nat.pow_zero, Nat.mul_one, key acc]
-      · rw [if_pos hpar, hpar, Nat.pow_one, key (acc * base % size)]
-        rw [Nat.mul_mod (acc*base%size), Nat.mod_mod, ← Nat.mul_mod]
-        congr 1
+      rcases Nat.mod_two_eq_zero_or_one e with hpar | hpar
+      · rw [if_neg (by omega), hpar, Nat.pow_zero, Nat.mul_one,
+            Nat.mul_mod, ← Nat.pow_mod, ← Nat.mul_mod]
+      · rw [if_pos hpar, hpar, Nat.pow_one,
+            Nat.mul_mod, Nat.mod_mod, ← Nat.pow_mod, ← Nat.mul_mod]
         rw [Nat.mul_assoc, Nat.mul_comm base ((base*base)^(e/2))]
 
 /-- The interpreter's `expFast` agrees with the `exp` specification. -/
