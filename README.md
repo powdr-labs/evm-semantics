@@ -93,6 +93,36 @@ A `lake exe cache get` is recommended after the first `lake update` to
 fetch Mathlib's precompiled `.olean` artifacts. The cold build is
 ~10 minutes; cached, ~30 seconds.
 
+## Linting
+
+`lakefile.toml` registers Batteries' `runLinter` script as the project's
+lint driver — the same one Mathlib uses for its own CI gate. Run it with:
+
+```sh
+lake lint
+```
+
+It runs the Batteries lint suite (missing doc-strings, `simpNF`, unused
+arguments, dangerous instances, etc.) on every declaration under the
+`EvmSemantics` namespace.
+
+Findings can be exempted by adding them to `scripts/nolints.json` (the
+file Batteries' `runLinter` reads automatically). Regenerate it after
+intentional changes via:
+
+```sh
+lake lint -- --update
+```
+
+The current `scripts/nolints.json` allow-lists: declarations missing
+doc-strings on internal helpers, the auto-derived `Repr.repr`/`injEq`
+declarations from `deriving Repr` / `deriving DecidableEq`, the
+intentionally-unused operand of `Gas.cost` (uniform-1 in v1), and the
+proof-witness argument of `State.consumeGas`.
+
+CI (`.github/workflows/ci.yml`) runs both `lake build` (gated to fail
+on any warning) and `lake lint` on every push and PR.
+
 ## Design overview
 
 ### Two semantics, one source of truth

@@ -16,12 +16,18 @@ in order (and append at the end).
 
 namespace EvmSemantics
 
+/-- A single LOG record: the contract address that emitted it, the
+    indexed topics, and the unindexed data bytes. -/
 structure LogEntry where
+  /-- Address of the contract that emitted the log (`Iₐ` at emit time). -/
   address : AccountAddress
+  /-- The indexed topics (`#topics ∈ [0, 4]`, enforced by `Step.log`). -/
   topics  : Array UInt256
+  /-- The unindexed data bytes — a copy of `memory[offset..offset+size]`. -/
   data    : ByteArray
   deriving Inhabited
 
+/-- The ordered list of LOG records emitted during execution. -/
 abbrev LogSeries := Array LogEntry
 
 /-- A set of addresses, as a predicate. -/
@@ -31,7 +37,12 @@ abbrev AddressSet : Type := AccountAddress → Prop
 abbrev StorageKeySet : Type := AccountAddress × UInt256 → Prop
 
 namespace AddressSet
+
+/-- The empty address set — nothing is in it. -/
 def empty : AddressSet := fun _ => False
+
+/-- Add `a` to `S`. Membership in `S.insert a` is "either equals `a` or
+    was already in `S`". -/
 def insert (S : AddressSet) (a : AccountAddress) : AddressSet :=
   fun a' => a' = a ∨ S a'
 
@@ -43,7 +54,11 @@ def insert (S : AddressSet) (a : AccountAddress) : AddressSet :=
 end AddressSet
 
 namespace StorageKeySet
+
+/-- The empty storage-key set. -/
 def empty : StorageKeySet := fun _ => False
+
+/-- Add the (address, key) pair `sk` to `S`. -/
 def insert (S : StorageKeySet) (sk : AccountAddress × UInt256) : StorageKeySet :=
   fun sk' => sk' = sk ∨ S sk'
 
@@ -51,16 +66,28 @@ def insert (S : StorageKeySet) (sk : AccountAddress × UInt256) : StorageKeySet 
     S.insert sk sk' ↔ sk' = sk ∨ S sk' := Iff.rfl
 end StorageKeySet
 
+/-- The accrued substate `A` (Yellow Paper §6.1) tracked across an
+    execution: addresses self-destructed, addresses touched, refund
+    counter, accessed-account / accessed-storage-key sets (EIP-2929),
+    and the in-order log series. -/
 structure Substate where
+  /-- `Aₛ` — addresses scheduled to be deleted at the end of the transaction. -/
   selfDestructSet     : AddressSet
+  /-- `Aₜ` — addresses that have been "touched" (read or written). -/
   touchedAccounts     : AddressSet
+  /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
   refundBalance       : UInt256
+  /-- `Aₐ` — accounts already accessed in this transaction (warm). -/
   accessedAccounts    : AddressSet
+  /-- `Aₖ` — storage slots already accessed in this transaction. -/
   accessedStorageKeys : StorageKeySet
+  /-- `Aₗ` — ordered list of LOG records emitted so far. -/
   logSeries           : LogSeries
 
 namespace Substate
 
+/-- The empty substate: nothing self-destructed, nothing touched, no
+    refunds, no accesses, no logs. -/
 def empty : Substate :=
   { selfDestructSet     := AddressSet.empty
     touchedAccounts     := AddressSet.empty
@@ -69,12 +96,15 @@ def empty : Substate :=
     accessedStorageKeys := StorageKeySet.empty
     logSeries           := #[] }
 
+/-- Mark `a` as a warm account in `A.accessedAccounts`. -/
 def addAccessedAccount (A : Substate) (a : AccountAddress) : Substate :=
   { A with accessedAccounts := A.accessedAccounts.insert a }
 
+/-- Mark `(addr, key)` as a warm storage slot in `A.accessedStorageKeys`. -/
 def addAccessedStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Substate :=
   { A with accessedStorageKeys := A.accessedStorageKeys.insert sk }
 
+/-- Append a LOG record to the substate's `logSeries`. -/
 def appendLog (A : Substate) (entry : LogEntry) : Substate :=
   { A with logSeries := A.logSeries.push entry }
 

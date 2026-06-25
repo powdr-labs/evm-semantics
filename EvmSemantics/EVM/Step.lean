@@ -53,7 +53,10 @@ namespace State
 
 /-- Subtract `n` from the available gas. The proof `h` witnesses that the
     subtraction does not underflow; without it `consumeGas` would silently
-    saturate at `0`, divorcing the function from its precondition. -/
+    saturate at `0`, divorcing the function from its precondition. The
+    proof is currently unused in the body (Nat subtraction is total) but
+    keeps the call sites from accidentally subtracting too much.
+    (The `unusedArguments` linter is silenced via `scripts/nolints.json`.) -/
 def consumeGas (s : State) (n : Nat) (_h : n ≤ s.gasAvailable.toNat) : State :=
   { s with gasAvailable := UInt256.ofNat (s.gasAvailable.toNat - n) }
 

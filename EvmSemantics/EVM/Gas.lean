@@ -13,7 +13,9 @@ Swapping in the real Yellow Paper schedule later is local to this file.
 namespace EvmSemantics
 namespace EVM
 
-/-- Gas cost of executing one instance of `op`. -/
+/-- Gas cost of executing one instance of `op`. The operand is
+    intentionally ignored in v1 — every opcode costs `1` uniformly.
+    (The `unusedArguments` linter is silenced via `scripts/nolints.json`.) -/
 def Gas.cost (_op : Operation) : Nat := 1
 
 end EVM
