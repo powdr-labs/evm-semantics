@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build & lint
+  ci:
+    name: Build, lint, and VMTests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -47,23 +47,6 @@ jobs:
       - name: Run `lake lint` (Batteries' `runLinter`)
         run: lake lint
 
-  vmtests:
-    name: VMTests regression report
-    runs-on: ubuntu-latest
-    # Non-gating: this job reports the VMTests pass/fail picture and flags
-    # regressions, but never blocks the PR. The known-failure baseline lives in
-    # .github/vmtests-baseline.txt.
-    continue-on-error: true
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Lean and fetch Mathlib cache
-        uses: leanprover/lean-action@v1
-
-      - name: Build vmtests runner
-        run: lake build vmtests
-
       # Sparse + blobless fetch of just the VMTests corpus (~11 MB) rather than
       # the full ~2.7 GB legacytests checkout, pinned to the exact revision the
       # committed baseline was generated against. Bump CORPUS_REV together with
@@ -81,6 +64,9 @@ jobs:
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
 
+      # Non-gating: this step reports the VMTests pass/fail picture and flags
+      # regressions, but never blocks the PR. The known-failure baseline lives
+      # in .github/vmtests-baseline.txt.
       - name: Run full VMTests suite
         continue-on-error: true
         run: |
@@ -89,6 +75,7 @@ jobs:
 
       - name: Summarize and compare against baseline
         if: always()
+        continue-on-error: true
         run: |
           # Only compare if a complete summary was produced. A failed/partial
           # vmtests run yields no parseable aggregate line, so vmtests_summary.sh
