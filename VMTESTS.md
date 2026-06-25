@@ -21,9 +21,9 @@ hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
 ```
-pass=495  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=55
+pass=533  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=17
 ```
-Of the 523 tests that are neither skipped nor crash, **495 pass (95%)**.
+Of the 561 tests that are neither skipped nor crash, **533 pass (95%)**.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -68,11 +68,7 @@ summary. The full output and normalized summary are uploaded as artifacts.
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.
 
-### CRASH (55) — unbounded `Nat` allocation aborts the process
-- **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`): `UInt256.exp`
-  computes `a.toNat ^ b.toNat` *in full* before taking `% 2^256`
-  (`UInt256.lean:45`) → GMP "Nat.pow exponent is too big". Needs modular
-  exponentiation.
+### CRASH (17) — unbounded `Nat` allocation aborts the process
 - **Huge memory offset/size** (17: `calldatacopy`/`codecopy`/`calldataload`/
   `log*` …`TooHigh`): `readPadded` / `writeBytes` allocate `size` / `offset+size`
   bytes with no bound, so a ~`2^256` size OOMs/aborts. Needs a size guard (the
@@ -107,9 +103,9 @@ but it remains a divergence between `stepF` and `Step`.
 Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator fixes (turn crashes/fails into passes)
-- [ ] **Modular `EXP`** — make `UInt256.exp` use fast modular exponentiation
-      instead of computing `a^b` then `% 2^256` (`UInt256.lean:45`).
-      *Unlocks ~38 crashes* (`exp*`, `loop-exp*`).
+- [x] **Modular `EXP`** — make `UInt256.exp` use fast modular exponentiation
+      instead of computing `a^b` then `% 2^256` (`UInt256.lean`).
+      *Unlocked 38 crashes* (`exp*`, `loop-exp*`).
 - [ ] **Bound memory ops** — add a size/offset guard in `readPadded` /
       `writeBytes` so huge (`~2^256`) sizes fail gracefully instead of OOM/abort.
       *Unlocks ~17 crashes* (`calldatacopy`/`codecopy`/`calldataload`/`log*`

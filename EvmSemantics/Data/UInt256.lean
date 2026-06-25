@@ -58,8 +58,67 @@ def addMod (a b n : UInt256) : UInt256 :=
 /-- MULMOD: `(a * b) mod n`, `0` when `n = 0`. -/
 def mulMod (a b n : UInt256) : UInt256 :=
   if n.val.val = 0 then ⟨0⟩ else ofNat ((a.toNat * b.toNat) % n.toNat)
-/-- EXP: `a^b mod 2^256`. -/
+/--
+`EXP` specification: `a ^ b mod 2^256`. This is the clean mathematical
+definition used by the relational semantics (`Step`). It is never *evaluated*
+(the relation is a `Prop`), so the full `a.toNat ^ b.toNat` is harmless here.
+The executable interpreter uses `expFast` instead — see the note there.
+-/
 def exp (a b : UInt256) : UInt256 := ofNat (a.toNat ^ b.toNat % UInt256.size)
+
+/--
+Square-and-multiply helper for `expFast`: returns `acc * base ^ e mod 2^256`,
+reducing modulo `2^256` after every multiply and square so intermediate values
+never exceed `2^256`. Recurses on `e / 2`, which terminates since `e / 2 < e`
+whenever `e ≠ 0`.
+-/
+def expAux (base acc e : Nat) : Nat :=
+  if h : e = 0 then acc
+  else
+    let acc' := if e % 2 = 1 then (acc * base) % UInt256.size else acc
+    expAux ((base * base) % UInt256.size) acc' (e / 2)
+  termination_by e
+  decreasing_by exact Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
+
+/--
+Fast modular exponentiation for the *interpreter* (`stepF`) using square and multiply.
+-/
+def expFast (a b : UInt256) : UInt256 := ofNat (expAux (a.toNat % UInt256.size) 1 b.toNat)
+
+/-- `expAux base acc e` computes `acc * base ^ e` modulo `2^256`.
+
+    The squared base in the recursive call is reduced mod `size` after every
+    square; `Nat.pow_mod` (`n^m % k = (n%k)^m % k`) lets us pull that inner
+    reduction out of the surrounding multiplication and modulo, so the
+    recursive step is just routine `mul_mod` / `pow_mod` shuffling. -/
+theorem expAux_modEq (base acc e : Nat) :
+    expAux base acc e % size = (acc * base ^ e) % size := by
+  induction e using Nat.strong_induction_on generalizing base acc with
+  | _ e ih =>
+    unfold expAux
+    split
+    · next h => subst h; simp
+    · next h =>
+      have hlt : e / 2 < e := Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
+      rw [ih (e/2) hlt]
+      have hpow : base ^ e = (base * base) ^ (e / 2) * base ^ (e % 2) := by
+        rw [← Nat.pow_two, ← Nat.pow_mul, ← Nat.pow_add]
+        congr 1; omega
+      rw [hpow]
+      rcases Nat.mod_two_eq_zero_or_one e with hpar | hpar
+      · rw [if_neg (by omega), hpar, Nat.pow_zero, Nat.mul_one,
+            Nat.mul_mod, ← Nat.pow_mod, ← Nat.mul_mod]
+      · rw [if_pos hpar, hpar, Nat.pow_one,
+            Nat.mul_mod, Nat.mod_mod, ← Nat.pow_mod, ← Nat.mul_mod]
+        rw [Nat.mul_assoc, Nat.mul_comm base ((base*base)^(e/2))]
+
+/-- The interpreter's `expFast` agrees with the `exp` specification. -/
+theorem expFast_eq_exp (a b : UInt256) : expFast a b = exp a b := by
+  unfold expFast exp ofNat
+  congr 1
+  apply Fin.ext
+  simp only [Fin.ofNat]
+  rw [expAux_modEq, Nat.one_mul, Nat.mod_mod, ← Nat.pow_mod]
 
 /-- AND: bitwise conjunction. -/
 def land (a b : UInt256) : UInt256 := ⟨Fin.land a.val b.val⟩

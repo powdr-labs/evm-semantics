@@ -121,7 +121,12 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     | [_, _], h       => exact absurd h (by intro hh; cases hh)
   | EXP =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .exp s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h =>
+        cases h
+        -- `stepF` uses the fast modular-exponentiation `expFast`; the relation
+        -- `Step.exp` uses the `exp` specification. They agree (`expFast_eq_exp`).
+        rw [UInt256.expFast_eq_exp]
+        exact .exp s a b rest argOpt h_dec h_running h_gas h_stack
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | SIGNEXTEND =>

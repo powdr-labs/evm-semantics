@@ -80,7 +80,7 @@ def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionExcept
     | a :: b :: n :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.mulMod a b n :: rest))
     | _ => underflow
   | .EXP => match s.stack with
-    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.exp a b :: rest))
+    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.expFast a b :: rest))
     | _ => underflow
   | .SIGNEXTEND => match s.stack with
     | b :: x :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.signExtend b x :: rest))
