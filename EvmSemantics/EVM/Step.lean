@@ -5,19 +5,29 @@ import EvmSemantics.EVM.Gas
 /-!
 `Step` — the small-step relation `Step : EVM.State → EVM.State → Prop`.
 
-Each rule has the same anatomy:
+Each *success* rule has the same anatomy:
 
-1. **Decoding hypothesis** — `Decode.decodeAt s.executionEnv.code s.pc.toNat = some (op, …)`
-2. **Running hypothesis** — `s.halt = .Running`
-3. **Static-mode hypothesis** (only for state-mutating ops) —
-   `s.executionEnv.permitStateMutation = true`
-4. **Gas hypothesis** — `Gas.cost op ≤ s.gasAvailable.toNat`
-5. **Stack-shape hypothesis** — `s.stack = a :: b :: rest` (or similar)
-6. **Output-state computation** — the successor state given by `Function.update`
-   / record updaters / `s.consumeGas` / `s.replaceStackAndIncrPC`.
+1. **Argument-polymorphism parameter** `arg : Option (UInt256 × Nat)` —
+   the immediate-argument slot the decoder returns for PUSH-like ops
+   (`none` for everything else). Quantifying it lets the soundness
+   proof thread whatever the decoder produced without first proving
+   an `argOpt = none` invariant.
+2. **Decoding hypothesis** —
+   `s.decoded = some (op, arg)` where `s.decoded = Decode.decodeAt s.executionEnv.code s.pc.toNat`.
+3. **Running hypothesis** — `s.halt = .Running`.
+4. **Static-mode hypothesis** (only for state-mutating ops) —
+   `s.executionEnv.permitStateMutation = true`.
+5. **Gas hypothesis** — `Gas.cost op ≤ s.gasAvailable.toNat`. Passed
+   explicitly to `consumeGas` so the saturating `Nat` subtraction is
+   provably safe — no truncation case-splits downstream.
+6. **Stack-shape hypothesis** — `s.stack = a :: b :: rest` (or similar).
+7. **Output-state computation** — the successor state given by record
+   updaters / `s.consumeGas` / `s.replaceStackAndIncrPC`.
 
-Exception rules (stack-underflow, out-of-gas, …) live in `Step.Exception`
-constructors (Phase 5).
+*Exception* rules (stack-underflow, out-of-gas, bad-jump, …) live in
+the same inductive at the bottom of the file. They are parametric in
+`op` where possible — one rule per failure mode rather than one per
+(op, failure-mode) pair.
 -/
 
 namespace EvmSemantics
