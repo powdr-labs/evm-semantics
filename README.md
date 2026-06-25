@@ -148,7 +148,8 @@ on any warning) and `lake lint` on every push and PR.
 
 ### Rule format
 
-Every success constructor of `Step` follows this anatomy:
+Most success constructors of `Step` follow this anatomy (the halts like
+`Step.stop` carry only `h_op`/`h_running`, and stackless reads omit `h_stack`):
 
 ```lean
 | add (s : State) (a b : UInt256) (rest : List UInt256)

@@ -47,8 +47,11 @@ Three views of the same semantics, with `Step` as the source of truth:
 - **`Step : State → State → Prop`** (`EVM/Step.lean`) — small-step relation,
   90 constructors (81 success, one per opcode, + 9 generic exception
   constructors parametric over the operation). Every success constructor carries
-  `h_running : s.halt = .Running` and `h_gas : Gas.cost op ≤ s.gasAvailable`
-  premises (`gasAvailable : Nat`); `consumeGas` takes the gas-sufficiency proof
+  `h_running : s.halt = .Running`; most also carry `h_gas : Gas.cost op ≤
+  s.gasAvailable` (`gasAvailable : Nat`) and an `h_stack` shape, but the exact
+  premises vary — `Step.stop` (and the other halts) has no `h_gas`/`h_stack`,
+  and stackless reads (`address`, `coinbase`, `pc`, …) have no `h_stack`. Read
+  the actual constructor; `consumeGas` takes the gas-sufficiency proof
   explicitly so the saturating Nat subtraction is provably safe.
 - **`Eval : State → ExecutionResult → Prop`** (`EVM/BigStep.lean`) — big-step,
   the reflexive-transitive closure `Steps` ending in a halted state, projected
