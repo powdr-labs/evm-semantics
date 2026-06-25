@@ -395,66 +395,119 @@ def runFile (path : System.FilePath) : IO Unit := do
       IO.println s!"{tag}\t{name}\t{msg}"
 
 ----------------------------------------------------------------------------
--- Parent mode: spawn one isolated child per file, tally results.
+-- Parent: spawn one Task per file, tally results. Tasks run on the default
+-- thread pool so multiple files execute in parallel on multiple OS threads.
+-- A panic in any one test now aborts the whole process (no subprocess
+-- isolation) — none currently panic, so that's an acceptable trade for the
+-- ~7× speedup vs the previous subprocess-per-file design.
 ----------------------------------------------------------------------------
 
-/-- Run one subdir: spawn `timeout <secs> <self> --file <f>` per file. -/
-def runDir (self : String) (dir : System.FilePath) (timeoutSecs : Nat) : IO Tally := do
+/-- Result of processing one file: every `(tag, name, msg)` triple from
+    `runTest`, gathered into an array. Used as the Task return value. -/
+def runFileResults (path : System.FilePath) : IO (Array (String × String × String)) := do
+  let txt ← IO.FS.readFile path
+  match Json.parse txt with
+  | .error e => return #[("PARSEERR", path.toString, e)]
+  | .ok j =>
+    let entries := match j.getObj? with | .ok m => m.toList | _ => []
+    let mut out := #[]
+    for (name, testObj) in entries do
+      let (tag, msg) := outcomeTag (runTest testObj)
+      out := out.push (tag, name, msg)
+    return out
+
+/-- Fold a single file's results into the running tally + notes. -/
+def absorbResults (f : System.FilePath) (results : Array (String × String × String))
+    (t : Tally) (notes : Array String) : Tally × Array String := Id.run do
+  let mut t := t
+  let mut notes := notes
+  for (tag, name, msg) in results do
+    match tag with
+    | "PASS"     =>
+      t := { t with pass := t.pass + 1 }
+      if msg == "gas" then
+        t := { t with passGasChecked := t.passGasChecked + 1 }
+    | "FAIL"     => t := { t with fail := t.fail + 1 }
+                    notes := notes.push s!"FAIL {name}: {msg}"
+    | "INCON"    => t := { t with incon := t.incon + 1 }
+    | "SKIP"     => match msg with
+        | "unsupported" => t := { t with skipUns := t.skipUns + 1 }
+        | "keccak"      => t := { t with skipKec := t.skipKec + 1 }
+        | _             => t := { t with skipGas := t.skipGas + 1 }
+    | "PARSEERR" => t := { t with crash := t.crash + 1 }
+                    notes := notes.push s!"PARSEERR {f.fileName.getD f.toString}: {msg}"
+    | _          => pure ()
+  return (t, notes)
+
+/-- Run one subdir: spawn a Lean `Task` per file, up to `jobs` in flight
+    concurrently. Results are folded in spawn order so notes are stable. -/
+def runDir (dir : System.FilePath) (jobs : Nat) : IO Tally := do
   let files ← collectJson dir
   let mut t : Tally := {}
   let mut notes : Array String := #[]
-  for f in files do
-    let out ← IO.Process.output
-      { cmd := "timeout", args := #[toString timeoutSecs, self, "--file", f.toString] }
-    if out.exitCode != 0 then
-      t := { t with crash := t.crash + 1 }
-      let why := if out.exitCode == 124 then "timeout" else s!"exit {out.exitCode}"
-      notes := notes.push s!"CRASH {f.fileName.getD f.toString}: {why}"
-    else
-      for line in out.stdout.splitOn "\n" do
-        let parts := line.splitOn "\t"
-        match parts with
-        | tag :: name :: rest =>
-          let msg := String.intercalate "\t" rest
-          match tag with
-          | "PASS"  =>
-            t := { t with pass := t.pass + 1 }
-            if msg == "gas" then
-              t := { t with passGasChecked := t.passGasChecked + 1 }
-          | "FAIL"  => t := { t with fail := t.fail + 1 }; notes := notes.push s!"FAIL {name}: {msg}"
-          | "INCON" => t := { t with incon := t.incon + 1 }
-          | "SKIP"  => match msg with
-              | "unsupported" => t := { t with skipUns := t.skipUns + 1 }
-              | "keccak"      => t := { t with skipKec := t.skipKec + 1 }
-              | _             => t := { t with skipGas := t.skipGas + 1 }
-          | _ => pure ()
-        | _ => pure ()
-  for n in notes do IO.println s!"    {n}"
+  let mut i := 0
+  let n := files.size
+  let batch := Nat.max 1 jobs
+  while i < n do
+    let stop := Nat.min (i + batch) n
+    -- Spawn `stop - i` tasks; each runs on the default thread pool.
+    let mut tasks : Array (System.FilePath ×
+                            Task (Except IO.Error (Array (String × String × String)))) := #[]
+    for k in [i:stop] do
+      let f := files[k]!
+      let task ← IO.asTask (runFileResults f)
+      tasks := tasks.push (f, task)
+    -- Wait for each in spawn order so the notes array stays stable.
+    for (f, task) in tasks do
+      match (← IO.wait task) with
+      | .ok results =>
+        let (t', n') := absorbResults f results t notes
+        t := t'; notes := n'
+      | .error e =>
+        t := { t with crash := t.crash + 1 }
+        notes := notes.push s!"CRASH {f.fileName.getD f.toString}: {e}"
+    i := stop
+  for note in notes do IO.println s!"    {note}"
   return t
 
-def parentMain (root : System.FilePath) : IO Unit := do
-  let self := (← IO.appPath).toString
-  IO.println s!"VMTests runner — root: {root}"
+/-- Resolve the worker count: explicit `--jobs N` / `-j N`, else env
+    `VMTESTS_JOBS`, else default `4`. Returns the resolved count and the
+    remaining (non-`-j`) arguments. -/
+def parseJobs (args : List String) : Nat × List String := Id.run do
+  let rec go : List String → Option Nat → List String → Nat × List String
+    | [], n, acc => (n.getD 0, acc.reverse)
+    | "-j" :: v :: rest, _, acc => go rest (some v.toNat!) acc
+    | "--jobs" :: v :: rest, _, acc => go rest (some v.toNat!) acc
+    | x :: rest, n, acc => go rest n (x :: acc)
+  go args none []
+
+def parentMain (root : System.FilePath) (jobs : Nat) : IO Unit := do
+  IO.println s!"VMTests runner — root: {root}, jobs: {jobs}"
   let mut subdirs : Array System.FilePath := #[]
   for ent in (← root.readDir) do
     if (← ent.path.isDir) then subdirs := subdirs.push ent.path
   let sorted := subdirs.qsort (fun a b => a.toString < b.toString)
   let mut total : Tally := {}
   for d in sorted do
-    -- vmPerformance has legitimately long programs; give it more time.
-    let secs := if (d.fileName.getD "") == "vmPerformance" then 120 else 30
     IO.println s!"\n## {d.fileName.getD ""}"
-    let t ← runDir self d secs
+    let t ← runDir d jobs
     IO.println s!"  {t.line} (total {t.total})"
     total := total.add t
   IO.println s!"\n==== TOTAL ===="
   IO.println s!"  {total.line} (total {total.total})"
 
-def main (args : List String) : IO Unit :=
-  match args with
+def main (args : List String) : IO Unit := do
+  let (jobs0, rest) := parseJobs args
+  let jobs ←
+    if jobs0 > 0 then pure jobs0
+    else do
+      match (← IO.getEnv "VMTESTS_JOBS") with
+      | some s => pure (Nat.max 1 s.toNat!)
+      | none   => pure 8
+  match rest with
   | "--file" :: path :: _ => runFile path
-  | root :: _             => parentMain root
-  | []                    => parentMain "."
+  | root :: _             => parentMain root jobs
+  | []                    => parentMain "." jobs
 end VMRunner
 
 def main (args : List String) : IO Unit := VMRunner.main args
