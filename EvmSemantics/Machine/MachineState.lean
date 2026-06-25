@@ -21,9 +21,9 @@ namespace EvmSemantics
 /-- Machine state `μ` (Yellow Paper §9.4.1): gas counter, memory, return-data
     buffer, and the bookkeeping needed for memory expansion costs. -/
 structure MachineState where
-  /-- `g` — gas remaining in the current frame. Stored as `Nat` so that
-      gas-sufficiency checks (`cost ≤ gasAvailable`) are plain `Nat` ≤,
-      with no `UInt256.toNat` round-trips. -/
+  /-- `g` — gas remaining in the current frame. We use `Nat` so that statements like
+      "starting from some amount of gas, this routine has the following semantics"
+      can be made. -/
   gasAvailable : Nat
   /-- # of 32-byte words "active" in memory; used for the memory-expansion
       gas cost. -/
