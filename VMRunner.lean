@@ -192,27 +192,23 @@ def skipReasonOf (op : Operation) : Option String :=
     eligible for gas comparison against the corpus's expected `gas` value. -/
 def gasComparableOpcode (op : Operation) : Bool :=
   match op with
-  -- Dynamic per-byte: EXP costs 10 + 50*byteLen(exponent).
-  | .EXP => false
-  -- Per-word KECCAK256 (6/word) — already skipped via `skipReasonOf`.
+  -- KECCAK256: skipped via `skipReasonOf` (keccak256 is opaque). Per-word
+  -- cost not yet charged either, but irrelevant since the test is skipped.
   | .Keccak _ => false
-  -- Per-word copy operations (3/word).
-  | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => false
   -- EIP-2929 cold/warm-split account / slot access — not yet modelled.
   | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
-  -- SLOAD: Constantinople flat 200 — fixed ✓. SSTORE: `Gas.sstoreCost`
-  -- implements first-write EIP-1283 semantics (the dominant VMTests
-  -- pattern: each slot is SSTORE'd at most once per frame). For tests
-  -- that SSTORE the same slot twice it would over-charge (5000 vs 200
-  -- for the second dirty write), but those tests still won't fail —
-  -- they'll just stay outside gas-checked mode if our cost differs.
+  -- SLOAD: Constantinople flat 50 (Frontier value used by corpus).
+  -- SSTORE: pre-EIP-1283 schedule via `Gas.sstoreCost`. Both fixed ✓.
   | .SLOAD | .SSTORE => true
+  -- Per-word / per-byte / per-byteLen costs now charged dynamically in
+  -- stepF (and proved in Step): CALLDATACOPY/CODECOPY/RETURNDATACOPY/
+  -- MCOPY use `Gas.copyWordCost`, LOG uses `Gas.logDataCost`, EXP uses
+  -- `Gas.expByteCost`.
+  | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => true
+  | .EXP | .Log _ => true
   -- Out-of-scope / dynamic system ops.
   | .CREATE | .CREATE2 | .CALL | .CALLCODE
   | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => false
-  -- LOG base is 375 + 375*topics; the per-byte (8/byte) data cost isn't
-  -- modelled.
-  | .Log _ => false
   | _ => true
 
 /-- Outcome of a full bytecode scan. `skipReason` overrides everything

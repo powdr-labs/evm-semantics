@@ -122,11 +122,13 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
   | EXP =>
     match h_stack : s.stack, h with
     | a :: b :: rest, h =>
-        cases h
-        -- `stepF` uses the fast modular-exponentiation `expFast`; the relation
-        -- `Step.exp` uses the `exp` specification. They agree (`expFast_eq_exp`).
-        rw [UInt256.expFast_eq_exp]
-        exact .exp s a b rest argOpt h_dec h_running h_gas h_stack
+        by_cases h_dyn : Gas.expByteCost s.executionEnv.fork b
+                          ≤ (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StopArith .EXP)) h_gas).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          rw [UInt256.expFast_eq_exp]
+          exact .exp s a b rest argOpt h_dec h_running h_gas h_stack h_dyn
+        · simp [h_dyn] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | SIGNEXTEND =>
@@ -420,8 +422,13 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
       by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .CALLDATACOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
-        cases h
-        exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+        by_cases h_dyn : Gas.copyWordCost sz ≤
+            ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .CALLDATACOPY))
+                            h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
@@ -433,8 +440,13 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
       by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .CODECOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
-        cases h
-        exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+        by_cases h_dyn : Gas.copyWordCost sz ≤
+            ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .CODECOPY))
+                            h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
@@ -463,9 +475,14 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
         by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .RETURNDATACOPY)) h_gas).canExpandMemory
                            dOff.toNat sz.toNat
         · simp [h_mem] at h
-          cases h
-          exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-                  (Nat.le_of_not_lt h_oob) h_mem
+          by_cases h_dyn : Gas.copyWordCost sz ≤
+              ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .RETURNDATACOPY))
+                              h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
+          · simp [h_dyn] at h
+            cases h
+            exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+                    (Nat.le_of_not_lt h_oob) h_mem h_dyn
+          · simp [h_dyn] at h
         · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
@@ -663,8 +680,13 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
       by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MCOPY)) h_gas).canExpandMemory2
                          dOff.toNat sz.toNat sOff.toNat sz.toNat
       · simp [h_mem] at h
-        cases h
-        exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+        by_cases h_dyn : Gas.copyWordCost sz ≤
+            ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MCOPY))
+                            h_gas).consumeMemExp2 dOff.toNat sz.toNat sOff.toNat sz.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
@@ -716,23 +738,28 @@ theorem log_sound (s : State) (op : Operation.LogOp)
       by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Log op)) h_gas).canExpandMemory
                          offset.toNat size.toNat
       · simp [h_mem] at h
-        cases h_pop : stepF.popN rest op.topics.val with
-        | some p =>
-          obtain ⟨topics, rest'⟩ := p
-          simp [h_pop] at h
-          cases h
-          obtain ⟨n⟩ := op
-          have ⟨h_len, h_split⟩ := stepF.popN_correct rest n.val topics rest' h_pop
-          have h_perm' : s.executionEnv.permitStateMutation = true := by
-            simp at h_perm; exact h_perm
-          have h_stack' : s.stack = offset :: size :: topics ++ rest' := by
-            rw [h_stack, h_split]; rfl
-          exact Step.log s n offset size topics rest' argOpt h_dec h_running h_perm'
-                         h_gas h_len h_stack' h_mem
-        | none =>
-          simp [h_pop] at h
-          unfold underflow at h
-          cases h
+        by_cases h_dyn : Gas.logDataCost size ≤
+            ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.Log op))
+                            h_gas).consumeMemExp offset.toNat size.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h_pop : stepF.popN rest op.topics.val with
+          | some p =>
+            obtain ⟨topics, rest'⟩ := p
+            simp [h_pop] at h
+            cases h
+            obtain ⟨n⟩ := op
+            have ⟨h_len, h_split⟩ := stepF.popN_correct rest n.val topics rest' h_pop
+            have h_perm' : s.executionEnv.permitStateMutation = true := by
+              simp at h_perm; exact h_perm
+            have h_stack' : s.stack = offset :: size :: topics ++ rest' := by
+              rw [h_stack, h_split]; rfl
+            exact Step.log s n offset size topics rest' argOpt h_dec h_running h_perm'
+                           h_gas h_len h_stack' h_mem h_dyn
+          | none =>
+            simp [h_pop] at h
+            unfold underflow at h
+            cases h
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)

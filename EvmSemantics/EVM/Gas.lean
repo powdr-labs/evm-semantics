@@ -147,12 +147,15 @@ def Gas.copyWordCost (size : UInt256) : Nat :=
 def Gas.logDataCost (size : UInt256) : Nat :=
   8 * size.toNat
 
-/-- Per-byte EXP cost: `50 · byteLen(exponent)` post-Spurious-Dragon
-    (EIP-160). Both `Constantinople` and `Cancun` use the 50-per-byte
-    schedule. `byteLen(0) = 0`. -/
-def Gas.expByteCost (exponent : UInt256) : Nat :=
+/-- Per-byte EXP cost. The per-byte multiplier is `10` at Frontier and
+    `50` post-Spurious-Dragon (EIP-160). The legacy ethereum/tests
+    "Constantinople" corpus uses the Frontier rate, so `Constantinople`
+    selects `10`; `Cancun` uses the modern `50`. `byteLen(0) = 0`. -/
+def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
   if exponent.toNat = 0 then 0
-  else 50 * (Nat.log2 exponent.toNat / 8 + 1)
+  else
+    let perByte := match fork with | .Constantinople => 10 | .Cancun => 50
+    perByte * (Nat.log2 exponent.toNat / 8 + 1)
 
 end EVM
 end EvmSemantics
