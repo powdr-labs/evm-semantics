@@ -80,11 +80,11 @@ def consumeGas (s : State) (n : Nat) (_h : n ≤ s.gasAvailable) : State :=
     `[offset, offset+sz)`. Used as the precondition of `consumeMemExp` and
     as the `h_mem` hypothesis on the memory-touching `Step` rules. -/
 abbrev canExpandMemory (s : State) (offset sz : Nat) : Prop :=
-  MachineState.memExpansionDelta s.activeWords.toNat offset sz ≤ s.gasAvailable.toNat
+  MachineState.memExpansionDelta s.activeWords.toNat offset sz ≤ s.gasAvailable
 
 /-- Two-range version of `canExpandMemory`, for MCOPY (read and write ranges). -/
 abbrev canExpandMemory2 (s : State) (off1 sz1 off2 sz2 : Nat) : Prop :=
-  MachineState.memExpansionDelta2 s.activeWords.toNat off1 sz1 off2 sz2 ≤ s.gasAvailable.toNat
+  MachineState.memExpansionDelta2 s.activeWords.toNat off1 sz1 off2 sz2 ≤ s.gasAvailable
 
 /-- Charge memory-expansion gas for the byte range `[offset, offset+sz)` and
     advance the active-words high-water mark. The hypothesis `h` witnesses
