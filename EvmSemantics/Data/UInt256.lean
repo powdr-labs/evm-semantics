@@ -121,6 +121,7 @@ def smod (a b : UInt256) : UInt256 :=
   if b.toNat = 0 then ⟨0⟩
   else ofSignedInt (a.toSignedNat.tmod b.toSignedNat)
 
+/-- SLT: signed less-than, returning `1` or `0`. -/
 def slt (a b : UInt256) : UInt256 :=
   if a.toSignedNat < b.toSignedNat then ofNat 1 else ofNat 0
 /-- SGT: signed greater-than. -/

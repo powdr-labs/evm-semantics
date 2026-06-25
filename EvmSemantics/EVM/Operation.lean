@@ -1,7 +1,7 @@
 module
 
-import Batteries.Tactic.Lint.Misc
-import Batteries.Tactic.Lint.Simp
+public import Batteries.Tactic.Lint.Misc
+public import Batteries.Tactic.Lint.Simp
 
 /-!
 `Operation` — the EVM instruction set, mirrored from `EvmYul.Operations`.
