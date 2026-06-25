@@ -12,11 +12,18 @@ scope and `VMTESTS.md` for the full harness writeup and known gaps.
 
 ## Get the corpus (one-time)
 
+Pin to the **exact** `CORPUS_REV` that CI uses (in `.github/workflows/ci.yml`) —
+the committed `.github/vmtests-baseline.txt` was generated against that revision,
+so a different corpus HEAD will make your counts and any refreshed baseline
+disagree with CI:
+
 ```sh
-git clone --depth 1 https://github.com/ethereum/legacytests
+REV=$(grep -m1 'CORPUS_REV:' .github/workflows/ci.yml | awk '{print $2}')
+git clone https://github.com/ethereum/legacytests
+git -C legacytests checkout "$REV"
 ```
-The suite lives in `legacytests/Constantinople/VMTests`. (CI sparse-fetches the
-same dir pinned to `CORPUS_REV` in `.github/workflows/ci.yml`.)
+The suite lives in `legacytests/Constantinople/VMTests`. (CI does a sparse
+blobless fetch of just that dir at the same rev.)
 
 ## Run
 

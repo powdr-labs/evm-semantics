@@ -7,9 +7,12 @@ calls, no transaction processing, uniform gas.
 
 ## How to run
 ```
-# one-time: fetch the corpus (the LegacyTests/ dir in ethereum/tests is a
-# submodule that points at this repo)
-git clone --depth 1 https://github.com/ethereum/legacytests
+# one-time: fetch the corpus and pin it to the CORPUS_REV that CI uses and that
+# .github/vmtests-baseline.txt was generated against (the LegacyTests/ dir in
+# ethereum/tests is a submodule that points at this repo)
+REV=$(grep -m1 'CORPUS_REV:' .github/workflows/ci.yml | awk '{print $2}')
+git clone https://github.com/ethereum/legacytests
+git -C legacytests checkout "$REV"
 
 lake build vmtests
 ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests
@@ -110,10 +113,14 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
   (so the test isn't gas-checked) or the loop legitimately runs to the
   evaluator's `fuel = 2_000_000` cap.
 
-### StackOverflow not raised executably
-`stepF` enforces no 1024-deep stack limit; the cap exists only in the relation
-`Step` (`Step.lean`). No VMTest in the suite currently turns this into a mismatch,
-but it remains a divergence between `stepF` and `Step`.
+### StackOverflow not enforced
+`stepF` enforces no 1024-deep stack limit. The relation `Step` has a
+`stackOverflow` constructor, but its *success* rules (e.g. `push0`, `pushN`)
+carry no stack-length guard, so from a near-full stack both a successful push
+and the `stackOverflow` successor are derivable — `Step` doesn't make the cap
+exclusive either. No VMTest in the suite currently turns this into a mismatch,
+but closing it needs guards on the `Step` success rules *and* a check in
+`stepF`.
 
 ## Evaluator behavior relied upon
 - **End-of-code implicit STOP.** `Decode.decodeAt` returns `(STOP, none)` for

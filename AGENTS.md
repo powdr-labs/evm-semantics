@@ -80,10 +80,21 @@ memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
 EIP-8024. **Excluded:** CALL family, CREATE/CREATE2, SELFDESTRUCT, transaction
 processing, block validation, precompiles, RLP.
 
-**Known gaps** (tracked in `VMTESTS.md`): push-data-aware jumpdest validation,
-executable `StackOverflow` (only the relation enforces the 1024 cap), concrete
-Keccak (`keccak256` is `opaque`, returns 0), and dynamic gas costs (SSTORE/cold-
-warm/per-word add-ons are stubbed at cost 1 with `TODO(dynamic)` in `Gas.lean`).
+**Known gaps** (tracked in `VMTESTS.md`):
+- **Push-data-aware jumpdest validation** — JUMP/JUMPI don't reject a target
+  inside PUSH immediate data.
+- **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
+  `Step` has a `stackOverflow` constructor, its *success* rules (e.g. `push0`,
+  `pushN`) carry no stack-length guard, so a near-full stack admits both a
+  successful push and the `stackOverflow` successor. Closing this needs guards
+  on the `Step` success rules *and* a check in `stepF`.
+- **Concrete Keccak** — `keccak256` is `opaque` and returns 0.
+- **Dynamic gas.** `Gas.cost` charges the real base fee for every opcode. Two
+  unmodelled kinds: (a) *state-dependent* opcodes (SSTORE/SLOAD, EIP-2929
+  cold/warm reads, CALL/CREATE/SELFDESTRUCT) are stubbed at cost `1` with a
+  `TODO(dynamic)` comment; (b) *per-word/byte/topic* ops (EXP, `*COPY`, LOG,
+  KECCAK256) keep their correct static base with **no** marker. Don't use
+  `TODO(dynamic)` as the full list — `VMRunner.gasComparableOpcode` is the gate.
 
 ## Adding or changing an opcode
 
