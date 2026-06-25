@@ -45,8 +45,8 @@ lake lint                           # Batteries runLinter over the EvmSemantics 
 Three views of the same semantics, with `Step` as the source of truth:
 
 - **`Step : State → State → Prop`** (`EVM/Step.lean`) — small-step relation,
-  ~89 constructors: one success constructor per opcode plus generic exception
-  constructors. Every success constructor carries `h_running : s.halt =
+  90 constructors (81 success, one per opcode, + 9 generic exception
+  constructors parametric over the operation). Every success constructor carries `h_running : s.halt =
   .Running` and `h_gas : Gas.cost op ≤ s.gasAvailable.toNat` premises;
   `consumeGas` takes the gas-sufficiency proof explicitly so Nat subtraction is
   provably safe.

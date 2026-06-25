@@ -56,7 +56,7 @@ graph TD
     end
 
     subgraph "Semantics (three views + proof)"
-        Step["EVM/Step.lean<br/>Step relation (small-step Prop)<br/>~89 constructors"]
+        Step["EVM/Step.lean<br/>Step relation (small-step Prop)<br/>90 constructors"]
         BigStep["EVM/BigStep.lean<br/>Steps (rtc) · Eval (big-step)"]
         StepF["EVM/StepF.lean<br/>stepF executable shadow<br/>+ 14 per-group helpers"]
         Equiv["EVM/Equiv.lean<br/>stepF_sound (no sorry)<br/>+ 14 helper lemmas"]

@@ -42,9 +42,16 @@ trivial program.
 - **Excluded from v1:** `CALL` family, `CREATE`/`CREATE2`, `SELFDESTRUCT`,
   transaction processing (`Υ`), block validation, precompiled
   contracts, RLP encoding.
-- **Gas:** uniform 1 unit per opcode. The shape of the `OutOfGas`
-  exception rule is faithful; only the cost function is a stub. Replacing
-  it with the Yellow Paper schedule is local to `EVM/Gas.lean`.
+- **Gas:** `Gas.cost` charges the real Yellow-Paper **base** fee for
+  every opcode (e.g. `ADD`=3, `MUL`=5, `EXP`=10, `KECCAK256`=30,
+  `JUMPI`=10, `TLOAD`/`TSTORE`=100). The opcodes whose real cost has a
+  *dynamic* component our model doesn't yet track — SLOAD/SSTORE and the
+  EIP-2929 cold/warm `BALANCE`/`EXT*` reads, plus the out-of-scope
+  CALL/CREATE/SELFDESTRUCT family — are stubbed at cost `1` with a
+  `TODO(dynamic)` comment; per-word/per-byte/per-topic add-ons
+  (copies, LOG, KECCAK256) keep their static base only. The shape of the
+  `OutOfGas` exception rule is faithful throughout; completing the
+  schedule is local to `EVM/Gas.lean`.
 - **World state:** modelled as plain functions, not hash maps —
   `Storage = UInt256 → UInt256`, `AccountMap = AccountAddress → Account`,
   address sets as `α → Prop`. This trades enumerability for clean
@@ -59,8 +66,8 @@ EvmSemantics.lean               -- root re-exports
 Main.lean                       -- demo executable
 EvmSemantics/
   Data/
-    Stack.lean                  -- list-backed stack with popₙ / exchange
     UInt256.lean                -- 256-bit words, modular arithmetic
+                                --   (the operand stack is plain `List UInt256`)
   State/
     Account.lean                -- AccountAddress, Storage, Account, AccountMap
     BlockHeader.lean            -- block-context fields read by BLOCK ops
@@ -72,7 +79,7 @@ EvmSemantics/
   EVM/
     Operation.lean              -- 14-constructor Operation ADT, + EIP-8024
     Decode.lean                 -- byte → Operation + immediate decoder
-    Gas.lean                    -- gas cost function (currently uniform 1)
+    Gas.lean                    -- gas cost (real base fees; dynamic parts stubbed)
     Exception.lean              -- 8-variant ExecutionException
     State.lean                  -- EVM.State (pc, stack, halt, ...)
     Halted.lean                 -- ExecutionResult + State.toResult
@@ -124,7 +131,8 @@ on any warning) and `lake lint` on every push and PR.
 
 - **`Step : EVM.State → EVM.State → Prop`** (small-step). One
   constructor per opcode for the success path, plus generic exception
-  constructors parametric over the operation. Total: 89 constructors.
+  constructors parametric over the operation. Total: 90 constructors
+  (81 success + 9 exception).
 - **`Eval : EVM.State → ExecutionResult → Prop`** (big-step). Defined
   as the reflexive-transitive closure of `Step` ending in a halted
   state, projected via `State.toResult` to a flat
