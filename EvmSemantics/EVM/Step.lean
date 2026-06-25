@@ -69,7 +69,10 @@ namespace State
 
 /-- Subtract `n` from the available gas. The proof `h` witnesses that the
     subtraction does not underflow; without it `consumeGas` would silently
-    saturate at `0`, divorcing the function from its precondition. -/
+    saturate at `0`, divorcing the function from its precondition. The
+    proof is currently unused in the body (Nat subtraction is total) but
+    keeps the call sites from accidentally subtracting too much. -/
+@[nolint unusedArguments]
 def consumeGas (s : State) (n : Nat) (_h : n ≤ s.gasAvailable.toNat) : State :=
   { s with gasAvailable := UInt256.ofNat (s.gasAvailable.toNat - n) }
 
@@ -80,6 +83,8 @@ def decoded (s : State) : Option (Operation × Option (UInt256 × Nat)) :=
 
 end State
 
+/-- The small-step relation. One constructor per opcode for the success
+    path, plus generic exception constructors at the bottom. -/
 inductive Step : State → State → Prop
 
   ----------------------------------------------------------------------------
@@ -869,7 +874,7 @@ inductive Step : State → State → Prop
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.STOP, arg))
         (h_running : s.halt = .Running)
-      : Step s { s with halt := .Success, H_return := .empty }
+      : Step s { s with halt := .Success, hReturn := .empty }
 
   | return_ (s : State) (offset size : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
@@ -880,7 +885,7 @@ inductive Step : State → State → Prop
       : Step s
           (let bs := MachineState.readPadded s.memory offset.toNat size.toNat
            { (s.consumeGas (Gas.cost .RETURN) h_gas) with
-              halt := .Returned, H_return := bs, stack := rest })
+              halt := .Returned, hReturn := bs, stack := rest })
 
   | revert (s : State) (offset size : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
@@ -891,7 +896,7 @@ inductive Step : State → State → Prop
       : Step s
           (let bs := MachineState.readPadded s.memory offset.toNat size.toNat
            { (s.consumeGas (Gas.cost .REVERT) h_gas) with
-              halt := .Reverted, H_return := bs, stack := rest })
+              halt := .Reverted, hReturn := bs, stack := rest })
 
   ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).

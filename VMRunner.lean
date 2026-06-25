@@ -137,7 +137,7 @@ def buildState (testObj : Json) : State :=
       blobVersionedHashes := #[] }
   { toMachineState :=
       { gasAvailable := hugeGas, activeWords := ⟨0⟩
-        memory := .empty, returnData := .empty, H_return := .empty }
+        memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
     substate     := Substate.empty
     executionEnv := execEnv
@@ -255,8 +255,8 @@ def runTest (testObj : Json) : Outcome :=
         | some msg => .fail msg
         | none =>
           let outExp := hexToBytes (strField testObj "out")
-          if sf.H_return.toList == outExp.toList then .pass
-          else .fail s!"out mismatch ({sf.H_return.size}B vs {outExp.size}B)"
+          if sf.hReturn.toList == outExp.toList then .pass
+          else .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
 
 ----------------------------------------------------------------------------
 -- Tally + file walking
