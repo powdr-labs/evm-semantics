@@ -672,14 +672,16 @@ theorem push_sound (s : State) (op : Operation.PushOp) (argOpt : Option (UInt256
   unfold stepF.push at h
   -- Destructure op into its width Fin field.
   obtain ⟨⟨w, hw⟩⟩ := op
-  -- Case-split on the width's Nat value, with dependent matching to refine hw.
-  match w, hw, h_dec, h with
-  | 0, hw, h_dec, h =>
+  -- Case-split on the width's Nat value; we include `h_gas` in the match so
+  -- its type gets refined alongside the pattern (the dependent gas cost
+  -- differs between `Push ⟨0,_⟩` and `Push ⟨_+1,_⟩`).
+  match w, hw, h_dec, h_gas, h with
+  | 0, _, h_dec, h_gas, h =>
     -- PUSH0 case: stepF returns .ok (push 0). argOpt is unused.
     simp at h
     cases h
     exact Step.push0 s argOpt h_dec h_running h_gas
-  | k+1, hw, h_dec, h =>
+  | k+1, hw, h_dec, h_gas, h =>
     -- PUSHk case: width is k+1, argOpt determines whether we succeed.
     match h_arg : argOpt, h with
     | some (d, n), h =>

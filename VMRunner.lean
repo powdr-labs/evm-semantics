@@ -106,8 +106,9 @@ def mkAccount (accJson : Json) : Account :=
 
 def hugeGas : Nat := 2 ^ 63
 
-/-- Assemble the initial `State` from a VMTest `exec`/`env`/`pre`. -/
-def buildState (testObj : Json) : State :=
+/-- Assemble the initial `State` from a VMTest `exec`/`env`/`pre`, using
+    `gas` as the initial `gasAvailable`. -/
+def buildStateWith (testObj : Json) (gas : Nat) : State :=
   let exec := subObj testObj "exec"
   let env  := subObj testObj "env"
   let accountMap : AccountMap :=
@@ -136,7 +137,7 @@ def buildState (testObj : Json) : State :=
       permitStateMutation := true
       blobVersionedHashes := #[] }
   { toMachineState :=
-      { gasAvailable := hugeGas, activeWords := ⟨0⟩
+      { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
     substate     := Substate.empty
@@ -145,6 +146,10 @@ def buildState (testObj : Json) : State :=
     stack        := []
     execLength   := 0
     halt         := .Running }
+
+/-- Default `buildState`: inject `hugeGas` so `OutOfGas` never fires. Used
+    for tests that aren't gas-comparable (any opcode with dynamic cost). -/
+def buildState (testObj : Json) : State := buildStateWith testObj hugeGas
 
 ----------------------------------------------------------------------------
 -- Driver
@@ -166,35 +171,75 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
 -- Opcode pre-scan
 ----------------------------------------------------------------------------
 
-/-- Reason (if any) the opcode forces the test to be skipped. -/
+/-- Reason (if any) the opcode forces the test to be skipped *outright*
+    (regardless of gas mode). `GAS` is intentionally not listed here — it's
+    fine under gas-compared mode (the pushed value is then correct); under
+    hugeGas mode the parent decides via `usesGas` below. -/
 def skipReasonOf (op : Operation) : Option String :=
   match op with
   | .System .CALL | .System .CALLCODE | .System .DELEGATECALL | .System .STATICCALL
   | .System .CREATE | .System .CREATE2 | .System .SELFDESTRUCT => some "unsupported"
   | .Keccak _        => some "keccak"
   | .Env .EXTCODEHASH => some "keccak"
-  | .StackMemFlow .GAS => some "gas"
   | _ => none
 
-/-- Scan `code` for an opcode that forces a skip. On an undefined byte,
-    advance by 1 and keep scanning (so an unsupported op after a data byte is
-    not missed); on a known op advance past its immediate (`1 + argBytes`). -/
-partial def scanCode (code : ByteArray) (pc : Nat) : Option String :=
-  if pc ≥ code.size then none
+/-- True when this opcode's `Gas.cost` value matches the real EVM's fee
+    schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
+    component). A test whose bytecode contains only such opcodes is
+    eligible for gas comparison against the corpus's expected `gas` value. -/
+def gasComparableOpcode (op : Operation) : Bool :=
+  match op with
+  -- Dynamic per-byte: EXP costs 10 + 50*byteLen(exponent).
+  | .EXP => false
+  -- Per-word KECCAK256 (6/word) — already skipped via `skipReasonOf`.
+  | .Keccak _ => false
+  -- Per-word copy operations (3/word).
+  | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => false
+  -- EIP-2929 cold/warm-split account / slot access.
+  | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
+  | .SLOAD | .SSTORE => false
+  -- Out-of-scope / dynamic system ops.
+  | .CREATE | .CREATE2 | .CALL | .CALLCODE
+  | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => false
+  -- LOG base is 375 + 375*topics; the per-byte (8/byte) data cost isn't
+  -- modelled.
+  | .Log _ => false
+  | _ => true
+
+/-- Outcome of a full bytecode scan. `skipReason` overrides everything
+    else; otherwise `gasComparable` says whether the test can use its real
+    `exec.gas` and have its remaining-`gas` field compared. -/
+structure ScanResult where
+  skipReason    : Option String
+  gasComparable : Bool
+  usesGas       : Bool       -- bytecode contains the `GAS` opcode
+  deriving Inhabited
+
+/-- Scan `code` for opcodes that force a skip and track whether the test is
+    gas-comparable. On an undefined byte, advance by 1 and keep scanning;
+    on a known op advance past its immediate (`1 + argBytes`). -/
+partial def scanCode (code : ByteArray) (pc : Nat)
+    (gasOk : Bool := true) (sawGas : Bool := false) : ScanResult :=
+  if pc ≥ code.size then
+    { skipReason    := none
+      gasComparable := gasOk
+      usesGas       := sawGas }
   else
     match Decode.opcodeOf (code.get! pc) with
     | some op =>
       match skipReasonOf op with
-      | some r => some r
-      | none   => scanCode code (pc + 1 + op.argBytes)
-    | none => scanCode code (pc + 1)
+      | some r => { skipReason := some r, gasComparable := false, usesGas := sawGas }
+      | none   =>
+        let sawGas' := sawGas || (op == .GAS)
+        scanCode code (pc + 1 + op.argBytes) (gasOk && gasComparableOpcode op) sawGas'
+    | none => scanCode code (pc + 1) gasOk sawGas
 
 ----------------------------------------------------------------------------
 -- Outcome + comparison
 ----------------------------------------------------------------------------
 
 inductive Outcome where
-  | pass
+  | pass (gasChecked : Bool := false)
   | fail (msg : String)
   | skip (reason : String)   -- "unsupported" | "keccak" | "gas"
   | incon (msg : String)
@@ -232,31 +277,48 @@ def cmpAccounts (sf : State) (testObj : Json) : Option String := Id.run do
 
 /-- Run one test object and classify the outcome. -/
 def runTest (testObj : Json) : Outcome :=
-  let code := hexToBytes (strField (subObj testObj "exec") "code")
-  match scanCode code 0 with
+  let exec := subObj testObj "exec"
+  let code := hexToBytes (strField exec "code")
+  let scan := scanCode code 0
+  match scan.skipReason with
   | some r => .skip r
   | none =>
-    let s0 := buildState testObj
-    let hasPost := hasField testObj "post"
-    match run s0 2000000 with
-    | .error .OutOfFuel => .incon "fuel exhausted"
-    | .error e =>
-      if hasPost then .fail s!"expected success, got {repr e}"
-      else .pass                              -- exception expected, got exception
-    | .ok sf =>
-      if !hasPost then
-        match sf.halt with
-        | .Reverted => .pass                  -- REVERT counts as expected failure
-        | h =>
-          let extra := if sf.stack.length > 1024 then " (overflow-suspected)" else ""
-          .incon s!"expected exception, got {repr h}{extra}"
-      else
-        match cmpAccounts sf testObj with
-        | some msg => .fail msg
-        | none =>
-          let outExp := hexToBytes (strField testObj "out")
-          if sf.hReturn.toList == outExp.toList then .pass
-          else .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
+    -- Gas-comparable iff every opcode has the EVM's fee-schedule-exact
+    -- fixed cost. Tests with the `GAS` opcode are only OK under
+    -- gas-comparable mode (under hugeGas, the pushed value would be
+    -- meaningless).
+    let gasCompare := scan.gasComparable
+    if scan.usesGas && !gasCompare then
+      .skip "gas"
+    else
+      let inputGas := hexToNat (strField exec "gas")
+      let s0 := buildStateWith testObj (if gasCompare then inputGas else hugeGas)
+      let hasPost := hasField testObj "post"
+      match run s0 2000000 with
+      | .error .OutOfFuel => .incon "fuel exhausted"
+      | .error e =>
+        if hasPost then .fail s!"expected success, got {repr e}"
+        else .pass                              -- exception expected, got exception
+      | .ok sf =>
+        if !hasPost then
+          match sf.halt with
+          | .Reverted => .pass                  -- REVERT counts as expected failure
+          | h =>
+            let extra := if sf.stack.length > 1024 then " (overflow-suspected)" else ""
+            .incon s!"expected exception, got {repr h}{extra}"
+        else
+          match cmpAccounts sf testObj with
+          | some msg => .fail msg
+          | none =>
+            let outExp := hexToBytes (strField testObj "out")
+            if sf.hReturn.toList != outExp.toList then
+              .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
+            else if gasCompare then
+              let expGas := hexToNat (strField testObj "gas")
+              if sf.gasAvailable != expGas then
+                .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
+              else .pass (gasChecked := true)
+            else .pass
 
 ----------------------------------------------------------------------------
 -- Tally + file walking
@@ -264,6 +326,7 @@ def runTest (testObj : Json) : Outcome :=
 
 structure Tally where
   pass : Nat := 0
+  passGasChecked : Nat := 0    -- of `pass`, how many also matched the `gas` field
   fail : Nat := 0
   skipUns : Nat := 0
   skipKec : Nat := 0
@@ -273,7 +336,8 @@ structure Tally where
   deriving Inhabited
 
 def Tally.add (t u : Tally) : Tally :=
-  { pass := t.pass + u.pass, fail := t.fail + u.fail
+  { pass := t.pass + u.pass, passGasChecked := t.passGasChecked + u.passGasChecked
+    fail := t.fail + u.fail
     skipUns := t.skipUns + u.skipUns, skipKec := t.skipKec + u.skipKec
     skipGas := t.skipGas + u.skipGas, incon := t.incon + u.incon
     crash := t.crash + u.crash }
@@ -282,7 +346,8 @@ def Tally.total (t : Tally) : Nat :=
   t.pass + t.fail + t.skipUns + t.skipKec + t.skipGas + t.incon + t.crash
 
 def Tally.line (t : Tally) : String :=
-  s!"pass={t.pass} fail={t.fail} skip(unsup={t.skipUns} keccak={t.skipKec} gas={t.skipGas}) " ++
+  s!"pass={t.pass} (gas-checked={t.passGasChecked}) fail={t.fail} " ++
+  s!"skip(unsup={t.skipUns} keccak={t.skipKec} gas={t.skipGas}) " ++
   s!"incon={t.incon} crash={t.crash}"
 
 /-- Collect all `*.json` files under `p` (recursively), sorted. -/
@@ -300,8 +365,10 @@ partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
 -- Child mode: process ONE file, print machine-readable result lines.
 ----------------------------------------------------------------------------
 
+/-- The tag for an `Outcome`, with optional message. The `pass` variant
+    uses `msg = "gas"` to mark a gas-checked pass, `""` otherwise. -/
 def outcomeTag : Outcome → String × String
-  | .pass    => ("PASS", "")
+  | .pass gc => ("PASS", if gc then "gas" else "")
   | .fail m  => ("FAIL", m)
   | .incon m => ("INCON", m)
   | .skip r  => ("SKIP", r)
@@ -341,7 +408,10 @@ def runDir (self : String) (dir : System.FilePath) (timeoutSecs : Nat) : IO Tall
         | tag :: name :: rest =>
           let msg := String.intercalate "\t" rest
           match tag with
-          | "PASS"  => t := { t with pass := t.pass + 1 }
+          | "PASS"  =>
+            t := { t with pass := t.pass + 1 }
+            if msg == "gas" then
+              t := { t with passGasChecked := t.passGasChecked + 1 }
           | "FAIL"  => t := { t with fail := t.fail + 1 }; notes := notes.push s!"FAIL {name}: {msg}"
           | "INCON" => t := { t with incon := t.incon + 1 }
           | "SKIP"  => match msg with
