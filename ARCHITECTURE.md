@@ -219,8 +219,9 @@ flowchart LR
 - **`Step`** (`EVM/Step.lean`) — each success constructor names its premises
   explicitly. The typical shape is `h_op` (decoded operation), `h_running`,
   `h_gas` (`Gas.cost op ≤ s.gasAvailable`, a `Nat` `≤`), and an `h_stack` shape,
-  but it varies: the halts (`Step.stop`, …) carry no `h_gas`/`h_stack` and
-  stackless reads omit `h_stack`. `consumeGas` takes the gas-sufficiency proof
+  but it varies: `Step.stop` carries no `h_gas`/`h_stack` (while
+  `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`) and stackless reads omit
+  `h_stack`. `consumeGas` takes the gas-sufficiency proof
   as an argument so the saturating subtraction is provably safe. `keccak256` is an `opaque` function here. Halted states have
   no successors (`Step.not_from_halted`).
 - **`Eval`** (`EVM/BigStep.lean`) — `Steps` is the reflexive-transitive closure;

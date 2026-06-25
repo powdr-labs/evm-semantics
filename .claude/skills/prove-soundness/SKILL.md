@@ -45,9 +45,11 @@ exported and does not go through `stepF`.
   (`s.decoded = some (.OP, arg)`), `h_running`, `h_gas`
   (`Gas.cost op ≤ s.gasAvailable` — `gasAvailable` is a `Nat`, no `.toNat`), and
   an `h_stack` shape. Notable exceptions to check before chasing arguments:
-  `Step.stop` (and the other halts) has **only** `h_op` + `h_running` (no
-  `h_gas`, no `h_stack`); stackless reads like `address`/`coinbase`/`pc` have
-  `h_gas` but **no** `h_stack`. Read the actual constructor. Supply each premise
+  `Step.stop` has **only** `h_op` + `h_running` (no `h_gas`, no `h_stack`) —
+  but the other halts differ: `Step.return_`/`Step.revert` carry `h_gas`,
+  `h_stack`, *and* an `h_mem` memory-expansion premise. Stackless reads like
+  `address`/`coinbase`/`pc` have `h_gas` but **no** `h_stack`. Read the actual
+  constructor. Supply each premise
   from the helper's match context; `consumeGas` needs the gas proof explicitly.
 - **List witnesses.** `log_sound` recovers the topics list via
   `popN_correct` (in `StepF.lean`): `popN stk k = some (topics, rest)` implies
