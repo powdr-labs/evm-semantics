@@ -1,5 +1,6 @@
 module
 
+import Mathlib.Tactic.Linter.Style
 public import Batteries.Tactic.Lint.Misc
 public import Batteries.Tactic.Lint.Simp
 
@@ -77,7 +78,8 @@ structure DupOp where
 
 /-- SWAP1–SWAP16. -/
 structure SwapOp where
-  /-- Zero-indexed depth of the element to swap with the top (0 for `SWAP1`, …, 15 for `SWAP16`). -/
+  /-- Zero-indexed depth of the element to swap with the top
+      (0 for `SWAP1`, …, 15 for `SWAP16`). -/
   idx : Fin 16
   deriving DecidableEq, Repr, Inhabited
 
