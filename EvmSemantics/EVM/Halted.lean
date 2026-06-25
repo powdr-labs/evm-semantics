@@ -1,4 +1,6 @@
-import EvmSemantics.EVM.State
+module
+
+public import EvmSemantics.EVM.State
 
 /-!
 `ExecutionResult` and halt-related lemmas.
@@ -8,6 +10,8 @@ the `halt` field eventually leaves `.Running`. The big-step relation
 `Eval` summarises a complete execution as an `ExecutionResult`, projecting
 the final state's `halt` + output buffer down to a flat sum.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

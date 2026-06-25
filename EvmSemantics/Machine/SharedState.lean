@@ -1,7 +1,9 @@
-import EvmSemantics.State.Account
-import EvmSemantics.State.Substate
-import EvmSemantics.State.ExecutionEnv
-import EvmSemantics.Machine.MachineState
+module
+
+public import EvmSemantics.State.Account
+public import EvmSemantics.State.Substate
+public import EvmSemantics.State.ExecutionEnv
+public import EvmSemantics.Machine.MachineState
 
 /-!
 `SharedState` — the world state (`AccountMap` + accrued `Substate` +
@@ -9,6 +11,8 @@ import EvmSemantics.Machine.MachineState
 
 This is the "everything except the EVM-specific pc + stack" record.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

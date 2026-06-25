@@ -1,4 +1,6 @@
-import EvmSemantics.EVM.Step
+module
+
+public import EvmSemantics.EVM.Step
 
 /-!
 `stepF` — the executable shadow of the `Step` relation.
@@ -28,6 +30,8 @@ below) to pop the variable number of topics. `popN_correct` proves it
 preserves the list invariant `topics.length = k ∧ stk = topics ++ rest`,
 which `log_sound` uses to recover the witness list expected by `Step.log`.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

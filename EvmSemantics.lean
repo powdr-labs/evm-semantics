@@ -1,21 +1,23 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.Data.Stack
-import EvmSemantics.State.Account
-import EvmSemantics.State.BlockHeader
-import EvmSemantics.State.ExecutionEnv
-import EvmSemantics.State.Substate
-import EvmSemantics.Machine.MachineState
-import EvmSemantics.Machine.SharedState
-import EvmSemantics.EVM.Exception
-import EvmSemantics.EVM.State
-import EvmSemantics.EVM.Operation
-import EvmSemantics.EVM.Halted
-import EvmSemantics.EVM.Decode
-import EvmSemantics.EVM.Gas
-import EvmSemantics.EVM.Step
-import EvmSemantics.EVM.BigStep
-import EvmSemantics.EVM.StepF
-import EvmSemantics.EVM.Equiv
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Stack
+public import EvmSemantics.State.Account
+public import EvmSemantics.State.BlockHeader
+public import EvmSemantics.State.ExecutionEnv
+public import EvmSemantics.State.Substate
+public import EvmSemantics.Machine.MachineState
+public import EvmSemantics.Machine.SharedState
+public import EvmSemantics.EVM.Exception
+public import EvmSemantics.EVM.State
+public import EvmSemantics.EVM.Operation
+public import EvmSemantics.EVM.Halted
+public import EvmSemantics.EVM.Decode
+public import EvmSemantics.EVM.Gas
+public import EvmSemantics.EVM.Step
+public import EvmSemantics.EVM.BigStep
+public import EvmSemantics.EVM.StepF
+public import EvmSemantics.EVM.Equiv
 
 /-!
 `EvmSemantics` — a relational small-step / big-step semantics of the

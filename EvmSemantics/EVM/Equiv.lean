@@ -1,6 +1,8 @@
-import EvmSemantics.EVM.Step
-import EvmSemantics.EVM.StepF
-import EvmSemantics.EVM.BigStep
+module
+
+public import EvmSemantics.EVM.Step
+public import EvmSemantics.EVM.StepF
+public import EvmSemantics.EVM.BigStep
 
 /-!
 `Equiv` — soundness of `stepF` with respect to the relational `Step`.
@@ -30,6 +32,8 @@ Soundness is proven in two layers:
 We also export `Eval.halted_inv` (a halted state's only `Eval`
 derivation is `Eval.halted`), which doesn't depend on `stepF`.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

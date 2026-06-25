@@ -1,4 +1,6 @@
-import EvmSemantics.Data.UInt256
+module
+
+public import EvmSemantics.Data.UInt256
 
 /-!
 `MachineState` `μ` — the (shallow) machine-level state used by every EVM
@@ -10,6 +12,8 @@ We expose memory helpers used by the small-step rules: `mload`, `mstore`,
 `mstore8`, `mcopy`, `readBytes` and `writeBytes`. ByteArray reads past
 the current size are zero-padded, which matches Yellow Paper semantics.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

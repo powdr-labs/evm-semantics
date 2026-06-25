@@ -1,5 +1,7 @@
-import EvmSemantics.EVM.Step
-import EvmSemantics.EVM.Halted
+module
+
+public import EvmSemantics.EVM.Step
+public import EvmSemantics.EVM.Halted
 
 /-!
 `Eval` — the big-step relation `Eval : EVM.State → ExecutionResult → Prop`.
@@ -18,6 +20,8 @@ halted state".
 closure of `Step`, useful for stating properties that don't care about
 the final result.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

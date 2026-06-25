@@ -1,4 +1,6 @@
-import Mathlib.Data.Fin.Basic
+module
+
+public import Mathlib.Data.Fin.Basic
 
 /-!
 `UInt256` — 256-bit unsigned EVM words.
@@ -7,6 +9,8 @@ A faithful subset of `EvmYul.UInt256`. We model it as a `Fin (2^256)` wrapper,
 provide modular arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise ops, comparisons,
 and a small zoo of conversions used by the relational rules.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 
