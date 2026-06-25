@@ -1,6 +1,8 @@
-import EvmSemantics.EVM.State
-import EvmSemantics.EVM.Decode
-import EvmSemantics.EVM.Gas
+module
+
+public import EvmSemantics.EVM.State
+public import EvmSemantics.EVM.Decode
+public import EvmSemantics.EVM.Gas
 
 /-!
 `Step` — the small-step relation `Step : EVM.State → EVM.State → Prop`.
@@ -29,6 +31,8 @@ the same inductive at the bottom of the file. They are parametric in
 `op` where possible — one rule per failure mode rather than one per
 (op, failure-mode) pair.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 

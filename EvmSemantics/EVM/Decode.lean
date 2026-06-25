@@ -1,5 +1,7 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.EVM.Operation
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.EVM.Operation
 
 /-!
 `Decode` — the bytecode-byte → `Operation` mapping, plus the function
@@ -16,6 +18,8 @@ no separate argument is needed.
 The byte→opcode map mirrors the Yellow Paper instruction table; we
 return `none` for any byte not assigned to a v1-supported instruction.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM

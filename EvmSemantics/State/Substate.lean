@@ -1,5 +1,7 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.State.Account
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.State.Account
 
 /-!
 `Substate` `A` — the accrued transaction-level "extra" state that EVM
@@ -13,6 +15,8 @@ is `fun _ => False`. We're optimising for reasoning, not enumeration.
 The `logSeries` stays an `Array` since we genuinely need to inspect it
 in order (and append at the end).
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 
