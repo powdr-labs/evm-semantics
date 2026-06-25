@@ -50,8 +50,12 @@ trivial program.
   CALL/CREATE/SELFDESTRUCT family — are stubbed at cost `1` with a
   `TODO(dynamic)` comment; per-word/per-byte/per-topic add-ons
   (copies, LOG, KECCAK256) keep their static base only. The shape of the
-  `OutOfGas` exception rule is faithful throughout; completing the
-  schedule is local to `EVM/Gas.lean`.
+  `OutOfGas` exception rule is faithful throughout. Completing the schedule
+  is **not** a `Gas.cost`-only edit: the missing parts depend on stack
+  operands and world state, memory-expansion gas is already charged in
+  `stepF` (`chargeMem`/`chargeMem2`), so a change must stay in lockstep
+  across `Step`, `stepF`, the soundness proof, and the harness's
+  `VMRunner.gasComparableOpcode` gate.
 - **World state:** modelled as plain functions, not hash maps —
   `Storage = UInt256 → UInt256`, `AccountMap = AccountAddress → Account`,
   address sets as `α → Prop`. This trades enumerability for clean

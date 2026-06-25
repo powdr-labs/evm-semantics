@@ -251,9 +251,11 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
    (`pass` / `fail` / `skip` / `incon` / `crash`).
-4. **Aggregate** into a `Tally`. The parent process fans tests out across child
-   processes (`--file` mode, `parentMain`/`runDir`) so a single panic or timeout
-   loses only that test.
+4. **Aggregate** into a `Tally`. `runDir` fans the files out across in-process
+   Lean `Task` workers (`IO.asTask`, `-j` / `VMTESTS_JOBS`, default 8) — there is
+   **no subprocess isolation**, so a worker that throws is one `crash` but a hard
+   panic aborts the whole run; `--file` mode runs a single test in its own
+   process for manual isolation.
 
 CI runs the full suite non-gating against `.github/vmtests-baseline.txt`. See
 `VMTESTS.md` for results, gas-mode details, and the known evaluator gaps the

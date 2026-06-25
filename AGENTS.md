@@ -12,8 +12,8 @@ conformance harness). This file stays terse and operational.
 ## Commands
 
 ```sh
-lake build                          # build library + all executables
-lake build evm_semantics vmtests    # build just the two binaries CI builds
+lake build                          # build the default target only (evm_semantics exe + lib)
+lake build evm_semantics vmtests    # build both binaries — what CI builds; use this after touching VMRunner
 lake exe cache get                  # fetch Mathlib prebuilt oleans (after `lake update`)
 lake lint                           # Batteries runLinter over the EvmSemantics namespace
 .lake/build/bin/evm_semantics       # run the demo (PUSH1 5; PUSH1 3; ADD; STOP -> [8])
@@ -97,6 +97,11 @@ Touch these in order, then rebuild + lint + run vmtests:
    `h_running`, `h_gas`, `h_stack` premises).
 5. `EVM/StepF.lean` — the matching arm in the relevant `stepF.*` helper.
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still closes.
+7. `VMRunner.lean` — update the conformance pre-scan if the opcode's support or
+   gas status changed: `skipReasonOf` (skip unsupported opcodes) and
+   `gasComparableOpcode`. The latter has a catch-all `| _ => true`, so a new
+   opcode with a *dynamic* cost is silently treated as gas-comparable unless you
+   add it — and gas-checked runs would then compare bogus `gas`.
 
 ## CI gates (`.github/workflows/ci.yml`)
 
