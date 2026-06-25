@@ -12,7 +12,8 @@ def initState (code : ByteArray) (gas : Nat) : State :=
     { codeOwner := 0, sender := 0, source := 0, weiValue := ⟨0⟩
       calldata := .empty, code := code
       gasPrice := ⟨0⟩, header := default, depth := 0, permitStateMutation := true
-      blobVersionedHashes := #[] }
+      blobVersionedHashes := #[]
+      fork                := .Cancun }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }

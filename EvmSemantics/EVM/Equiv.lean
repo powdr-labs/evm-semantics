@@ -64,8 +64,8 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.StopArith op, argOpt))
-    (h_gas : Gas.baseCost (.StopArith op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.stopArith s (s.consumeGas (Gas.baseCost (.StopArith op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.StopArith op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.stopArith s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StopArith op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.stopArith at h
   cases op with
@@ -139,8 +139,8 @@ theorem compBit_sound (s : State) (op : Operation.CompareBitwiseOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.CompBit op, argOpt))
-    (h_gas : Gas.baseCost (.CompBit op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.compBit s (s.consumeGas (Gas.baseCost (.CompBit op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.CompBit op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.compBit s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.CompBit op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.compBit at h
   cases op with
@@ -217,8 +217,8 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Keccak op, argOpt))
-    (h_gas : Gas.baseCost (.Keccak op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.keccak s (s.consumeGas (Gas.baseCost (.Keccak op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Keccak op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.keccak s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Keccak op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.keccak at h
   cases op with
@@ -226,7 +226,7 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.Keccak .KECCAK256)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Keccak .KECCAK256)) h_gas).canExpandMemory
                          offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
@@ -239,8 +239,8 @@ theorem block_sound (s : State) (op : Operation.BlockOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Block op, argOpt))
-    (h_gas : Gas.baseCost (.Block op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.block s (s.consumeGas (Gas.baseCost (.Block op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Block op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.block s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Block op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.block at h
   cases op with
@@ -274,8 +274,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.System op, argOpt))
-    (h_gas : Gas.baseCost (.System op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.system s (s.consumeGas (Gas.baseCost (.System op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.System op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.system s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.System op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.system at h
   cases op with
@@ -283,7 +283,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.System .RETURN)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.System .RETURN)) h_gas).canExpandMemory
                          offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
@@ -295,7 +295,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.System .REVERT)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.System .REVERT)) h_gas).canExpandMemory
                          offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
@@ -314,8 +314,8 @@ theorem dup_sound (s : State) (op : Operation.DupOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Dup op, argOpt))
-    (h_gas : Gas.baseCost (.Dup op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.dup s (s.consumeGas (Gas.baseCost (.Dup op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Dup op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.dup s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Dup op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.dup at h
   match h_get : s.stack[op.idx.val]?, h with
@@ -328,8 +328,8 @@ theorem swap_sound (s : State) (op : Operation.SwapOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Swap op, argOpt))
-    (h_gas : Gas.baseCost (.Swap op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.swap s (s.consumeGas (Gas.baseCost (.Swap op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Swap op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.swap s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Swap op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.swap at h
   match h_ex : s.stack.exchange 0 (op.idx.val + 1), h with
@@ -342,8 +342,8 @@ theorem dupN_sound (s : State) (op : Operation.DupNOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.DupN op, argOpt))
-    (h_gas : Gas.baseCost (.DupN op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.dupN s (s.consumeGas (Gas.baseCost (.DupN op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.DupN op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.dupN s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.DupN op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.dupN at h
   match h_get : s.stack[op.n.val]?, h with
@@ -356,8 +356,8 @@ theorem swapN_sound (s : State) (op : Operation.SwapNOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.SwapN op, argOpt))
-    (h_gas : Gas.baseCost (.SwapN op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.swapN s (s.consumeGas (Gas.baseCost (.SwapN op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.SwapN op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.swapN s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.SwapN op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.swapN at h
   match h_ex : s.stack.exchange 0 (op.n.val + 1), h with
@@ -370,8 +370,8 @@ theorem exchange_sound (s : State) (op : Operation.ExchangeOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Exchange op, argOpt))
-    (h_gas : Gas.baseCost (.Exchange op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.exchange s (s.consumeGas (Gas.baseCost (.Exchange op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Exchange op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.exchange s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Exchange op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.exchange at h
   match h_ex : s.stack.exchange (op.n + 1) (op.m + 1), h with
@@ -384,8 +384,8 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Env op, argOpt))
-    (h_gas : Gas.baseCost (.Env op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.env s (s.consumeGas (Gas.baseCost (.Env op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Env op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.env s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.env at h
   cases op with
@@ -417,7 +417,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.Env .CALLDATACOPY)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .CALLDATACOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
@@ -430,7 +430,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.Env .CODECOPY)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .CODECOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
@@ -443,7 +443,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     match h_stack : s.stack, h with
     | a :: dOff :: sOff :: sz :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.Env .EXTCODECOPY)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .EXTCODECOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
@@ -460,7 +460,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
       · simp [h_oob] at h
       · simp [h_oob] at h
         unfold chargeMem at h
-        by_cases h_mem : (s.consumeGas (Gas.baseCost (.Env .RETURNDATACOPY)) h_gas).canExpandMemory
+        by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .RETURNDATACOPY)) h_gas).canExpandMemory
                            dOff.toNat sz.toNat
         · simp [h_mem] at h
           cases h
@@ -476,9 +476,9 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.StackMemFlow op, argOpt))
-    (h_gas : Gas.baseCost (.StackMemFlow op) ≤ s.gasAvailable)
+    (h_gas : Gas.baseCost s.executionEnv.fork (.StackMemFlow op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.stackMemFlow s
-                        (s.consumeGas (Gas.baseCost (.StackMemFlow op)) h_gas) op = .ok sf) :
+                        (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.stackMemFlow at h
   cases op with
@@ -490,11 +490,11 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     match h_stack : s.stack, h with
     | offset :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.StackMemFlow .MLOAD)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MLOAD)) h_gas).canExpandMemory
                          offset.toNat 32
       · simp [h_mem] at h
         cases h_load : MachineState.mload
-                         ((s.consumeGas (Gas.baseCost (.StackMemFlow .MLOAD)) h_gas).consumeMemExp
+                         ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MLOAD)) h_gas).consumeMemExp
                             offset.toNat 32 h_mem).toMachineState offset with
         | mk v μ' =>
           simp [h_load] at h; cases h
@@ -505,7 +505,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.StackMemFlow .MSTORE)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MSTORE)) h_gas).canExpandMemory
                          offset.toNat 32
       · simp [h_mem] at h
         cases h
@@ -517,7 +517,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.StackMemFlow .MSTORE8)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MSTORE8)) h_gas).canExpandMemory
                          offset.toNat 1
       · simp [h_mem] at h
         cases h
@@ -538,9 +538,9 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
       match h_stack : s.stack, h with
       | key :: value :: rest, h =>
         by_cases h_dyn :
-          Gas.sstoreCost (s.substate.originalStorage s.executionEnv.codeOwner key)
+          Gas.sstoreCost s.executionEnv.fork (s.substate.originalStorage s.executionEnv.codeOwner key)
                          ((s.accountMap s.executionEnv.codeOwner).storage key) value
-            ≤ (s.consumeGas (Gas.baseCost (.StackMemFlow .SSTORE)) h_gas).gasAvailable
+            ≤ (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)) h_gas).gasAvailable
         · simp [h_dyn] at h
           cases h
           exact .sstore s key value rest argOpt h_dec h_running
@@ -660,7 +660,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
       unfold chargeMem2 at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.StackMemFlow .MCOPY)) h_gas).canExpandMemory2
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .MCOPY)) h_gas).canExpandMemory2
                          dOff.toNat sz.toNat sOff.toNat sz.toNat
       · simp [h_mem] at h
         cases h
@@ -673,8 +673,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
 theorem push_sound (s : State) (op : Operation.PushOp) (argOpt : Option (UInt256 × Nat))
     (h_running : s.halt = .Running)
     (h_dec : s.decoded = some (.Push op, argOpt))
-    (h_gas : Gas.baseCost (.Push op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.push s (s.consumeGas (Gas.baseCost (.Push op)) h_gas) op argOpt = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Push op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.push s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Push op)) h_gas) op argOpt = .ok sf) :
     Step s sf := by
   unfold stepF.push at h
   -- Destructure op into its width Fin field.
@@ -701,8 +701,8 @@ theorem log_sound (s : State) (op : Operation.LogOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Log op, argOpt))
-    (h_gas : Gas.baseCost (.Log op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.log s (s.consumeGas (Gas.baseCost (.Log op)) h_gas) op = .ok sf) :
+    (h_gas : Gas.baseCost s.executionEnv.fork (.Log op) ≤ s.gasAvailable)
+    {sf : State} (h : stepF.log s (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Log op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.log at h
   by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -713,7 +713,7 @@ theorem log_sound (s : State) (op : Operation.LogOp)
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
       unfold chargeMem at h
-      by_cases h_mem : (s.consumeGas (Gas.baseCost (.Log op)) h_gas).canExpandMemory
+      by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Log op)) h_gas).canExpandMemory
                          offset.toNat size.toNat
       · simp [h_mem] at h
         cases h_pop : stepF.popN rest op.topics.val with

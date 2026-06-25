@@ -343,7 +343,7 @@ def stackMemFlow (s s' : State) :
       let acc      := s.accountMap addr
       let current  := acc.storage key
       let original := s.substate.originalStorage addr key
-      let cost     := Gas.sstoreCost original current value
+      let cost     := Gas.sstoreCost s.executionEnv.fork original current value
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
@@ -571,7 +571,7 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
     match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
-      let cost := Gas.baseCost op
+      let cost := Gas.baseCost s.executionEnv.fork op
       if h_g : cost ≤ s.gasAvailable then
         let s' := s.consumeGas cost h_g
         match op with

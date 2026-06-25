@@ -135,7 +135,8 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       header    := header
       depth     := 0
       permitStateMutation := true
-      blobVersionedHashes := #[] }
+      blobVersionedHashes := #[]
+      fork                := .Constantinople }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
@@ -185,7 +186,7 @@ def skipReasonOf (op : Operation) : Option String :=
   | .Env .EXTCODEHASH => some "keccak"
   | _ => none
 
-/-- True when this opcode's `Gas.baseCost` value matches the real EVM's fee
+/-- True when this opcode's `Gas.baseCost s.executionEnv.fork` value matches the real EVM's fee
     schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
     component). A test whose bytecode contains only such opcodes is
     eligible for gas comparison against the corpus's expected `gas` value. -/

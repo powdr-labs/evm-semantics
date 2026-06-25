@@ -3,6 +3,7 @@ module
 public import EvmSemantics.Data.UInt256
 public import EvmSemantics.State.Account
 public import EvmSemantics.State.BlockHeader
+public import EvmSemantics.EVM.Fork
 
 /-!
 `ExecutionEnv` — the per-frame execution environment `I` from the Yellow
@@ -37,6 +38,9 @@ structure ExecutionEnv where
   permitStateMutation : Bool
   /-- EIP-4844 versioned-hash list. Read by `BLOBHASH`. -/
   blobVersionedHashes : Array UInt256
+  /-- EVM hard-fork version against which gas costs and any
+      fork-conditional semantics are computed. -/
+  fork                : Fork
   deriving Inhabited
 
 end EvmSemantics
