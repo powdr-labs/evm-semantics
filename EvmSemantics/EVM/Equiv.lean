@@ -64,7 +64,7 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.StopArith op, argOpt))
-    (h_gas : Gas.cost (.StopArith op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.StopArith op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.stopArith s (s.consumeGas (Gas.cost (.StopArith op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.stopArith at h
@@ -139,7 +139,7 @@ theorem compBit_sound (s : State) (op : Operation.CompareBitwiseOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.CompBit op, argOpt))
-    (h_gas : Gas.cost (.CompBit op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.CompBit op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.compBit s (s.consumeGas (Gas.cost (.CompBit op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.compBit at h
@@ -217,7 +217,7 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Keccak op, argOpt))
-    (h_gas : Gas.cost (.Keccak op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Keccak op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.keccak s (s.consumeGas (Gas.cost (.Keccak op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.keccak at h
@@ -239,7 +239,7 @@ theorem block_sound (s : State) (op : Operation.BlockOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Block op, argOpt))
-    (h_gas : Gas.cost (.Block op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Block op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.block s (s.consumeGas (Gas.cost (.Block op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.block at h
@@ -274,7 +274,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.System op, argOpt))
-    (h_gas : Gas.cost (.System op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.System op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.system s (s.consumeGas (Gas.cost (.System op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.system at h
@@ -314,7 +314,7 @@ theorem dup_sound (s : State) (op : Operation.DupOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Dup op, argOpt))
-    (h_gas : Gas.cost (.Dup op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Dup op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.dup s (s.consumeGas (Gas.cost (.Dup op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.dup at h
@@ -328,7 +328,7 @@ theorem swap_sound (s : State) (op : Operation.SwapOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Swap op, argOpt))
-    (h_gas : Gas.cost (.Swap op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Swap op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.swap s (s.consumeGas (Gas.cost (.Swap op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.swap at h
@@ -342,7 +342,7 @@ theorem dupN_sound (s : State) (op : Operation.DupNOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.DupN op, argOpt))
-    (h_gas : Gas.cost (.DupN op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.DupN op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.dupN s (s.consumeGas (Gas.cost (.DupN op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.dupN at h
@@ -356,7 +356,7 @@ theorem swapN_sound (s : State) (op : Operation.SwapNOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.SwapN op, argOpt))
-    (h_gas : Gas.cost (.SwapN op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.SwapN op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.swapN s (s.consumeGas (Gas.cost (.SwapN op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.swapN at h
@@ -370,7 +370,7 @@ theorem exchange_sound (s : State) (op : Operation.ExchangeOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Exchange op, argOpt))
-    (h_gas : Gas.cost (.Exchange op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Exchange op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.exchange s (s.consumeGas (Gas.cost (.Exchange op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.exchange at h
@@ -384,7 +384,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Env op, argOpt))
-    (h_gas : Gas.cost (.Env op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Env op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.env s (s.consumeGas (Gas.cost (.Env op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.env at h
@@ -475,7 +475,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.StackMemFlow op, argOpt))
-    (h_gas : Gas.cost (.StackMemFlow op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.StackMemFlow op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.stackMemFlow s
                         (s.consumeGas (Gas.cost (.StackMemFlow op)) h_gas) op = .ok sf) :
     Step s sf := by
@@ -666,7 +666,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
 theorem push_sound (s : State) (op : Operation.PushOp) (argOpt : Option (UInt256 × Nat))
     (h_running : s.halt = .Running)
     (h_dec : s.decoded = some (.Push op, argOpt))
-    (h_gas : Gas.cost (.Push op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Push op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.push s (s.consumeGas (Gas.cost (.Push op)) h_gas) op argOpt = .ok sf) :
     Step s sf := by
   unfold stepF.push at h
@@ -692,7 +692,7 @@ theorem log_sound (s : State) (op : Operation.LogOp)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.Log op, argOpt))
-    (h_gas : Gas.cost (.Log op) ≤ s.gasAvailable.toNat)
+    (h_gas : Gas.cost (.Log op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.log s (s.consumeGas (Gas.cost (.Log op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.log at h
