@@ -1,4 +1,8 @@
-import EvmSemantics
+module
+
+public import EvmSemantics
+
+@[expose] public section
 
 open EvmSemantics EvmSemantics.EVM
 
@@ -11,7 +15,7 @@ def initState (code : ByteArray) (gas : Nat) : State :=
       blobVersionedHashes := #[] }
   { toMachineState :=
       { gasAvailable := UInt256.ofNat gas, activeWords := ⟨0⟩
-        memory := .empty, returnData := .empty, H_return := .empty }
+        memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap := AccountMap.empty
     substate := Substate.empty
     executionEnv := env

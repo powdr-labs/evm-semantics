@@ -1,4 +1,6 @@
-import EvmSemantics.Data.UInt256
+module
+
+public import EvmSemantics.Data.UInt256
 
 /-!
 `AccountAddress` and `Account`.
@@ -12,6 +14,8 @@ there is no `Option`-cluttered API.
 Updates are `Function.update`: `s.set k v = fun k' => if k' = k then v else s k'`.
 -/
 
+@[expose] public section
+
 namespace EvmSemantics
 
 /-- 2^160 — EVM addresses are 20 bytes. -/
@@ -20,12 +24,16 @@ def AccountAddress.size : Nat := 2^160
 instance : NeZero AccountAddress.size where
   out := by unfold AccountAddress.size; decide
 
+/-- 20-byte Ethereum account address, modelled as `Fin (2^160)`. -/
 abbrev AccountAddress : Type := Fin AccountAddress.size
 
 namespace AccountAddress
 
+/-- The address represented by `n`, taken modulo `2^160`. -/
 def ofNat (n : Nat) : AccountAddress := Fin.ofNat _ n
+/-- Truncate a 256-bit word to a 160-bit address (drops the high 96 bits). -/
 def ofUInt256 (v : UInt256) : AccountAddress := Fin.ofNat _ (v.toNat % AccountAddress.size)
+/-- Zero-extend an address to a 256-bit word. -/
 def toUInt256 (a : AccountAddress) : UInt256 := UInt256.ofNat a.val
 instance {n : Nat} : OfNat AccountAddress n := ⟨Fin.ofNat _ n⟩
 instance : Inhabited AccountAddress := ⟨0⟩
@@ -66,10 +74,15 @@ An EVM account. Matches Yellow Paper section 4.1 (minus the code-hash field,
 which is computed from `code`).
 -/
 structure Account where
+  /-- `σ[a]ₙ` — nonce (number of transactions sent / contracts created). -/
   nonce    : UInt256
+  /-- `σ[a]_b` — balance in wei. -/
   balance  : UInt256
+  /-- `σ[a]_c` — the contract's bytecode (empty for externally-owned accounts). -/
   code     : ByteArray
+  /-- `σ[a]_s` — persistent storage (SLOAD/SSTORE). -/
   storage  : Storage
+  /-- `σ[a]_t` — transient storage (TLOAD/TSTORE, EIP-1153). -/
   tstorage : Storage
 
 namespace Account
@@ -89,8 +102,11 @@ abbrev AccountMap : Type := AccountAddress → Account
 
 namespace AccountMap
 
+/-- The empty world: every address maps to `Account.empty`. -/
 def empty : AccountMap := fun _ => Account.empty
+/-- Read the account at `a`. -/
 @[reducible] def get (σ : AccountMap) (a : AccountAddress) : Account := σ a
+/-- Update the account at `a`. -/
 def set (σ : AccountMap) (a : AccountAddress) (acc : Account) : AccountMap :=
   fun a' => if a' = a then acc else σ a'
 

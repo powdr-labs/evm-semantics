@@ -1,10 +1,15 @@
+module
+
 /-!
 `ExecutionException` — the eight halt-with-error conditions used by the
 EVM step relation. Mirrors `EvmYul.EVM.Exception.ExecutionException`.
 -/
 
+@[expose] public section
+
 namespace EvmSemantics
 
+/-- The eight ways an EVM frame can halt with an error. -/
 inductive ExecutionException where
   | OutOfFuel
   | InvalidInstruction

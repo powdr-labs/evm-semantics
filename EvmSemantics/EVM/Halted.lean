@@ -1,4 +1,6 @@
-import EvmSemantics.EVM.State
+module
+
+public import EvmSemantics.EVM.State
 
 /-!
 `ExecutionResult` and halt-related lemmas.
@@ -8,6 +10,8 @@ the `halt` field eventually leaves `.Running`. The big-step relation
 `Eval` summarises a complete execution as an `ExecutionResult`, projecting
 the final state's `halt` + output buffer down to a flat sum.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM
@@ -27,23 +31,23 @@ inductive ExecutionResult where
 namespace State
 
 /-- Project a halted `State`'s `halt` field to an `ExecutionResult`,
-    pulling the output buffer from `H_return` when appropriate. -/
+    pulling the output buffer from `hReturn` when appropriate. -/
 def toResult (s : State) : ExecutionResult :=
   match s.halt with
   | .Running     => .exception .InvalidInstruction  -- defensive default
   | .Success     => .success
-  | .Returned    => .returned s.H_return
-  | .Reverted    => .reverted s.H_return
+  | .Returned    => .returned s.hReturn
+  | .Reverted    => .reverted s.hReturn
   | .Exception e => .exception e
 
 @[simp] theorem toResult_success (s : State) (h : s.halt = .Success) :
     s.toResult = .success := by simp [toResult, h]
 
 @[simp] theorem toResult_returned (s : State) (h : s.halt = .Returned) :
-    s.toResult = .returned s.H_return := by simp [toResult, h]
+    s.toResult = .returned s.hReturn := by simp [toResult, h]
 
 @[simp] theorem toResult_reverted (s : State) (h : s.halt = .Reverted) :
-    s.toResult = .reverted s.H_return := by simp [toResult, h]
+    s.toResult = .reverted s.hReturn := by simp [toResult, h]
 
 @[simp] theorem toResult_exception (s : State) (e : ExecutionException)
     (h : s.halt = .Exception e) : s.toResult = .exception e := by

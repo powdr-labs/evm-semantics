@@ -1,20 +1,25 @@
-import EvmSemantics.Data.UInt256
-import EvmSemantics.EVM.Operation
+module
+
+public import EvmSemantics.Data.UInt256
+public import EvmSemantics.EVM.Operation
 
 /-!
 `Decode` — the bytecode-byte → `Operation` mapping, plus the function
-`opAt` that reads an opcode (with its immediate, if any) from the
+`decodeAt` that reads an opcode (with its immediate, if any) from the
 execution-environment's bytecode at a given program counter.
 
 For PUSH instructions, the immediate data is returned as a separate
 `(UInt256 × Nat)` argument (value + width-in-bytes), matching the
 reference's `decode`. For the EIP-8024 ops (DUPN/SWAPN/EXCHANGE), the
-single immediate byte is folded into the `Operation` value itself, so
+single immediate byte is folded into the `Operation` value itself
+(via the `Fin 256` field on `DupNOp` / `SwapNOp` / `ExchangeOp`), so
 no separate argument is needed.
 
 The byte→opcode map mirrors the Yellow Paper instruction table; we
 return `none` for any byte not assigned to a v1-supported instruction.
 -/
+
+@[expose] public section
 
 namespace EvmSemantics
 namespace EVM
@@ -101,6 +106,22 @@ def opcodeOf (b : UInt8) : Option Operation :=
   | 0x5c => some .TLOAD
   | 0x5d => some .TSTORE
   | 0x5e => some .MCOPY
+  -- 0x5f - 0xa4 handled below
+  | 0xf0 => some .CREATE
+  | 0xf1 => some .CALL
+  | 0xf2 => some .CALLCODE
+  | 0xf3 => some .RETURN
+  | 0xf4 => some .DELEGATECALL
+  | 0xf5 => some .CREATE2
+  | 0xfa => some .STATICCALL
+  | 0xfd => some .REVERT
+  | 0xfe => some .INVALID
+  | 0xff => some .SELFDESTRUCT
+    -- 0xe6 - 0xe8 : EIP-8024. opcodeOf returns a placeholder with
+    -- immediate = 0; the real immediate is filled in by `decodeAt`.
+  | 0xe6 => some (.DupN ⟨0, by decide⟩)
+  | 0xe7 => some (.SwapN ⟨0, by decide⟩)
+  | 0xe8 => some (.Exchange ⟨0, by decide⟩)
   -- 0x5f - 0x7f : PUSH0 - PUSH32
   | n =>
     if h : 0x5f ≤ n ∧ n ≤ 0x7f then
@@ -114,25 +135,9 @@ def opcodeOf (b : UInt8) : Option Operation :=
     -- 0xa0 - 0xa4 : LOG0 - LOG4
     else if h : 0xa0 ≤ n ∧ n ≤ 0xa4 then
       some (.Log ⟨n - 0xa0, by omega⟩)
-    -- 0xe6 - 0xe8 : EIP-8024. opcodeOf returns a placeholder with
-    -- immediate = 0; the real immediate is filled in by `decodeAt`.
-    else if n = 0xe6 then some (.DupN ⟨0, by decide⟩)
-    else if n = 0xe7 then some (.SwapN ⟨0, by decide⟩)
-    else if n = 0xe8 then some (.Exchange ⟨0, by decide⟩)
     -- 0xf0 - 0xff : system
     else
-      match n with
-      | 0xf0 => some .CREATE
-      | 0xf1 => some .CALL
-      | 0xf2 => some .CALLCODE
-      | 0xf3 => some .RETURN
-      | 0xf4 => some .DELEGATECALL
-      | 0xf5 => some .CREATE2
-      | 0xfa => some .STATICCALL
-      | 0xfd => some .REVERT
-      | 0xfe => some .INVALID
-      | 0xff => some .SELFDESTRUCT
-      | _    => none
+      none
 
 /-- Read a big-endian word from a byte slice. -/
 def beToNat (bs : ByteArray) : Nat :=

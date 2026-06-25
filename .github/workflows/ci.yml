@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Only keep the latest run per branch/PR; cancel superseded ones.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # Installs elan + the toolchain pinned in `lean-toolchain`, restores a
+      # build cache, and fetches Mathlib's prebuilt olean cache so Mathlib is
+      # never compiled from source on the runner.
+      - name: Set up Lean and fetch Mathlib cache
+        uses: leanprover/lean-action@v1
+
+      - name: Build and fail on any linter warning
+        run: |
+          # Rebuild just this project's modules (Mathlib & other dependency
+          # oleans live under .lake/packages and are left untouched), so the
+          # linters re-emit their diagnostics, then fail if any appear.
+          rm -rf .lake/build
+          set -o pipefail
+          lake build evm_semantics vmtests 2>&1 | tee build.log
+          if grep -E "warning:" build.log; then
+            echo "::error::Linter warnings detected — see the build log above."
+            exit 1
+          fi
+          echo "Build succeeded with no linter warnings."
+
+      # Runs the lint driver configured in `lakefile.toml`
+      # (`batteries/runLinter EvmSemantics`) — the same driver Mathlib
+      # uses for its own CI gate. It checks declarations missing
+      # doc-strings, simp lemmas not in simp-normal-form, unused
+      # arguments, dangerous instances, etc. Allow-listed findings live
+      # in `scripts/nolints.json`; regenerate via `lake lint -- --update`.
+      - name: Run `lake lint` (Batteries' `runLinter`)
+        run: lake lint
+
+  vmtests:
+    name: VMTests regression report
+    runs-on: ubuntu-latest
+    # Non-gating: this job reports the VMTests pass/fail picture and flags
+    # regressions, but never blocks the PR. The known-failure baseline lives in
+    # .github/vmtests-baseline.txt.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Lean and fetch Mathlib cache
+        uses: leanprover/lean-action@v1
+
+      - name: Build vmtests runner
+        run: lake build vmtests
+
+      # Sparse + blobless fetch of just the VMTests corpus (~11 MB) rather than
+      # the full ~2.7 GB legacytests checkout, pinned to the exact revision the
+      # committed baseline was generated against. Bump CORPUS_REV together with
+      # .github/vmtests-baseline.txt when refreshing the baseline, never alone —
+      # otherwise the baseline would be compared against a different corpus.
+      - name: Fetch VMTests corpus
+        env:
+          CORPUS_REV: 1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb
+        run: |
+          mkdir corpus && cd corpus
+          git init -q
+          git remote add origin https://github.com/ethereum/legacytests
+          git sparse-checkout init --cone
+          git sparse-checkout set Constantinople/VMTests
+          git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
+          git checkout -q FETCH_HEAD
+
+      - name: Run full VMTests suite
+        continue-on-error: true
+        run: |
+          ./.lake/build/bin/vmtests corpus/Constantinople/VMTests \
+            | tee vmtests-output.txt
+
+      - name: Summarize and compare against baseline
+        if: always()
+        run: |
+          # Only compare if a complete summary was produced. A failed/partial
+          # vmtests run yields no parseable aggregate line, so vmtests_summary.sh
+          # exits non-zero; in that case skip the comparison rather than diff an
+          # empty summary (which would falsely report "no regressions, many
+          # improvements").
+          if .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt; then
+            .github/scripts/vmtests_check.sh \
+              .github/vmtests-baseline.txt vmtests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## VMTests regression report"
+              echo
+              echo "⚠️ The vmtests run did not produce a parseable summary (incomplete run, missing output, or an output-format change), so the regression comparison was **skipped** to avoid false results. See the \`vmtests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload VMTests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vmtests-report
+          path: |
+            vmtests-output.txt
+            vmtests-summary.txt

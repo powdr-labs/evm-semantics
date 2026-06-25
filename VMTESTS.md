@@ -20,10 +20,31 @@ Each test runs in its own child process (`--file` mode), so an evaluator panic o
 hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
+Will be refreshed once the memory-expansion-gas branch is merged and the
+baseline regenerated. Pre-merge counts on `origin/main`:
 ```
-pass=507  fail=4  skip=31 (unsup=6 keccak=23 gas=2)  incon=29  crash=38
+pass=533  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=17
 ```
-Of the 540 tests that are neither skipped nor crash, **507 pass (94%)**.
+
+## CI regression check
+CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
+`.github/workflows/ci.yml`): it never blocks a merge, but compares the run
+against a committed baseline and surfaces any regression (a previously-passing
+test that now FAILs/CRASHes) as a GitHub warning plus a report in the run
+summary. The full output and normalized summary are uploaded as artifacts.
+
+- Baseline: `.github/vmtests-baseline.txt` (aggregate counts + the set of
+  FAIL/CRASH test ids), generated against the corpus revision pinned as
+  `CORPUS_REV` in the workflow.
+- When an evaluator fix turns failures into passes, the report lists them as
+  improvements — refresh the baseline so it tracks the new floor:
+  ```
+  ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests > raw.txt
+  .github/scripts/vmtests_summary.sh raw.txt > .github/vmtests-baseline.txt
+  ```
+  If you regenerate against a newer corpus, bump `CORPUS_REV` in
+  `.github/workflows/ci.yml` in the same commit — the baseline and the pinned
+  corpus revision must always move together.
 
 ## How the harness works
 - **Gas is ignored.** It injects `gasAvailable = 2^63` so `OutOfGas` never fires,
@@ -48,27 +69,18 @@ Of the 540 tests that are neither skipped nor crash, **507 pass (94%)**.
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.
 
-### CRASH (38) — unbounded `Nat` allocation aborts the process
-- **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`): `UInt256.exp`
-  computes `a.toNat ^ b.toNat` *in full* before taking `% 2^256`
-  (`UInt256.lean:45`) → GMP "Nat.pow exponent is too big". Needs modular
-  exponentiation.
+### CRASH — previously known categories
+- **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`) — now **fixed**
+  via modular fast-exponentiation (`UInt256.expFast`, `UInt256.lean`).
+- **Huge memory offset/size** (17: `calldatacopy`/`codecopy`/`calldataload`/
+  `log*` …`TooHigh`) — now **fixed** via proper memory-expansion gas:
+  `chargeMem` / `chargeMem2` charge the Yellow-Paper quadratic cost for the
+  touched range, so a `~2^256` offset hits `OutOfGas` long before the
+  underlying `ByteArray` allocates. The zero-padding cases (calldata read
+  past end) pass; `log*…TooHigh` lands as `incon` (real EVM expects a
+  memory-expansion OOG halt the gas-ignoring harness can't reproduce).
 
-The huge-memory-offset/size crashes (17: `calldatacopy`/`codecopy`/`calldataload`/
-`log*` …`TooHigh`) are now **fixed** — see "Bound memory ops" below. The
-zero-padding cases (`calldata*`/`codecopy`/`calldataload` with a huge *source*
-offset) now pass; the `log*…TooHigh` cases land as `incon` (the EVM expects a
-memory-expansion OOG halt the gas-ignoring harness can't reproduce).
-
-### FAIL (4) — signed-arithmetic sign convention (`vmArithmeticTest`)
-`SMOD` / `SDIV` disagree with the EVM on the sign of the result. The EVM
-truncates toward zero (the result takes the dividend's sign); the Lean `Int`
-`%` / `/` used in `UInt256.ofSignedInt (a.toSignedNat % b.toSignedNat)`
-(`StepF.lean`, SMOD/SDIV) uses a Euclidean / T-division convention.
-- `smod0`, `smod2`: got `1`, expected `-2 mod 2^256`.
-- `smod8_byZero`, `sdiv_dejavu`: off-by-sign / off-by-one.
-
-### INCONCLUSIVE (29) — mostly outside the evaluator's scope; ~11 are real gaps
+### INCONCLUSIVE — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
   `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
   `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The
@@ -97,18 +109,6 @@ but it remains a divergence between `stepF` and `Step`.
 Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator fixes (turn crashes/fails into passes)
-- [ ] **Modular `EXP`** — make `UInt256.exp` use fast modular exponentiation
-      instead of computing `a^b` then `% 2^256` (`UInt256.lean:45`).
-      *Unlocks ~38 crashes* (`exp*`, `loop-exp*`).
-- [x] **Bound memory ops** — `readPadded` now clamps the read offset (huge
-      offsets zero-pad instead of feeding `~2^256` to `extract`), and the `stepF`
-      memory ops guard the write extent (`offset + size`) and read size against
-      `MachineState.maxMemSize`, halting with `InvalidMemoryAccess` instead of
-      OOM/abort. *Eliminated the ~17 `…TooHigh` crashes* — the zero-padding cases
-      now pass; `log*…TooHigh` is `incon` (needs memory-expansion-gas OOG).
-- [ ] **Signed `SMOD`/`SDIV`** — use truncate-toward-zero semantics (result takes
-      the dividend's sign) rather than Lean's Euclidean `Int` `%`/`/`
-      (`StepF.lean`, SMOD/SDIV). *Unlocks the 4 fails.*
 - [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
       `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
       (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
