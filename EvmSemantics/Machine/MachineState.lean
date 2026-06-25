@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.Data.UInt256
+public import Batteries.Tactic.Lint.Misc
 
 /-!
 `MachineState` `μ` — the (shallow) machine-level state used by every EVM
@@ -17,7 +18,10 @@ the current size are zero-padded, which matches Yellow Paper semantics.
 
 namespace EvmSemantics
 
+/-- Machine state `μ` (Yellow Paper §9.4.1): gas counter, memory, return-data
+    buffer, and the bookkeeping needed for memory expansion costs. -/
 structure MachineState where
+  /-- `g` — gas remaining in the current frame. -/
   gasAvailable : UInt256
   /-- # of 32-byte words "active" in memory; used for the memory-expansion
       gas cost. -/
@@ -26,8 +30,8 @@ structure MachineState where
   memory       : ByteArray
   /-- `o` — return data from the most recent sub-call. v1 leaves this empty. -/
   returnData   : ByteArray
-  /-- `H_return` — buffer used to communicate RETURN/REVERT output upward. -/
-  H_return     : ByteArray
+  /-- `hReturn` — buffer used to communicate RETURN/REVERT output upward. -/
+  hReturn     : ByteArray
   deriving Inhabited
 
 namespace MachineState
@@ -45,6 +49,7 @@ def readPadded (bs : ByteArray) (start n : Nat) : ByteArray :=
 partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
   let needed := start + bytes.size
   let padded := if bs.size < needed then bs ++ ByteArray.mk (Array.replicate (needed - bs.size) 0) else bs
+  -- Inner loop: copy `bytes[i..]` into `acc` starting at `start + i`.
   let rec go (i : Nat) (acc : ByteArray) : ByteArray :=
     if i < bytes.size then
       go (i+1) (acc.set! (start + i) bytes[i]!)
@@ -68,6 +73,7 @@ def mload (μ : MachineState) (addr : UInt256) : UInt256 × MachineState :=
 
 /-- Decompose a 256-bit word into 32 big-endian bytes. -/
 def wordBytes (w : UInt256) : ByteArray :=
+  -- Peel off the low byte `i` times, big-endian accumulation.
   let rec go (i : Nat) (n : Nat) (acc : List UInt8) : List UInt8 :=
     if i = 0 then acc else go (i-1) (n / 256) (UInt8.ofNat (n % 256) :: acc)
   ByteArray.mk (go 32 w.toNat []).toArray
@@ -105,11 +111,19 @@ def gas (μ : MachineState) : UInt256 := μ.gasAvailable
 /-- RETURNDATASIZE: length of the return-data buffer. -/
 def returnDataSize (μ : MachineState) : UInt256 := UInt256.ofNat μ.returnData.size
 
+/-- Replace the return-data buffer. -/
 def setReturnData (μ : MachineState) (bs : ByteArray) : MachineState :=
   { μ with returnData := bs }
 
+/-- Replace the `hReturn` (RETURN/REVERT output) buffer. -/
 def setHReturn (μ : MachineState) (bs : ByteArray) : MachineState :=
-  { μ with H_return := bs }
+  { μ with hReturn := bs }
+
+-- The `let rec`-generated workers inside `writeBytes` and `wordBytes`
+-- are private inner loops, not user-facing API; silence `docBlame`.
+attribute [nolint docBlame]
+  MachineState.writeBytes.go
+  MachineState.wordBytes.go
 
 end MachineState
 

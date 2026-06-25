@@ -12,41 +12,53 @@ The depth limit (1024) is enforced by the semantics, not the data type.
 
 namespace EvmSemantics
 
+/-- An EVM-style operand stack, modelled as a list with `push` cons-to-front. -/
 abbrev Stack (α : Type) := List α
 
 namespace Stack
 
 variable {α : Type}
 
+/-- The empty stack. -/
 def new : Stack α := []
+/-- True iff the stack has no elements. -/
 def isEmpty (s : Stack α) : Bool := List.isEmpty s
+/-- Number of elements on the stack. -/
 def size (s : Stack α) : Nat := List.length s
+/-- Push `v` onto the top of `s`. -/
 def push (s : Stack α) (v : α) : Stack α := v :: s
 
+/-- Pop the top of the stack; `none` if empty. -/
 def pop : Stack α → Option (Stack α × α)
   | hd :: tl => some (tl, hd)
   | []       => none
 
+/-- Pop the top two elements; `none` if fewer than 2. -/
 def pop2 : Stack α → Option (Stack α × α × α)
   | a :: b :: tl => some (tl, a, b)
   | _            => none
 
+/-- Pop the top three elements. -/
 def pop3 : Stack α → Option (Stack α × α × α × α)
   | a :: b :: c :: tl => some (tl, a, b, c)
   | _                 => none
 
+/-- Pop the top four elements. -/
 def pop4 : Stack α → Option (Stack α × α × α × α × α)
   | a :: b :: c :: d :: tl => some (tl, a, b, c, d)
   | _                      => none
 
+/-- Pop the top five elements. -/
 def pop5 : Stack α → Option (Stack α × α × α × α × α × α)
   | a :: b :: c :: d :: e :: tl => some (tl, a, b, c, d, e)
   | _                           => none
 
+/-- Pop the top six elements. -/
 def pop6 : Stack α → Option (Stack α × α × α × α × α × α × α)
   | a :: b :: c :: d :: e :: f :: tl => some (tl, a, b, c, d, e, f)
   | _                                => none
 
+/-- Pop the top seven elements (the largest `popₙ` EVM needs — for `CALL`). -/
 def pop7 : Stack α → Option (Stack α × α × α × α × α × α × α × α)
   | a :: b :: c :: d :: e :: f :: g :: tl => some (tl, a, b, c, d, e, f, g)
   | _                                     => none
