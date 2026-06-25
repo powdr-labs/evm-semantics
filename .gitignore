@@ -1,1 +1,5 @@
 .lake/
+
+# Per-machine Claude Code settings (permissions etc.); skills under
+# .claude/skills/ are committed, but local settings are not.
+.claude/settings.local.json
