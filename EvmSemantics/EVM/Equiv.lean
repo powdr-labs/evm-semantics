@@ -65,7 +65,8 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     (argOpt : Option (UInt256 × Nat))
     (h_dec : s.decoded = some (.StopArith op, argOpt))
     (h_gas : Gas.cost (.StopArith op) ≤ s.gasAvailable)
-    {sf : State} (h : stepF.stopArith s (s.consumeGas (Gas.cost (.StopArith op)) h_gas) op = .ok sf) :
+    {sf : State}
+    (h : stepF.stopArith s (s.consumeGas (Gas.cost (.StopArith op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.stopArith at h
   cases op with
@@ -109,13 +110,15 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | ADDMOD =>
     match h_stack : s.stack, h with
-    | a :: b :: n :: rest, h => cases h; exact .addmod s a b n rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: n :: rest, h =>
+      cases h; exact .addmod s a b n rest argOpt h_dec h_running h_gas h_stack
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
     | [_, _], h       => exact absurd h (by intro hh; cases hh)
   | MULMOD =>
     match h_stack : s.stack, h with
-    | a :: b :: n :: rest, h => cases h; exact .mulmod s a b n rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: n :: rest, h =>
+      cases h; exact .mulmod s a b n rest argOpt h_dec h_running h_gas h_stack
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
     | [_, _], h       => exact absurd h (by intro hh; cases hh)
@@ -131,7 +134,8 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | SIGNEXTEND =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .signextend s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h =>
+      cases h; exact .signextend s a b rest argOpt h_dec h_running h_gas h_stack
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
 
