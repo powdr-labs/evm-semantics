@@ -137,5 +137,22 @@ def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
       if original.toNat = 0 then 20000 else 2900
     else 100
 
+/-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
+    Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY,
+    and as the per-word part of `KECCAK256` (with `6` instead of `3`). -/
+def Gas.copyWordCost (size : UInt256) : Nat :=
+  3 * ((size.toNat + 31) / 32)
+
+/-- Per-byte LOG data cost (Yellow Paper `G_logdata = 8`): `8 · size`. -/
+def Gas.logDataCost (size : UInt256) : Nat :=
+  8 * size.toNat
+
+/-- Per-byte EXP cost: `50 · byteLen(exponent)` post-Spurious-Dragon
+    (EIP-160). Both `Constantinople` and `Cancun` use the 50-per-byte
+    schedule. `byteLen(0) = 0`. -/
+def Gas.expByteCost (exponent : UInt256) : Nat :=
+  if exponent.toNat = 0 then 0
+  else 50 * (Nat.log2 exponent.toNat / 8 + 1)
+
 end EVM
 end EvmSemantics
