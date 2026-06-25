@@ -73,7 +73,8 @@ end StorageKeySet
 /-- The accrued substate `A` (Yellow Paper §6.1) tracked across an
     execution: addresses self-destructed, addresses touched, refund
     counter, accessed-account / accessed-storage-key sets (EIP-2929),
-    and the in-order log series. -/
+    in-order log series, and a snapshot of the storage at frame start
+    used by SSTORE to look up the "original" value (EIP-1283 / EIP-2200). -/
 structure Substate where
   /-- `Aₛ` — addresses scheduled to be deleted at the end of the transaction. -/
   selfDestructSet     : AddressSet
@@ -87,18 +88,28 @@ structure Substate where
   accessedStorageKeys : StorageKeySet
   /-- `Aₗ` — ordered list of LOG records emitted so far. -/
   logSeries           : LogSeries
+  /-- Snapshot of the storage at frame start, used by SSTORE to find the
+      `original` value of a slot (EIP-1283 / EIP-2200). For VMTests this
+      is initialised from the pre-state's `accountMap`. -/
+  originalAccountMap  : AccountAddress → Account
 
 namespace Substate
 
 /-- The empty substate: nothing self-destructed, nothing touched, no
-    refunds, no accesses, no logs. -/
+    refunds, no accesses, no logs, all slots originally 0. -/
 def empty : Substate :=
   { selfDestructSet     := AddressSet.empty
     touchedAccounts     := AddressSet.empty
     refundBalance       := ⟨0⟩
     accessedAccounts    := AddressSet.empty
     accessedStorageKeys := StorageKeySet.empty
-    logSeries           := #[] }
+    logSeries           := #[]
+    originalAccountMap  := fun _ => default }
+
+/-- Look up the `original` value of `(addr, key)` (its value at frame
+    start). Used by SSTORE for EIP-1283 net-metered gas. -/
+def originalStorage (A : Substate) (addr : AccountAddress) (key : UInt256) : UInt256 :=
+  (A.originalAccountMap addr).storage key
 
 /-- Mark `a` as a warm account in `A.accessedAccounts`. -/
 def addAccessedAccount (A : Substate) (a : AccountAddress) : Substate :=

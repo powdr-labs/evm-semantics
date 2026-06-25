@@ -140,7 +140,9 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
-    substate     := Substate.empty
+    -- Snapshot the pre-state's accountMap so SSTORE's EIP-1283 logic
+    -- can look up the `original` value of any slot.
+    substate     := { Substate.empty with originalAccountMap := accountMap }
     executionEnv := execEnv
     pc           := ⟨0⟩
     stack        := []
@@ -183,7 +185,7 @@ def skipReasonOf (op : Operation) : Option String :=
   | .Env .EXTCODEHASH => some "keccak"
   | _ => none
 
-/-- True when this opcode's `Gas.cost` value matches the real EVM's fee
+/-- True when this opcode's `Gas.baseCost` value matches the real EVM's fee
     schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
     component). A test whose bytecode contains only such opcodes is
     eligible for gas comparison against the corpus's expected `gas` value. -/

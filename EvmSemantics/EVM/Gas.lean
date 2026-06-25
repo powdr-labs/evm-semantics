@@ -65,7 +65,7 @@ those at least have an unambiguous static portion worth charging.
 -/
 
 /-- Static (base) gas cost of executing one instance of `op`. -/
-def Gas.cost : Operation → Nat
+def Gas.baseCost : Operation → Nat
   | .StopArith op => match op with
     | .STOP                                                  => 0
     | .ADD | .SUB                                            => 3
@@ -119,21 +119,27 @@ def Gas.cost : Operation → Nat
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        => 1
     | .SELFDESTRUCT                                          => 1
 
-/-- Dynamic gas cost of an SSTORE, given the slot's `current` value (before
-    the write) and the `new` value being written. This is the first-write
-    approximation of EIP-1283 (Constantinople): if the slot already holds
-    `new` it's a no-op (200); a fresh write to a zero slot is `G_sset`
-    (20000); any other store is `G_sreset` (5000).
+/-- Dynamic gas cost of an SSTORE, given the slot's `original` value (at
+    frame start), `current` value (just before this write), and the `new`
+    value being written.
 
-    Strictly, EIP-1283 also distinguishes "dirty" writes (`current ≠
-    original`) at 200 gas, but tracking `original` requires snapshotting
-    storage at frame start, which we don't yet do. For VMTests this
-    approximation is exact whenever the test SSTOREs each slot at most
-    once — the dominant case in the corpus. -/
-def Gas.sstoreCost (current new : UInt256) : Nat :=
-  if current.toNat = new.toNat then 200
-  else if current.toNat = 0 then 20000
-  else 5000
+    **Schedule.** We use the **pre-EIP-1283** rule (Frontier through
+    Petersburg). EIP-1283 was scheduled for Constantinople but reverted in
+    Petersburg over a re-entrancy concern, so the ethereum/tests *legacy*
+    "Constantinople" corpus generates `gas` values against the pre-EIP-1283
+    schedule. Concretely:
+
+    | Condition                                  | Cost  |
+    |--------------------------------------------|------:|
+    | `current = 0 ∧ new ≠ 0` (fresh non-zero set) | 20000 |
+    | otherwise (any other write — reset, clear, no-op) |  5000 |
+
+    `original` is currently unused; it's kept in the signature so the
+    plumbing is in place for a future EIP-1283 / EIP-2200 / EIP-3529
+    implementation. Refunds (clearing a non-zero slot) are not yet
+    modelled here either — they're tracked separately. -/
+def Gas.sstoreCost (_original current new : UInt256) : Nat :=
+  if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
 
 end EVM
 end EvmSemantics
