@@ -216,10 +216,18 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
   | KECCAK256 =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      by_cases h_bnd : MachineState.readSizeOk size.toNat
-      · simp [h_bnd] at h
-        cases h; exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).activeWords.toNat
+          offset.toNat size.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.Keccak .KECCAK256)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
 
@@ -270,19 +278,35 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
   | RETURN =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      by_cases h_bnd : MachineState.readSizeOk size.toNat
-      · simp [h_bnd] at h
-        cases h; exact .return_ s offset size rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).activeWords.toNat
+          offset.toNat size.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.System .RETURN)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .return_ s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | REVERT =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      by_cases h_bnd : MachineState.readSizeOk size.toNat
-      · simp [h_bnd] at h
-        cases h; exact .revert s offset size rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).activeWords.toNat
+          offset.toNat size.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.System .REVERT)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .revert s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h           => exact absurd h (by intro hh; cases hh)
     | [_], h          => exact absurd h (by intro hh; cases hh)
   | INVALID =>
@@ -398,30 +422,54 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
-      · simp [h_bnd] at h
-        cases h; exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).activeWords.toNat
+          dOff.toNat sz.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.Env .CALLDATACOPY)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
   | CODECOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
-      · simp [h_bnd] at h
-        cases h; exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).activeWords.toNat
+          dOff.toNat sz.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.Env .CODECOPY)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
   | EXTCODECOPY =>
     match h_stack : s.stack, h with
     | a :: dOff :: sOff :: sz :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
-      · simp [h_bnd] at h
-        cases h; exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).activeWords.toNat
+          dOff.toNat sz.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.Env .EXTCODECOPY)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h        => exact absurd h (by intro hh; cases hh)
     | [_], h       => exact absurd h (by intro hh; cases hh)
     | [_, _], h    => exact absurd h (by intro hh; cases hh)
@@ -429,14 +477,22 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | RETURNDATACOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
-      · by_cases h_oob : sOff.toNat + sz.toNat > s.returnData.size
-        · simp [h_bnd, h_oob] at h
-        · simp [h_bnd, h_oob] at h
+      by_cases h_oob : sOff.toNat + sz.toNat > s.returnData.size
+      · simp [h_oob] at h
+      · simp [h_oob] at h
+        simp only [chargeMem] at h
+        by_cases h_mem :
+          MachineState.memCost (MachineState.activeWordsAfter
+            (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).activeWords.toNat
+            dOff.toNat sz.toNat)
+          - MachineState.memCost
+              (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).activeWords.toNat
+          ≤ (s.consumeGas (Gas.cost (.Env .RETURNDATACOPY)) h_gas).gasAvailable.toNat
+        · simp [h_mem] at h
           cases h
           exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-                  (Nat.le_of_not_lt h_oob)
-      · simp [h_bnd, memBounds] at h
+                  (Nat.le_of_not_lt h_oob) h_mem
+        · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
@@ -458,27 +514,55 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MLOAD =>
     match h_stack : s.stack, h with
     | offset :: rest, h =>
-      cases h_load : MachineState.mload s.toMachineState offset with
-      | mk v μ' =>
-        simp [h_load] at h; cases h
-        exact .mload s offset rest v μ' argOpt h_dec h_running h_gas h_stack h_load
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).activeWords.toNat
+          offset.toNat 32)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h_load : MachineState.mload
+                         ((s.consumeGas (Gas.cost (.StackMemFlow .MLOAD)) h_gas).consumeMemExp
+                            offset.toNat 32 h_mem).toMachineState offset with
+        | mk v μ' =>
+          simp [h_load] at h; cases h
+          exact .mload s offset rest v μ' argOpt h_dec h_running h_gas h_stack h_mem h_load
+      · simp [h_mem] at h
     | [], h => exact absurd h (by intro hh; cases hh)
   | MSTORE =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk offset.toNat 32
-      · simp [h_bnd] at h
-        cases h; exact .mstore s offset value rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).activeWords.toNat
+          offset.toNat 32)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .mstore s offset value rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
   | MSTORE8 =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk offset.toNat 1
-      · simp [h_bnd] at h
-        cases h; exact .mstore8 s offset value rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).activeWords.toNat
+          offset.toNat 1)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MSTORE8)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .mstore8 s offset value rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
   | SLOAD =>
@@ -609,10 +693,21 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | MCOPY =>
     match h_stack : s.stack, h with
     | dOff :: sOff :: sz :: rest, h =>
-      by_cases h_bnd : MachineState.memBoundsOk dOff.toNat sz.toNat
-      · simp [h_bnd] at h
-        cases h; exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
-      · simp [h_bnd, memBounds] at h
+      simp only [chargeMem2] at h
+      by_cases h_mem :
+        MachineState.memCost
+          (MachineState.activeWordsAfter
+            (MachineState.activeWordsAfter
+              (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).activeWords.toNat
+              dOff.toNat sz.toNat)
+            sOff.toNat sz.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.StackMemFlow .MCOPY)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
+        cases h
+        exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+      · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
@@ -657,8 +752,15 @@ theorem log_sound (s : State) (op : Operation.LogOp)
   · simp [h_perm] at h
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
-      by_cases h_bnd : MachineState.readSizeOk size.toNat
-      · simp only [h_bnd, not_true, if_false] at h
+      simp only [chargeMem] at h
+      by_cases h_mem :
+        MachineState.memCost (MachineState.activeWordsAfter
+          (s.consumeGas (Gas.cost (.Log op)) h_gas).activeWords.toNat
+          offset.toNat size.toNat)
+        - MachineState.memCost
+            (s.consumeGas (Gas.cost (.Log op)) h_gas).activeWords.toNat
+        ≤ (s.consumeGas (Gas.cost (.Log op)) h_gas).gasAvailable.toNat
+      · simp [h_mem] at h
         cases h_pop : stepF.popN rest op.topics.val with
         | some p =>
           obtain ⟨topics, rest'⟩ := p
@@ -671,12 +773,12 @@ theorem log_sound (s : State) (op : Operation.LogOp)
           have h_stack' : s.stack = offset :: size :: topics ++ rest' := by
             rw [h_stack, h_split]; rfl
           exact Step.log s n offset size topics rest' argOpt h_dec h_running h_perm'
-                         h_gas h_len h_stack'
+                         h_gas h_len h_stack' h_mem
         | none =>
           simp [h_pop] at h
           unfold underflow at h
           cases h
-      · simp [h_bnd, memBounds] at h
+      · simp [h_mem] at h
     | [], h     => exact absurd h (by intro hh; cases hh)
     | [_], h    => exact absurd h (by intro hh; cases hh)
 

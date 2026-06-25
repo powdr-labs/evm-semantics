@@ -28,47 +28,30 @@ structure MachineState where
 
 namespace MachineState
 
-/-- Upper bound (in bytes) on any memory offset+size the evaluator will touch.
+/-- Active-word count `i'` after touching the byte range `[offset, offset+sz)`. -/
+def activeWordsAfter (curr offset sz : Nat) : Nat :=
+  if sz = 0 then curr else
+    let lastByte := offset + sz - 1
+    let lastWord := lastByte / 32 + 1
+    Nat.max curr lastWord
 
-    The real EVM has no hard cap, but it prices every byte of memory expansion
-    via gas whose cost grows quadratically, so reaching even a few MiB is
-    already economically impossible and `~2^256` offsets are unreachable. This
-    evaluator does not yet model memory-expansion gas, so without a guard the
-    pure helpers `readPadded`/`writeBytes` would try to allocate up to `2^256`
-    bytes and OOM/abort the process.
+/-- Yellow Paper memory cost `C_mem(a) = G_memory·a + ⌊a²/512⌋` (eq. 326).
+    `a` is the number of 32-byte words currently active.  `G_memory = 3`. -/
+def memCost (a : Nat) : Nat := 3 * a + a ^ 2 / 512
 
-    The cap must satisfy two constraints:
-    1. *Large enough* that no real bytecode/test ever exceeds it — legitimate
-       memory use in these tests is on the order of KiB.
-    2. *Small enough that the allocation it permits cannot itself OOM the
-       process* — the guard is only useful if a byte range that passes it can
-       actually be allocated safely. A 4 GiB cap (`2^32`) fails this: an input
-       with `size = 2^32` passes the guard and then makes `readPadded` /
-       `writeBytes` allocate multi‑GiB, aborting the runner anyway.
+/-- Gas to charge for the memory expansion that *would result* from touching
+    the byte range `[offset, offset+sz)` given that `curr` words are already
+    active.  Returns `0` when the access fits inside the already-active
+    region.  The reference high-water-mark calculation is `activeWordsAfter`,
+    which matches the Yellow Paper's `⌈(offset+sz)/32⌉` rounding.
 
-    We pick `2^24` (16 MiB): comfortably above any real test's footprint, yet a
-    `ByteArray` of that size allocates instantly. Anything larger is taken as an
-    attacker-supplied / unpriceable access and rejected as an exceptional halt
-    (`InvalidMemoryAccess`) by the callers, matching how a real client would
-    fail such a transaction (out of gas). -/
-def maxMemSize : Nat := 2 ^ 24
-
-/-- Whether *writing* the byte range `[offset, offset + size)` into memory stays
-    within `maxMemSize`. `writeBytes` grows the backing `ByteArray` to
-    `offset + size`, so this is the quantity that must be bounded to avoid a
-    giant allocation. Used by the step function to reject huge memory writes
-    with an exceptional halt. -/
-def memBoundsOk (offset size : Nat) : Bool := offset + size ≤ maxMemSize
-
-/-- Whether *reading* `size` bytes (via `readPadded`) stays within `maxMemSize`.
-
-    Unlike a write, a `readPadded` from a huge *offset* is harmless: it
-    zero-pads and allocates only `size` bytes regardless of the offset (matching
-    the EVM, where out-of-range reads read as zero). So only the requested
-    `size` must be bounded — guarding the offset too would wrongly reject the
-    legitimate zero-padding behaviour exercised by the `…DataIndexTooHigh` /
-    `…BigOffset` tests. -/
-def readSizeOk (size : Nat) : Bool := size ≤ maxMemSize
+    This is what protects the runtime from OOM on huge offsets/sizes: the
+    quadratic term in `memCost` makes any `offset+sz` past a few MiB cost
+    astronomically more gas than any real transaction can hold, so legitimate
+    callers will hit `OutOfGas` long before the underlying `ByteArray` is
+    asked to allocate something dangerous. -/
+def memExpansionDelta (curr offset sz : Nat) : Nat :=
+  memCost (activeWordsAfter curr offset sz) - memCost curr
 
 /-- Read `n` bytes from `bs` starting at `start`, zero-padding past the end.
 
@@ -97,13 +80,6 @@ partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
       go (i+1) (acc.set! (start + i) bytes[i]!)
     else acc
   go 0 padded
-
-/-- Active-word count `i'` after touching the byte range `[offset, offset+sz)`. -/
-def activeWordsAfter (curr offset sz : Nat) : Nat :=
-  if sz = 0 then curr else
-    let lastByte := offset + sz - 1
-    let lastWord := lastByte / 32 + 1
-    Nat.max curr lastWord
 
 /-- MLOAD: read 32 bytes at `addr`, returning (word, μ'). -/
 def mload (μ : MachineState) (addr : UInt256) : UInt256 × MachineState :=
