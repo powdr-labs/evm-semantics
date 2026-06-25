@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.EVM.Operation
+public import EvmSemantics.Data.UInt256
 
 /-!
 `Gas` — fixed (static) gas-cost function for each EVM opcode.
@@ -92,10 +93,18 @@ def Gas.cost : Operation → Nat
     | .MLOAD | .MSTORE | .MSTORE8 | .MCOPY                   => 3
     | .JUMP                                                  => 8
     | .JUMPI                                                 => 10
-    -- TODO(dynamic): SLOAD is EIP-2929 cold/warm; SSTORE is EIP-2200/3529
-    -- (depends on original/current/new value triple). Priced at 1 for now.
-    -- TLOAD/TSTORE are genuinely fixed at 100 per EIP-1153.
-    | .SLOAD | .SSTORE                                       => 1
+    -- SLOAD: Constantinople pre-Istanbul flat fee (EIP-150 set it to 200).
+    -- TODO(dynamic): Istanbul EIP-1884 raised this to 800; Berlin EIP-2929
+    -- introduced the cold/warm split (2100 / 100). Not yet modelled.
+    | .SLOAD                                                 => 200
+    -- SSTORE has no static cost — the *dynamic* cost is computed by
+    -- `Gas.sstoreCost` based on the (current, new) value pair and charged
+    -- by the SSTORE handler in `stepF`. (Constantinople / EIP-1283 also
+    -- looks at `original`; we approximate first-write semantics by using
+    -- only `current` and `new`, which matches EIP-1283 on the first
+    -- SSTORE to a slot in a frame — the dominant case in VMTests.)
+    | .SSTORE                                                => 0
+    -- TLOAD/TSTORE: genuinely fixed at 100 per EIP-1153.
     | .TLOAD | .TSTORE                                       => 100
   | .Push p                          => if p.width.val = 0 then 2 else 3
   | .Dup _ | .Swap _                                         => 3
@@ -109,6 +118,22 @@ def Gas.cost : Operation → Nat
     | .CREATE | .CREATE2                                     => 1
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        => 1
     | .SELFDESTRUCT                                          => 1
+
+/-- Dynamic gas cost of an SSTORE, given the slot's `current` value (before
+    the write) and the `new` value being written. This is the first-write
+    approximation of EIP-1283 (Constantinople): if the slot already holds
+    `new` it's a no-op (200); a fresh write to a zero slot is `G_sset`
+    (20000); any other store is `G_sreset` (5000).
+
+    Strictly, EIP-1283 also distinguishes "dirty" writes (`current ≠
+    original`) at 200 gas, but tracking `original` requires snapshotting
+    storage at frame start, which we don't yet do. For VMTests this
+    approximation is exact whenever the test SSTOREs each slot at most
+    once — the dominant case in the corpus. -/
+def Gas.sstoreCost (current new : UInt256) : Nat :=
+  if current.toNat = new.toNat then 200
+  else if current.toNat = 0 then 20000
+  else 5000
 
 end EVM
 end EvmSemantics

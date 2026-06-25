@@ -471,6 +471,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     | [_], h    => exact absurd h (by intro hh; cases hh)
     | [_, _], h => exact absurd h (by intro hh; cases hh)
 
+set_option maxRecDepth 1024 in
 theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     (h_running : s.halt = .Running)
     (argOpt : Option (UInt256 × Nat))
@@ -536,9 +537,14 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     · simp [h_perm] at h
       match h_stack : s.stack, h with
       | key :: value :: rest, h =>
-        cases h
-        exact .sstore s key value rest argOpt h_dec h_running
-                (by simp at h_perm; exact h_perm) h_gas h_stack
+        by_cases h_dyn :
+          Gas.sstoreCost ((s.accountMap s.executionEnv.codeOwner).storage key) value
+            ≤ (s.consumeGas (Gas.cost (.StackMemFlow .SSTORE)) h_gas).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .sstore s key value rest argOpt h_dec h_running
+                  (by simp at h_perm; exact h_perm) h_gas h_stack h_dyn
+        · simp [h_dyn] at h
       | [], h     => exact absurd h (by intro hh; cases hh)
       | [_], h    => exact absurd h (by intro hh; cases hh)
   | JUMP =>

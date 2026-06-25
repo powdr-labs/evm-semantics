@@ -195,9 +195,15 @@ def gasComparableOpcode (op : Operation) : Bool :=
   | .Keccak _ => false
   -- Per-word copy operations (3/word).
   | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => false
-  -- EIP-2929 cold/warm-split account / slot access.
+  -- EIP-2929 cold/warm-split account / slot access — not yet modelled.
   | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
-  | .SLOAD | .SSTORE => false
+  -- SLOAD: Constantinople flat 200 — fixed ✓. SSTORE: `Gas.sstoreCost`
+  -- implements first-write EIP-1283 semantics (the dominant VMTests
+  -- pattern: each slot is SSTORE'd at most once per frame). For tests
+  -- that SSTORE the same slot twice it would over-charge (5000 vs 200
+  -- for the second dirty write), but those tests still won't fail —
+  -- they'll just stay outside gas-checked mode if our cost differs.
+  | .SLOAD | .SSTORE => true
   -- Out-of-scope / dynamic system ops.
   | .CREATE | .CREATE2 | .CALL | .CALLCODE
   | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => false

@@ -21,16 +21,26 @@ hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
 ```
-pass=558 (gas-checked=32) fail=0 skip=31 (unsup=6 keccak=23 gas=2) incon=20 crash=0
+pass=490 (gas-checked=259) fail=71 skip=29 (unsup=6 keccak=23 gas=0) incon=19 crash=0
 ```
-- **gas-checked=32** — tests whose bytecode uses only opcodes with a fixed
-  Yellow-Paper cost (no SSTORE/SLOAD/COPYs/EXP/LOG/CALL family) are run with
-  the test's actual `exec.gas` budget, and the remaining `gas` field is
-  compared against the corpus expectation.
-- The remaining 526 passes still run in gas-ignored mode (`gasAvailable = 2^63`),
-  because their bytecode contains at least one opcode whose real-EVM cost has
-  a dynamic component (cold/warm, per-word, per-byte, value-dependent SSTORE).
-  See `Gas.cost` in `EvmSemantics/EVM/Gas.lean` for the per-opcode status.
+- **gas-checked=259** — tests whose bytecode uses only opcodes with a fixed
+  or first-write-modelled gas cost (every fixed-cost op plus SLOAD at 200
+  and SSTORE via `Gas.sstoreCost`'s EIP-1283 first-write rule). These run
+  with the test's actual `exec.gas` budget and compare the remaining `gas`
+  field against the corpus expectation.
+- **fail=71** — tests where our gas accounting disagrees with the corpus
+  by enough to either change a stored value (e.g. `GAS` opcode followed by
+  `SSTORE`) or the final remaining-`gas` value. Causes: our SSTORE doesn't
+  track `original` so second-write semantics differ from EIP-1283; refunds
+  aren't modelled (the corpus's `gas` includes refunds for clearing slots);
+  some op costs may still be off-by-fork (e.g. JUMPDEST vs G_jumpdest).
+- **skip "gas" dropped 2 → 0**: tests that were previously skipped because
+  they used the `GAS` opcode are now in gas-checked mode (their bytecode is
+  fixed-cost-only, so the gas value `GAS` pushes is now honest).
+- The remaining 231 non-gas-checked passes still run in gas-ignored mode
+  because their bytecode contains an opcode with a still-unmodelled dynamic
+  cost (KECCAK256, *COPY, LOG, EXP, BALANCE / EXT*, CALL family). See
+  `Gas.cost` and `Gas.sstoreCost` in `EvmSemantics/EVM/Gas.lean`.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -135,17 +145,21 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       tests*, and enables **log-hash comparison** (currently logs aren't checked).
 
 ### Evaluator: model dynamic gas costs (lift more tests into gas-checked mode)
-The current schedule has the right *base* cost for every opcode but treats the
-following as cost = 1 with a `TODO(dynamic)` comment in `Gas.lean`, because
-their real cost has a state-dependent component we don't yet track:
+The current schedule has the right *base* cost for every opcode plus the
+following dynamic costs already modelled: memory expansion (Yellow-Paper
+quadratic) and SSTORE first-write (EIP-1283 approximation via
+`Gas.sstoreCost`). The remaining gaps:
 
-- [ ] **SSTORE** (EIP-2200 + EIP-3529 — depends on `(original, current, new)`
-      and cold/warm). Highest-impact: SSTORE is how almost every test stores
-      its result, so a correct cost here would lift ~450 tests into
-      gas-checked mode.
-- [ ] **SLOAD / BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** —
-      EIP-2929 cold/warm split (2600 / 100). Needs an
-      `accessedAccounts` / `accessedSlots` set in `Substate`.
+- [ ] **SSTORE original-tracking** (EIP-1283 fully / EIP-2200 / EIP-3529) —
+      first-write is exact; second writes to the same slot over-charge
+      (we use `current → new` not `original → current → new`). Needs a
+      `originalStorage` snapshot at frame start. Should close the gap on
+      most of the 71 current FAILs.
+- [ ] **SSTORE refunds** — `gas` field in the corpus *includes* refunds
+      (e.g. clearing a non-zero slot adds 15000). Not modelled. Contributes
+      to current FAILs whenever a test clears a slot.
+- [ ] **BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** — EIP-2929
+      cold/warm split (2600 / 100). Needs `accessedAccounts` in `Substate`.
 - [ ] **KECCAK256** (`30 + 6 * ⌈size/32⌉`), **CALLDATACOPY / CODECOPY /
       RETURNDATACOPY / MCOPY** (`3 + 3 * ⌈size/32⌉`), **LOG** (`375 +
       375*topics + 8*size`), **EXP** (`10 + 50 * byteLen(exponent)`) — each

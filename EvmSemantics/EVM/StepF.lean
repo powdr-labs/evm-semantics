@@ -339,11 +339,15 @@ def stackMemFlow (s s' : State) :
     if ¬ s.executionEnv.permitStateMutation then static
     else match s.stack with
     | key :: value :: rest =>
-      let addr := s.executionEnv.codeOwner
-      let acc := s.accountMap addr
-      let acc' := { acc with storage := acc.storage.set key value }
-      let σ' := s.accountMap.set addr acc'
-      .ok ({ s' with accountMap := σ' }.replaceStackAndIncrPC rest)
+      let addr    := s.executionEnv.codeOwner
+      let acc     := s.accountMap addr
+      let current := acc.storage key
+      let cost    := Gas.sstoreCost current value
+      if h : cost ≤ s'.gasAvailable then
+        let acc' := { acc with storage := acc.storage.set key value }
+        let σ'   := s.accountMap.set addr acc'
+        .ok ({ (s'.consumeGas cost h) with accountMap := σ' }.replaceStackAndIncrPC rest)
+      else .error .OutOfGas
     | _ => underflow
   | .JUMP => match s.stack with
     | dest :: rest =>
@@ -364,7 +368,10 @@ def stackMemFlow (s s' : State) :
   | .JUMPDEST => .ok s'.incrPC
   | .MSIZE    =>
     .ok (s'.replaceStackAndIncrPC (MachineState.msize s.toMachineState :: s.stack))
-  | .GAS      => .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.gasAvailable :: s.stack))
+  -- GAS pushes the remaining gas *after* this opcode's own cost is deducted
+  -- (Yellow Paper §9.4.7 / EIP-150): so we read `s'.gasAvailable`, not the
+  -- pre-dispatch `s.gasAvailable`.
+  | .GAS      => .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s'.gasAvailable :: s.stack))
   | .TLOAD => match s.stack with
     | key :: rest =>
       .ok (s'.replaceStackAndIncrPC

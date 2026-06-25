@@ -814,7 +814,9 @@ inductive Step : State → State → Prop
                   (((s.accountMap s.executionEnv.codeOwner).storage key) :: rest))
 
   /-- SSTORE: pop key, value; write storage[key] := value. Requires
-      static-mode permission. -/
+      static-mode permission. `h_dyn_gas` charges the EIP-1283 net-metered
+      `Gas.sstoreCost current value` on top of the (zero) static fee, so
+      the actual gas deducted matches the dynamic schedule. -/
   | sstore (s : State) (key value : UInt256) (rest : List UInt256)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.SSTORE, arg))
@@ -822,12 +824,16 @@ inductive Step : State → State → Prop
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_gas     : Gas.cost .SSTORE ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: value :: rest)
+        (h_dyn_gas : Gas.sstoreCost ((s.accountMap s.executionEnv.codeOwner).storage key) value
+                      ≤ (s.consumeGas (Gas.cost .SSTORE) h_gas).gasAvailable)
       : Step s
           (let addr := s.executionEnv.codeOwner
            let acc  := s.accountMap addr
+           let cost := Gas.sstoreCost (acc.storage key) value
            let acc' := { acc with storage := acc.storage.set key value }
            let σ'   := s.accountMap.set addr acc'
-           { (s.consumeGas (Gas.cost .SSTORE) h_gas) with accountMap := σ' }
+           { ((s.consumeGas (Gas.cost .SSTORE) h_gas).consumeGas cost h_dyn_gas)
+               with accountMap := σ' }
              |>.replaceStackAndIncrPC rest)
 
   /-- TLOAD: like SLOAD but reads from transient storage. -/
@@ -902,13 +908,17 @@ inductive Step : State → State → Prop
       : Step s ((s.consumeGas (Gas.cost .PC) h_gas).replaceStackAndIncrPC
                   (s.pc :: s.stack))
 
+  /-- GAS pushes the remaining gas *after* the opcode's own 2-gas cost is
+      deducted (Yellow Paper §9.4.7 / EIP-150), so we read the post-charge
+      `s'.gasAvailable` rather than the original `s.gasAvailable`. -/
   | gas (s : State)
         (arg       : Option (UInt256 × Nat))
         (h_op      : s.decoded = some (.GAS, arg))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.cost .GAS ≤ s.gasAvailable)
-      : Step s ((s.consumeGas (Gas.cost .GAS) h_gas).replaceStackAndIncrPC
-                  (UInt256.ofNat s.gasAvailable :: s.stack))
+      : Step s
+          (let s' := s.consumeGas (Gas.cost .GAS) h_gas
+           s'.replaceStackAndIncrPC (UInt256.ofNat s'.gasAvailable :: s.stack))
 
   | jumpdest (s : State)
         (arg       : Option (UInt256 × Nat))
