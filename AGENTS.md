@@ -5,8 +5,9 @@ semantics of the EVM in Lean 4, expressed as `Prop`-valued inductive relations
 (not executable functions) with an executable shadow proven sound against them.
 
 This file is the shared context for the project skills under
-`.claude/skills/`. For prose depth, see `README.md` (design overview) and
-`VMTESTS.md` (the conformance harness). This file stays terse and operational.
+`.claude/skills/`. For prose depth, see `README.md` (design overview),
+`ARCHITECTURE.md` (module layers + data-flow diagrams), and `VMTESTS.md` (the
+conformance harness). This file stays terse and operational.
 
 ## Commands
 
@@ -62,7 +63,7 @@ Three views of the same semantics, with `Step` as the source of truth:
 ### File layout (`EvmSemantics/`)
 
 ```
-Data/Stack.lean Data/UInt256.lean          -- list stack (popₙ/exchange); 256-bit modular words
+Data/UInt256.lean                           -- 256-bit modular words (stack is plain List UInt256)
 State/{Account,BlockHeader,ExecutionEnv,Substate}.lean  -- world + per-frame env + substate
 Machine/{MachineState,SharedState}.lean     -- μ (gas, memory, returnData); world+machine bundle
 EVM/Operation.lean                          -- Operation ADT (+ EIP-8024 DUPN/SWAPN/EXCHANGE)
