@@ -14,7 +14,7 @@ def initState (code : ByteArray) (gas : Nat) : State :=
       gasPrice := ⟨0⟩, header := default, depth := 0, permitStateMutation := true
       blobVersionedHashes := #[] }
   { toMachineState :=
-      { gasAvailable := UInt256.ofNat gas, activeWords := ⟨0⟩
+      { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, H_return := .empty }
     accountMap := AccountMap.empty
     substate := Substate.empty
@@ -45,7 +45,7 @@ def main : IO Unit := do
   | .ok s' =>
     IO.println s!"  halt:  {repr s'.halt}"
     IO.println s!"  stack: {repr (s'.stack.map UInt256.toNat)}"
-    IO.println s!"  gas:   {s'.gasAvailable.toNat}"
+    IO.println s!"  gas:   {s'.gasAvailable}"
     IO.println s!"  pc:    {s'.pc.toNat}"
   | .error e =>
     IO.println s!"  ERROR: {repr e}"

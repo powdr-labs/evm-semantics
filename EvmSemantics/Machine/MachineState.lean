@@ -18,7 +18,10 @@ the current size are zero-padded, which matches Yellow Paper semantics.
 namespace EvmSemantics
 
 structure MachineState where
-  gasAvailable : UInt256
+  /-- `g` — gas remaining in the current frame. Stored as `Nat` so that
+      gas-sufficiency checks (`cost ≤ gasAvailable`) are plain `Nat` ≤,
+      with no `UInt256.toNat` round-trips. -/
+  gasAvailable : Nat
   /-- # of 32-byte words "active" in memory; used for the memory-expansion
       gas cost. -/
   activeWords  : UInt256
@@ -99,8 +102,8 @@ def mcopy (μ : MachineState) (dst src sz : UInt256) : MachineState :=
 /-- MSIZE: number of *bytes* currently considered active (= 32·activeWords). -/
 def msize (μ : MachineState) : UInt256 := UInt256.ofNat (32 * μ.activeWords.toNat)
 
-/-- GAS: remaining gas. -/
-def gas (μ : MachineState) : UInt256 := μ.gasAvailable
+/-- GAS opcode result: remaining gas, packed into a 256-bit stack word. -/
+def gas (μ : MachineState) : UInt256 := UInt256.ofNat μ.gasAvailable
 
 /-- RETURNDATASIZE: length of the return-data buffer. -/
 def returnDataSize (μ : MachineState) : UInt256 := UInt256.ofNat μ.returnData.size

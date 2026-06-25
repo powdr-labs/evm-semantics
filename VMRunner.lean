@@ -104,7 +104,7 @@ def mkAccount (accJson : Json) : Account :=
     storage  := storage
     tstorage := Storage.empty }
 
-def hugeGas : UInt256 := UInt256.ofNat (2 ^ 63)
+def hugeGas : Nat := 2 ^ 63
 
 /-- Assemble the initial `State` from a VMTest `exec`/`env`/`pre`. -/
 def buildState (testObj : Json) : State :=

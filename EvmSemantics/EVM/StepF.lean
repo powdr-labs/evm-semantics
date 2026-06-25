@@ -321,7 +321,7 @@ def stackMemFlow (s s' : State) :
   | .JUMPDEST => .ok s'.incrPC
   | .MSIZE    =>
     .ok (s'.replaceStackAndIncrPC (MachineState.msize s.toMachineState :: s.stack))
-  | .GAS      => .ok (s'.replaceStackAndIncrPC (s.gasAvailable :: s.stack))
+  | .GAS      => .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.gasAvailable :: s.stack))
   | .TLOAD => match s.stack with
     | key :: rest =>
       .ok (s'.replaceStackAndIncrPC
@@ -496,7 +496,7 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
       let cost := Gas.cost op
-      if h_g : cost ≤ s.gasAvailable.toNat then
+      if h_g : cost ≤ s.gasAvailable then
         let s' := s.consumeGas cost h_g
         match op with
         | .StopArith op    => stepF.stopArith    s s' op
