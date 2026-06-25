@@ -41,6 +41,25 @@ def underflow : Except ExecutionException State := .error .StackUnderflow
 /-- Sugar for the static-mode-violation exception result. -/
 def static    : Except ExecutionException State := .error .StaticModeViolation
 
+/-- Charge Yellow-Paper memory-expansion gas for touching `[offset, offset+sz)`
+    on `s`, and advance the active-words high-water mark accordingly.  Returns
+    `.error .OutOfGas` if the expansion would exhaust the remaining gas (which
+    is also what protects the runtime from OOM on absurd offsets/sizes — see
+    `MachineState.memExpansionDelta`). -/
+def chargeMem (s : State) (offset sz : Nat) : Except ExecutionException State :=
+  if h : s.canExpandMemory offset sz then
+    .ok (s.consumeMemExp offset sz h)
+  else
+    .error .OutOfGas
+
+/-- Two-range version of `chargeMem`, used by MCOPY which touches both the
+    source-read and destination-write ranges. -/
+def chargeMem2 (s : State) (off1 sz1 off2 sz2 : Nat) : Except ExecutionException State :=
+  if h : s.canExpandMemory2 off1 sz1 off2 sz2 then
+    .ok (s.consumeMemExp2 off1 sz1 off2 sz2 h)
+  else
+    .error .OutOfGas
+
 namespace stepF
 
 ----------------------------------------------------------------------------
@@ -143,8 +162,11 @@ def compBit (s s' : State) : Operation.CompareBitwiseOps → Except ExecutionExc
 def keccak (s s' : State) : Operation.KeccakOps → Except ExecutionException State
   | .KECCAK256 => match s.stack with
     | offset :: size :: rest =>
-      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok (s'.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
+      match chargeMem s' offset.toNat size.toNat with
+      | .ok s'' =>
+        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+        .ok (s''.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
+      | .error e => .error e
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -165,6 +187,8 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
   | .CALLVALUE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.weiValue :: s.stack))
   | .CALLDATALOAD => match s.stack with
     | i :: rest =>
+      -- A `readPadded` of a fixed 32 bytes allocates 32 bytes regardless of the
+      -- offset `i` (out-of-range reads zero-pad), so no bound is needed here.
       let bs := MachineState.readPadded s.executionEnv.calldata i.toNat 32
       let word := bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
       .ok (s'.replaceStackAndIncrPC (UInt256.ofNat word :: rest))
@@ -173,27 +197,27 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.executionEnv.calldata.size :: s.stack))
   | .CALLDATACOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
-      let μ' : MachineState :=
-        { s.toMachineState with
-            memory := MachineState.writeBytes s.memory bytes destOff.toNat
-            activeWords := UInt256.ofNat
-                            (MachineState.activeWordsAfter
-                              s.activeWords.toNat destOff.toNat sz.toNat) }
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      match chargeMem s' destOff.toNat sz.toNat with
+      | .ok s'' =>
+        let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s''.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      | .error e => .error e
     | _ => underflow
   | .CODESIZE =>
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.executionEnv.code.size :: s.stack))
   | .CODECOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
-      let μ' : MachineState :=
-        { s.toMachineState with
-            memory := MachineState.writeBytes s.memory bytes destOff.toNat
-            activeWords := UInt256.ofNat
-                            (MachineState.activeWordsAfter
-                              s.activeWords.toNat destOff.toNat sz.toNat) }
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      match chargeMem s' destOff.toNat sz.toNat with
+      | .ok s'' =>
+        let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s''.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      | .error e => .error e
     | _ => underflow
   | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
   | .EXTCODESIZE => match s.stack with
@@ -203,31 +227,33 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | _ => underflow
   | .EXTCODECOPY => match s.stack with
     | a :: destOff :: srcOff :: sz :: rest =>
-      let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
-      let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
-      let μ' : MachineState :=
-        { s.toMachineState with
-            memory := MachineState.writeBytes s.memory bytes destOff.toNat
-            activeWords := UInt256.ofNat
-                            (MachineState.activeWordsAfter
-                              s.activeWords.toNat destOff.toNat sz.toNat) }
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      match chargeMem s' destOff.toNat sz.toNat with
+      | .ok s'' =>
+        let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
+        let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
+        let μ' : MachineState :=
+          { s''.toMachineState with
+              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      | .error e => .error e
     | _ => underflow
   | .RETURNDATASIZE =>
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.returnData.size :: s.stack))
   | .RETURNDATACOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
+      -- Spec-mandated OOB check on the return-data buffer (it is NOT
+      -- memory and is bounded by `returnData.size`, not by gas).
       if srcOff.toNat + sz.toNat > s.returnData.size then
         .error .InvalidMemoryAccess
       else
-        let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
-        let μ' : MachineState :=
-          { s.toMachineState with
-              memory := MachineState.writeBytes s.memory bytes destOff.toNat
-              activeWords := UInt256.ofNat
-                              (MachineState.activeWordsAfter
-                                s.activeWords.toNat destOff.toNat sz.toNat) }
-        .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        match chargeMem s' destOff.toNat sz.toNat with
+        | .ok s'' =>
+          let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
+          let μ' : MachineState :=
+            { s''.toMachineState with
+                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+          .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        | .error e => .error e
     | _ => underflow
   | .EXTCODEHASH => match s.stack with
     | a :: rest =>
@@ -282,18 +308,27 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .MLOAD => match s.stack with
     | offset :: rest =>
-      let (v, μ') := MachineState.mload s.toMachineState offset
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC (v :: rest))
+      match chargeMem s' offset.toNat 32 with
+      | .ok s'' =>
+        let (v, μ') := MachineState.mload s''.toMachineState offset
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC (v :: rest))
+      | .error e => .error e
     | _ => underflow
   | .MSTORE => match s.stack with
     | offset :: value :: rest =>
-      let μ' := MachineState.mstore s.toMachineState offset value
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      match chargeMem s' offset.toNat 32 with
+      | .ok s'' =>
+        let μ' := MachineState.mstore s''.toMachineState offset value
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      | .error e => .error e
     | _ => underflow
   | .MSTORE8 => match s.stack with
     | offset :: value :: rest =>
-      let μ' := MachineState.mstore8 s.toMachineState offset value
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      match chargeMem s' offset.toNat 1 with
+      | .ok s'' =>
+        let μ' := MachineState.mstore8 s''.toMachineState offset value
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      | .error e => .error e
     | _ => underflow
   | .SLOAD => match s.stack with
     | key :: rest =>
@@ -347,8 +382,13 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .MCOPY => match s.stack with
     | destOff :: srcOff :: sz :: rest =>
-      let μ' := MachineState.mcopy s.toMachineState destOff srcOff sz
-      .ok ({ s' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      -- MCOPY touches both `[srcOff, srcOff+sz)` (read) and
+      -- `[destOff, destOff+sz)` (write); we charge expansion for the union.
+      match chargeMem2 s' destOff.toNat sz.toNat srcOff.toNat sz.toNat with
+      | .ok s'' =>
+        let μ' := MachineState.mcopy s''.toMachineState destOff srcOff sz
+        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+      | .error e => .error e
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -470,14 +510,17 @@ def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State 
   else
     match s.stack with
     | offset :: size :: rest =>
-      match popN rest op.topics.val with
-      | some (topics, rest') =>
-        let entry : LogEntry :=
-          { address := s.executionEnv.codeOwner
-            topics  := topics.toArray
-            data    := MachineState.readPadded s.memory offset.toNat size.toNat }
-        .ok ({ s' with substate := s.substate.appendLog entry }.replaceStackAndIncrPC rest')
-      | none => underflow
+      match chargeMem s' offset.toNat size.toNat with
+      | .ok s'' =>
+        match popN rest op.topics.val with
+        | some (topics, rest') =>
+          let entry : LogEntry :=
+            { address := s.executionEnv.codeOwner
+              topics  := topics.toArray
+              data    := MachineState.readPadded s.memory offset.toNat size.toNat }
+          .ok ({ s'' with substate := s.substate.appendLog entry }.replaceStackAndIncrPC rest')
+        | none => underflow
+      | .error e => .error e
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -488,13 +531,19 @@ def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State 
 def system (s s' : State) : Operation.SystemOps → Except ExecutionException State
   | .RETURN => match s.stack with
     | offset :: size :: rest =>
-      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok { s' with halt := .Returned, hReturn := bs, stack := rest }
+      match chargeMem s' offset.toNat size.toNat with
+      | .ok s'' =>
+        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+        .ok { s'' with halt := .Returned, hReturn := bs, stack := rest }
+      | .error e => .error e
     | _ => underflow
   | .REVERT => match s.stack with
     | offset :: size :: rest =>
-      let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-      .ok { s' with halt := .Reverted, hReturn := bs, stack := rest }
+      match chargeMem s' offset.toNat size.toNat with
+      | .ok s'' =>
+        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+        .ok { s'' with halt := .Reverted, hReturn := bs, stack := rest }
+      | .error e => .error e
     | _ => underflow
   | .INVALID => .error .InvalidInstruction
   -- Out-of-scope in v1.

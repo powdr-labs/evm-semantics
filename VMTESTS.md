@@ -20,10 +20,11 @@ Each test runs in its own child process (`--file` mode), so an evaluator panic o
 hang only loses that one test instead of aborting the whole run.
 
 ## Current results (609 tests)
+Will be refreshed once the memory-expansion-gas branch is merged and the
+baseline regenerated. Pre-merge counts on `origin/main`:
 ```
 pass=533  fail=0  skip=31 (unsup=6 keccak=23 gas=2)  incon=28  crash=17
 ```
-Of the 561 tests that are neither skipped nor crash, **533 pass (95%)**.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -68,13 +69,18 @@ summary. The full output and normalized summary are uploaded as artifacts.
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.
 
-### CRASH (17) — unbounded `Nat` allocation aborts the process
+### CRASH — previously known categories
+- **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`) — now **fixed**
+  via modular fast-exponentiation (`UInt256.expFast`, `UInt256.lean`).
 - **Huge memory offset/size** (17: `calldatacopy`/`codecopy`/`calldataload`/
-  `log*` …`TooHigh`): `readPadded` / `writeBytes` allocate `size` / `offset+size`
-  bytes with no bound, so a ~`2^256` size OOMs/aborts. Needs a size guard (the
-  real EVM bounds this via memory-expansion gas).
+  `log*` …`TooHigh`) — now **fixed** via proper memory-expansion gas:
+  `chargeMem` / `chargeMem2` charge the Yellow-Paper quadratic cost for the
+  touched range, so a `~2^256` offset hits `OutOfGas` long before the
+  underlying `ByteArray` allocates. The zero-padding cases (calldata read
+  past end) pass; `log*…TooHigh` lands as `incon` (real EVM expects a
+  memory-expansion OOG halt the gas-ignoring harness can't reproduce).
 
-### INCONCLUSIVE (28) — mostly outside the evaluator's scope; ~11 are real gaps
+### INCONCLUSIVE — mostly outside the evaluator's scope; ~11 are real gaps
 - **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
   `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
   `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The
@@ -103,17 +109,6 @@ but it remains a divergence between `stepF` and `Step`.
 Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator fixes (turn crashes/fails into passes)
-- [x] **Modular `EXP`** — make `UInt256.exp` use fast modular exponentiation
-      instead of computing `a^b` then `% 2^256` (`UInt256.lean`).
-      *Unlocked 38 crashes* (`exp*`, `loop-exp*`).
-- [ ] **Bound memory ops** — add a size/offset guard in `readPadded` /
-      `writeBytes` so huge (`~2^256`) sizes fail gracefully instead of OOM/abort.
-      *Unlocks ~17 crashes* (`calldatacopy`/`codecopy`/`calldataload`/`log*`
-      `…TooHigh`).
-- [x] **Signed `SMOD`/`SDIV`** — use truncate-toward-zero semantics (result takes
-      the dividend's sign) rather than Lean's Euclidean `Int` `%`/`/`. Done via
-      `UInt256.sdiv`/`smod` (`Int.tdiv`/`Int.tmod` + div-by-zero=0 guard).
-      *Unlocked the 4 fails.*
 - [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
       `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
       (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
