@@ -90,7 +90,8 @@ def readPadded (bs : ByteArray) (start n : Nat) : ByteArray :=
     needed. -/
 partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
   let needed := start + bytes.size
-  let padded := if bs.size < needed then bs ++ ByteArray.mk (Array.replicate (needed - bs.size) 0) else bs
+  let padded :=
+    if bs.size < needed then bs ++ ByteArray.mk (Array.replicate (needed - bs.size) 0) else bs
   -- Inner loop: copy `bytes[i..]` into `acc` starting at `start + i`.
   let rec go (i : Nat) (acc : ByteArray) : ByteArray :=
     if i < bytes.size then
