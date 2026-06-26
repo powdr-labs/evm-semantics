@@ -37,7 +37,8 @@ inductive Steps : State → State → Prop
 inductive Eval : State → ExecutionResult → Prop
   /-- Zero-step case: the state is already done — halted with an empty call
       stack. (A halted frame with callers still on the stack is *not* done; it
-      has a `Step.callReturn*` successor.) -/
+      has a `Step.returning` successor wrapping a `StepReturn.callReturn*`
+      rule.) -/
   | halted   : ∀ {s}, s.halt ≠ .Running → s.callStack = [] → Eval s s.toResult
   /-- Take one step, then evaluate the rest. -/
   | stepThen : ∀ {s s' r}, Step s s' → Eval s' r → Eval s r

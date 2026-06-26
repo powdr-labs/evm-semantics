@@ -58,7 +58,7 @@ trivial program.
   (pre-EIP-1283 for Constantinople / EIP-2200 for Cancun, with the
   EIP-2200 stipend sentry via `Gas.sstoreSentry`), `Gas.copyWordCost`,
   `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`. The relational
-  `Step.outOfGas` is generalised to accept a `cost : Nat` witness with
+  `StepRunning.outOfGas` is generalised to accept a `cost : Nat` witness with
   `Gas.baseCost ≤ cost`, so dynamic-cost OOG (memory expansion, sstoreCost,
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
   costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
@@ -101,7 +101,7 @@ EvmSemantics/
     Exception.lean              -- 8-variant ExecutionException
     State.lean                  -- EVM.State (pc, stack, halt, ...)
     Halted.lean                 -- ExecutionResult + State.toResult
-    Step.lean                   -- the small-step relation (90 constructors)
+    Step.lean                   -- Step wrapper + StepRunning/StepReturn rules
     BigStep.lean                -- reflexive-transitive Steps, big-step Eval
     StepF.lean                  -- executable shadow, split by Operation group
     Equiv.lean                  -- soundness lemmas (helper + headline)
@@ -218,10 +218,10 @@ emit a structured result.
 - **Supporting lemma `popN_correct`** (in `StepF.lean`) — by induction
   on `k`, shows that if `popN stk k = some (topics, rest)` then
   `topics.length = k` and `stk = topics ++ rest`. Used by `log_sound`
-  to recover the list-of-topics witness needed by `Step.log`.
+  to recover the list-of-topics witness needed by `StepRunning.log`.
 
 A small design tweak was needed to make the proof go through:
-`Step.pushN` now takes the immediate-width as an explicit parameter
+`StepRunning.pushN` now takes the immediate-width as an explicit parameter
 (`immWidth : Nat`) rather than tying it to `k.val`, sidestepping a
 decoder invariant that would otherwise need a separate lemma.
 

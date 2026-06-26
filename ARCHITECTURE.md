@@ -59,7 +59,7 @@ graph TD
     end
 
     subgraph "Semantics (three views + proof)"
-        Step["EVM/Step.lean<br/>Step relation (small-step Prop)<br/>90 constructors"]
+        Step["EVM/Step.lean<br/>Step wrapper (small-step Prop)<br/>StepRunning opcode rules · StepReturn resume rules"]
         BigStep["EVM/BigStep.lean<br/>Steps (rtc) · Eval (big-step)"]
         StepF["EVM/StepF.lean<br/>stepF executable shadow<br/>+ 14 per-group helpers"]
         Equiv["EVM/Equiv.lean<br/>stepF_sound (no sorry)<br/>+ 14 helper lemmas"]
@@ -238,10 +238,11 @@ returns `.error .InvalidInstruction`.
 ## Call frames
 
 `CALL` is the only inter-contract opcode currently implemented; it lives in
-`stepF.system`'s `.CALL` arm with a matching `Step.call` / `Step.callFail` /
-`Step.callStatic` triple. Call-frame state is kept on a per-`State`
-`callStack : List Frame` (defined in `State.lean`): each `Frame` snapshots
-the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
+`stepF.system`'s `.CALL` arm with a matching `StepRunning.call` /
+`StepRunning.callFail` / `StepRunning.callStatic` triple, wrapped by
+`Step.running` in the combined relation. Call-frame state is kept on a
+per-`State` `callStack : List Frame` (defined in `State.lean`): each `Frame`
+snapshots the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
 `returnData`, `executionEnv`, the `retOffset`/`retSize` window the caller
 asked for, and the world snapshot (`snapAccountMap`, `snapSubstate`) used to
 roll back on revert / exception.
@@ -249,15 +250,15 @@ roll back on revert / exception.
 The `CALL` arm fires in this order:
 
 1. **Static-mode check** — if `¬ permitStateMutation ∧ value ≠ 0`, halt with
-   `.StaticModeViolation` (mirrored by `Step.callStatic`). Zero-value CALLs
-   remain permitted in static frames.
+   `.StaticModeViolation` (mirrored by `StepRunning.callStatic`). Zero-value
+   CALLs remain permitted in static frames.
 2. **Memory expansion** — `chargeMem2` for the union of the args range and
    the return range.
 3. **Surcharge** — `Gas.callSurcharge` (9000 if value ≠ 0; +25000 if calling
    an empty account).
 4. **Depth/balance pre-check** — if `depth ≥ 1024 ∨ caller.balance < value`,
    the call is *not taken*: push `0`, clear `returnData`, advance PC, keep
-   the unspent forwarded gas. (`Step.callFail`.)
+   the unspent forwarded gas. (`StepRunning.callFail`.)
 5. **63/64 forwarding** — `Gas.allButOneSixtyFourth` caps the gas the callee
    receives; the value stipend is added for non-zero-value calls.
 6. **Enter callee** — `State.enterCall` snapshots the caller frame onto

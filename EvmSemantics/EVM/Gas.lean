@@ -101,7 +101,8 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     -- CALL family base access fee. Constantinople (EIP-150): flat 700.
     -- Cancun warm access (EIP-2929): 100 (cold 2600 not yet modelled). The
     -- value/new-account surcharge and 63/64 forwarding are computed in
-    -- `stepF.system` / `Step.call`, not here (cf. memory expansion for MSTORE).
+    -- `stepF.system` / `StepRunning.call`, not here (cf. memory expansion for
+    -- MSTORE).
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        =>
       match fork with
       | .Constantinople => 700
