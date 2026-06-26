@@ -382,18 +382,17 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .JUMP => match s.stack with
     | dest :: rest =>
-      match Decode.decodeAt s.executionEnv.code dest.toNat with
-      | some (.JUMPDEST, none) => .ok { s' with pc := dest, stack := rest }
-      | _ => .error .BadJumpDestination
+      if Decode.isValidJumpDest s.executionEnv.code dest.toNat then
+        .ok { s' with pc := dest, stack := rest }
+      else .error .BadJumpDestination
     | _ => underflow
   | .JUMPI => match s.stack with
     | dest :: cond :: rest =>
       if cond.toNat = 0 then
         .ok (s'.replaceStackAndIncrPC rest)
-      else
-        match Decode.decodeAt s.executionEnv.code dest.toNat with
-        | some (.JUMPDEST, none) => .ok { s' with pc := dest, stack := rest }
-        | _ => .error .BadJumpDestination
+      else if Decode.isValidJumpDest s.executionEnv.code dest.toNat then
+        .ok { s' with pc := dest, stack := rest }
+      else .error .BadJumpDestination
     | _ => underflow
   | .PC       => .ok (s'.replaceStackAndIncrPC (s.pc :: s.stack))
   | .JUMPDEST => .ok s'.incrPC

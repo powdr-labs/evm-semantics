@@ -144,7 +144,11 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
 - **`Decode.lean`** — `opcodeOf : UInt8 → Option Operation` and `decodeAt :
   ByteArray → pc → Option (Operation × Option (UInt256 × Nat))` returning the
   operation plus any PUSH immediate (value + width). Reading past code end
-  decodes as `STOP` (Yellow-Paper zero-padding).
+  decodes as `STOP` (Yellow-Paper zero-padding). Also `isValidJumpDest :
+  ByteArray → Nat → Bool` — the push-data-aware jumpdest analysis used by
+  JUMP/JUMPI: scans the code from pc 0, skipping each opcode's immediate
+  bytes, and accepts `target` only when it is reached as an instruction
+  boundary *and* `code[target] = 0x5b`.
 - **`Gas.lean`** — `Gas.baseCost : Fork → Operation → Nat`, the *static*
   per-opcode fee parameterised by the hard fork (`Constantinople` /
   `Cancun`). Alongside, several **dynamic cost** helpers (also fork-aware

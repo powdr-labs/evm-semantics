@@ -821,25 +821,25 @@ inductive StepRunning : State → State → Prop
   -- Control flow: JUMP, JUMPI, JUMPDEST, PC, GAS.
   ----------------------------------------------------------------------------
 
-  /-- JUMP: pop destination; set `pc := dest` if the destination is a JUMPDEST. -/
+  /-- JUMP: pop destination; set `pc := dest` if the destination is a
+      `JUMPDEST` *as an instruction boundary* — a `0x5b` byte sitting inside
+      a PUSH immediate is rejected by the jumpdest analysis. -/
   | jump (s : State) (dest : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .JUMP)
         (h_gas     : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: rest)
-        (h_valid   : Decode.decodeAt s.executionEnv.code dest.toNat
-                       = some (.JUMPDEST, none))
+        (h_valid   : Decode.isValidJumpDest s.executionEnv.code dest.toNat = true)
       : StepRunning s
           { (s.consumeGas (Gas.baseCost s.fork .JUMP) h_gas) with pc := dest, stack := rest }
 
-  /-- JUMPI (taken): pop dest, cond; if `cond ≠ 0` and dest is a JUMPDEST,
-      set `pc := dest`. -/
+  /-- JUMPI (taken): pop dest, cond; if `cond ≠ 0` and dest is a valid
+      `JUMPDEST` (instruction boundary, not push-data), set `pc := dest`. -/
   | jumpi_taken (s : State) (dest cond : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .JUMPI)
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
         (h_cond    : UInt256.isTrue cond)
-        (h_valid   : Decode.decodeAt s.executionEnv.code dest.toNat
-                       = some (.JUMPDEST, none))
+        (h_valid   : Decode.isValidJumpDest s.executionEnv.code dest.toNat = true)
       : StepRunning s
           { (s.consumeGas (Gas.baseCost s.fork .JUMPI) h_gas) with pc := dest, stack := rest }
 
@@ -1107,21 +1107,24 @@ inductive StepRunning : State → State → Prop
         (h_perm    : s.executionEnv.permitStateMutation = false)
       : StepRunning s (s.haltWith .StaticModeViolation)
 
-  /-- JUMP to a destination that is not a `JUMPDEST` (or off the code). -/
+  /-- JUMP to a destination that is not a valid `JUMPDEST`: either the byte
+      there is not `0x5b`, or it sits inside PUSH immediate data and so is
+      not reachable as an instruction boundary. -/
   | jumpBadDest (s : State) (dest : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .JUMP)
         (h_gas     : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: rest)
-        (h_bad     : Decode.decodeAt s.executionEnv.code dest.toNat ≠ some (.JUMPDEST, none))
+        (h_bad     : Decode.isValidJumpDest s.executionEnv.code dest.toNat = false)
       : StepRunning s (s.haltWith .BadJumpDestination)
 
-  /-- JUMPI with `cond ≠ 0` but destination is not a `JUMPDEST`. -/
+  /-- JUMPI with `cond ≠ 0` but the destination is not a valid `JUMPDEST`
+      (same rule as `jumpBadDest` — push-data byte or non-`0x5b`). -/
   | jumpiBadDest (s : State) (dest cond : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .JUMPI)
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
         (h_cond    : UInt256.isTrue cond)
-        (h_bad     : Decode.decodeAt s.executionEnv.code dest.toNat ≠ some (.JUMPDEST, none))
+        (h_bad     : Decode.isValidJumpDest s.executionEnv.code dest.toNat = false)
       : StepRunning s (s.haltWith .BadJumpDestination)
 
   /-- RETURNDATACOPY with `srcOffset + size > returnData.size`. -/
