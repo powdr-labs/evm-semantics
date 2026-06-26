@@ -17,6 +17,8 @@ public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.BigStep
 public import EvmSemantics.EVM.StepF
 public import EvmSemantics.EVM.Equiv
+public import EvmSemantics.GasFreeEVM.Step
+public import EvmSemantics.GasFreeEVM.BigStep
 public import EvmSemantics.Crypto.Keccak256
 
 /-!
