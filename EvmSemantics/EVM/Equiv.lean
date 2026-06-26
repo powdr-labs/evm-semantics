@@ -64,8 +64,7 @@ namespace stepF
 
 theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.StopArith op, argOpt))
+    (h_dec : s.decodedOp = some (.StopArith op))
     (h_gas : Gas.baseCost s.fork (.StopArith op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.stopArith s (s.consumeGas (Gas.baseCost s.fork (.StopArith op)) h_gas) op
@@ -75,53 +74,53 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
   cases op with
   | STOP =>
     -- Note STOP's success doesn't depend on h_gas in the Step constructor
-    cases h; exact .stop s argOpt h_dec h_running
+    cases h; exact .stop s h_dec h_running
   | ADD =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .add s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .add s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | MUL =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .mul s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .mul s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SUB =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .sub s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .sub s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | DIV =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .div s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .div s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SDIV =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .sdiv s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .sdiv s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | MOD =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .mod s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .mod s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SMOD =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .smod s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .smod s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | ADDMOD =>
     match h_stack : s.stack, h with
     | a :: b :: n :: rest, h =>
-      cases h; exact .addmod s a b n rest argOpt h_dec h_running h_gas h_stack
+      cases h; exact .addmod s a b n rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
     | [_, _], h       => nomatch h
   | MULMOD =>
     match h_stack : s.stack, h with
     | a :: b :: n :: rest, h =>
-      cases h; exact .mulmod s a b n rest argOpt h_dec h_running h_gas h_stack
+      cases h; exact .mulmod s a b n rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
     | [_, _], h       => nomatch h
@@ -136,21 +135,20 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
           -- `stepF` uses the fast modular-exponentiation `expFast`; the relation
           -- `Step.exp` uses the `exp` specification. They agree (`expFast_eq_exp`).
           rw [UInt256.expFast_eq_exp]
-          exact .exp s a b rest argOpt h_dec h_running h_gas h_stack h_dyn
+          exact .exp s a b rest h_dec h_running h_gas h_stack h_dyn
         · simp [h_dyn] at h
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SIGNEXTEND =>
     match h_stack : s.stack, h with
     | a :: b :: rest, h =>
-      cases h; exact .signextend s a b rest argOpt h_dec h_running h_gas h_stack
+      cases h; exact .signextend s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
 
 theorem compBit_sound (s : State) (op : Operation.CompareBitwiseOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.CompBit op, argOpt))
+    (h_dec : s.decodedOp = some (.CompBit op))
     (h_gas : Gas.baseCost s.fork (.CompBit op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.compBit s (s.consumeGas (Gas.baseCost s.fork (.CompBit op)) h_gas) op = .ok sf) :
@@ -159,77 +157,76 @@ theorem compBit_sound (s : State) (op : Operation.CompareBitwiseOps)
   cases op with
   | LT =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .lt s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .lt s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | GT =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .gt s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .gt s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SLT =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .slt s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .slt s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SGT =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .sgt s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .sgt s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | EQ =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .eq s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .eq s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | ISZERO =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .iszero s a rest argOpt h_dec h_running h_gas h_stack
+    | a :: rest, h => cases h; exact .iszero s a rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | AND =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .and s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .and s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | OR =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .or s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .or s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | XOR =>
     match h_stack : s.stack, h with
-    | a :: b :: rest, h => cases h; exact .xor_ s a b rest argOpt h_dec h_running h_gas h_stack
+    | a :: b :: rest, h => cases h; exact .xor_ s a b rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | NOT =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .not s a rest argOpt h_dec h_running h_gas h_stack
+    | a :: rest, h => cases h; exact .not s a rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | BYTE =>
     match h_stack : s.stack, h with
-    | i :: x :: rest, h => cases h; exact .byte_ s i x rest argOpt h_dec h_running h_gas h_stack
+    | i :: x :: rest, h => cases h; exact .byte_ s i x rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SHL =>
     match h_stack : s.stack, h with
-    | sh :: v :: rest, h => cases h; exact .shl s sh v rest argOpt h_dec h_running h_gas h_stack
+    | sh :: v :: rest, h => cases h; exact .shl s sh v rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SHR =>
     match h_stack : s.stack, h with
-    | sh :: v :: rest, h => cases h; exact .shr s sh v rest argOpt h_dec h_running h_gas h_stack
+    | sh :: v :: rest, h => cases h; exact .shr s sh v rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
   | SAR =>
     match h_stack : s.stack, h with
-    | sh :: v :: rest, h => cases h; exact .sar s sh v rest argOpt h_dec h_running h_gas h_stack
+    | sh :: v :: rest, h => cases h; exact .sar s sh v rest h_dec h_running h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
 
 theorem keccak_sound (s : State) (op : Operation.KeccakOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Keccak op, argOpt))
+    (h_dec : s.decodedOp = some (.Keccak op))
     (h_gas : Gas.baseCost s.fork (.Keccak op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.keccak s (s.consumeGas (Gas.baseCost s.fork (.Keccak op)) h_gas) op = .ok sf) :
@@ -249,7 +246,7 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
                             h_gas).consumeMemExp offset.toNat size.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
           cases h
-          exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+          exact .keccak256 s offset size rest h_dec h_running h_gas h_stack h_mem h_dyn
         · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h           => nomatch h
@@ -257,8 +254,7 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
 
 theorem block_sound (s : State) (op : Operation.BlockOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Block op, argOpt))
+    (h_dec : s.decodedOp = some (.Block op))
     (h_gas : Gas.baseCost s.fork (.Block op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.block s (s.consumeGas (Gas.baseCost s.fork (.Block op)) h_gas) op = .ok sf) :
@@ -267,17 +263,17 @@ theorem block_sound (s : State) (op : Operation.BlockOps)
   cases op with
   | BLOCKHASH =>
     match h_stack : s.stack, h with
-    | n :: rest, h => cases h; exact .blockhash s n rest argOpt h_dec h_running h_gas h_stack
+    | n :: rest, h => cases h; exact .blockhash s n rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
-  | COINBASE    => cases h; exact .coinbase s argOpt h_dec h_running h_gas
-  | TIMESTAMP   => cases h; exact .timestamp s argOpt h_dec h_running h_gas
-  | NUMBER      => cases h; exact .number s argOpt h_dec h_running h_gas
-  | PREVRANDAO  => cases h; exact .prevrandao s argOpt h_dec h_running h_gas
-  | GASLIMIT    => cases h; exact .gaslimit s argOpt h_dec h_running h_gas
-  | CHAINID     => cases h; exact .chainid s argOpt h_dec h_running h_gas
-  | SELFBALANCE => cases h; exact .selfbalance s argOpt h_dec h_running h_gas
-  | BASEFEE     => cases h; exact .basefee s argOpt h_dec h_running h_gas
-  | BLOBBASEFEE => cases h; exact .blobbasefee s argOpt h_dec h_running h_gas
+  | COINBASE    => cases h; exact .coinbase s h_dec h_running h_gas
+  | TIMESTAMP   => cases h; exact .timestamp s h_dec h_running h_gas
+  | NUMBER      => cases h; exact .number s h_dec h_running h_gas
+  | PREVRANDAO  => cases h; exact .prevrandao s h_dec h_running h_gas
+  | GASLIMIT    => cases h; exact .gaslimit s h_dec h_running h_gas
+  | CHAINID     => cases h; exact .chainid s h_dec h_running h_gas
+  | SELFBALANCE => cases h; exact .selfbalance s h_dec h_running h_gas
+  | BASEFEE     => cases h; exact .basefee s h_dec h_running h_gas
+  | BLOBBASEFEE => cases h; exact .blobbasefee s h_dec h_running h_gas
   | BLOBHASH =>
     match h_stack : s.stack, h with
     | i :: rest, h =>
@@ -285,16 +281,15 @@ theorem block_sound (s : State) (op : Operation.BlockOps)
       cases h_lookup : s.executionEnv.blobVersionedHashes[i.toNat]? with
       | some bh =>
         simp [h_lookup] at h; cases h
-        exact .blobhash s i rest bh argOpt h_dec h_running h_gas h_stack h_lookup
+        exact .blobhash s i rest bh h_dec h_running h_gas h_stack h_lookup
       | none =>
         simp [h_lookup] at h; cases h
-        exact .blobhash_oob s i rest argOpt h_dec h_running h_gas h_stack h_lookup
+        exact .blobhash_oob s i rest h_dec h_running h_gas h_stack h_lookup
     | [], h => nomatch h
 
 theorem system_sound (s : State) (op : Operation.SystemOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.System op, argOpt))
+    (h_dec : s.decodedOp = some (.System op))
     (h_gas : Gas.baseCost s.fork (.System op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.system s (s.consumeGas (Gas.baseCost s.fork (.System op)) h_gas) op = .ok sf) :
@@ -310,7 +305,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                          offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
-        exact .return_ s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
+        exact .return_ s offset size rest h_dec h_running h_gas h_stack h_mem
       · simp [h_mem] at h
     | [], h           => nomatch h
     | [_], h          => nomatch h
@@ -323,7 +318,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                          offset.toNat size.toNat
       · simp [h_mem] at h
         cases h
-        exact .revert s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
+        exact .revert s offset size rest h_dec h_running h_gas h_stack h_mem
       · simp [h_mem] at h
     | [], h           => nomatch h
     | [_], h          => nomatch h
@@ -354,14 +349,14 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               rename_i h_fail
               cases h
               exact .callFail s gasArg toArg value argsOff argsLen retOff retLen rest
-                argOpt _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl h_fail
+                _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl h_fail
             · -- taken
               rename_i h_take
               split at h
               · rename_i h_fw
                 cases h
                 exact .call s gasArg toArg value argsOff argsLen retOff retLen rest
-                  argOpt _ _ _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl
+                  _ _ _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl
                   h_take rfl h_fw rfl
               · nomatch h
           · nomatch h
@@ -379,8 +374,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
 
 theorem dup_sound (s : State) (op : Operation.DupOp)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Dup op, argOpt))
+    (h_dec : s.decodedOp = some (.Dup op))
     (h_gas : Gas.baseCost s.fork (.Dup op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.dup s (s.consumeGas (Gas.baseCost s.fork (.Dup op)) h_gas) op = .ok sf) :
@@ -389,13 +383,12 @@ theorem dup_sound (s : State) (op : Operation.DupOp)
   match h_get : s.stack[op.idx.val]?, h with
   | some v, h => cases h
                  obtain ⟨idx⟩ := op
-                 exact .dup s idx v argOpt h_dec h_running h_gas h_get
+                 exact .dup s idx v h_dec h_running h_gas h_get
   | none, h   => nomatch h
 
 theorem swap_sound (s : State) (op : Operation.SwapOp)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Swap op, argOpt))
+    (h_dec : s.decodedOp = some (.Swap op))
     (h_gas : Gas.baseCost s.fork (.Swap op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.swap s (s.consumeGas (Gas.baseCost s.fork (.Swap op)) h_gas) op = .ok sf) :
@@ -404,13 +397,12 @@ theorem swap_sound (s : State) (op : Operation.SwapOp)
   match h_ex : s.stack.exchange 0 (op.idx.val + 1), h with
   | some stk', h => cases h
                     obtain ⟨idx⟩ := op
-                    exact .swap s idx stk' argOpt h_dec h_running h_gas h_ex
+                    exact .swap s idx stk' h_dec h_running h_gas h_ex
   | none, h      => nomatch h
 
 theorem dupN_sound (s : State) (op : Operation.DupNOp)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.DupN op, argOpt))
+    (h_dec : s.decodedOp = some (.DupN op))
     (h_gas : Gas.baseCost s.fork (.DupN op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.dupN s (s.consumeGas (Gas.baseCost s.fork (.DupN op)) h_gas) op = .ok sf) :
@@ -419,13 +411,12 @@ theorem dupN_sound (s : State) (op : Operation.DupNOp)
   match h_get : s.stack[op.n.val]?, h with
   | some v, h => cases h
                  obtain ⟨n⟩ := op
-                 exact .dupN s n v argOpt h_dec h_running h_gas h_get
+                 exact .dupN s n v h_dec h_running h_gas h_get
   | none, h   => nomatch h
 
 theorem swapN_sound (s : State) (op : Operation.SwapNOp)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.SwapN op, argOpt))
+    (h_dec : s.decodedOp = some (.SwapN op))
     (h_gas : Gas.baseCost s.fork (.SwapN op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.swapN s (s.consumeGas (Gas.baseCost s.fork (.SwapN op)) h_gas) op = .ok sf) :
@@ -434,13 +425,12 @@ theorem swapN_sound (s : State) (op : Operation.SwapNOp)
   match h_ex : s.stack.exchange 0 (op.n.val + 1), h with
   | some stk', h => cases h
                     obtain ⟨n⟩ := op
-                    exact .swapN s n stk' argOpt h_dec h_running h_gas h_ex
+                    exact .swapN s n stk' h_dec h_running h_gas h_ex
   | none, h      => nomatch h
 
 theorem exchange_sound (s : State) (op : Operation.ExchangeOp)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Exchange op, argOpt))
+    (h_dec : s.decodedOp = some (.Exchange op))
     (h_gas : Gas.baseCost s.fork (.Exchange op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.exchange s (s.consumeGas (Gas.baseCost s.fork (.Exchange op)) h_gas) op = .ok sf) :
@@ -449,42 +439,41 @@ theorem exchange_sound (s : State) (op : Operation.ExchangeOp)
   match h_ex : s.stack.exchange (op.n + 1) (op.m + 1), h with
   | some stk', h => cases h
                     obtain ⟨b⟩ := op
-                    exact .exchange s b stk' argOpt h_dec h_running h_gas h_ex
+                    exact .exchange s b stk' h_dec h_running h_gas h_ex
   | none, h      => nomatch h
 
 theorem env_sound (s : State) (op : Operation.EnvOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Env op, argOpt))
+    (h_dec : s.decodedOp = some (.Env op))
     (h_gas : Gas.baseCost s.fork (.Env op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.env s (s.consumeGas (Gas.baseCost s.fork (.Env op)) h_gas) op = .ok sf) :
     Step s sf := by
   unfold stepF.env at h
   cases op with
-  | ADDRESS         => cases h; exact .address s argOpt h_dec h_running h_gas
-  | ORIGIN          => cases h; exact .origin s argOpt h_dec h_running h_gas
-  | CALLER          => cases h; exact .caller s argOpt h_dec h_running h_gas
-  | CALLVALUE       => cases h; exact .callvalue s argOpt h_dec h_running h_gas
-  | CALLDATASIZE    => cases h; exact .calldatasize s argOpt h_dec h_running h_gas
-  | CODESIZE        => cases h; exact .codesize s argOpt h_dec h_running h_gas
-  | GASPRICE        => cases h; exact .gasprice s argOpt h_dec h_running h_gas
-  | RETURNDATASIZE  => cases h; exact .returndatasize s argOpt h_dec h_running h_gas
+  | ADDRESS         => cases h; exact .address s h_dec h_running h_gas
+  | ORIGIN          => cases h; exact .origin s h_dec h_running h_gas
+  | CALLER          => cases h; exact .caller s h_dec h_running h_gas
+  | CALLVALUE       => cases h; exact .callvalue s h_dec h_running h_gas
+  | CALLDATASIZE    => cases h; exact .calldatasize s h_dec h_running h_gas
+  | CODESIZE        => cases h; exact .codesize s h_dec h_running h_gas
+  | GASPRICE        => cases h; exact .gasprice s h_dec h_running h_gas
+  | RETURNDATASIZE  => cases h; exact .returndatasize s h_dec h_running h_gas
   | BALANCE =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .balance s a rest argOpt h_dec h_running h_gas h_stack
+    | a :: rest, h => cases h; exact .balance s a rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | CALLDATALOAD =>
     match h_stack : s.stack, h with
-    | i :: rest, h => cases h; exact .calldataload s i rest argOpt h_dec h_running h_gas h_stack
+    | i :: rest, h => cases h; exact .calldataload s i rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | EXTCODESIZE =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .extcodesize s a rest argOpt h_dec h_running h_gas h_stack
+    | a :: rest, h => cases h; exact .extcodesize s a rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | EXTCODEHASH =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .extcodehash s a rest argOpt h_dec h_running h_gas h_stack
+    | a :: rest, h => cases h; exact .extcodehash s a rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
@@ -499,7 +488,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
                             h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
           cases h
-          exact .calldatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+          exact .calldatacopy s dOff sOff sz rest h_dec h_running h_gas h_stack h_mem h_dyn
         · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => nomatch h
@@ -518,7 +507,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
                             h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
           cases h
-          exact .codecopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+          exact .codecopy s dOff sOff sz rest h_dec h_running h_gas h_stack h_mem h_dyn
         · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => nomatch h
@@ -537,7 +526,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
                             h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
           cases h
-          exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+          exact .extcodecopy s a dOff sOff sz rest h_dec h_running h_gas h_stack h_mem h_dyn
         · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h        => nomatch h
@@ -560,7 +549,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
                               h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
           · simp [h_dyn] at h
             cases h
-            exact .returndatacopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack
+            exact .returndatacopy s dOff sOff sz rest h_dec h_running h_gas h_stack
                     (Nat.le_of_not_lt h_oob) h_mem h_dyn
           · simp [h_dyn] at h
         · simp [h_mem] at h
@@ -571,8 +560,7 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
 set_option maxRecDepth 1024 in
 theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.StackMemFlow op, argOpt))
+    (h_dec : s.decodedOp = some (.StackMemFlow op))
     (h_gas : Gas.baseCost s.fork (.StackMemFlow op) ≤ s.gasAvailable)
     {sf : State} (h : stepF.stackMemFlow s
                         (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow op)) h_gas) op = .ok sf) :
@@ -581,7 +569,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   cases op with
   | POP =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .pop s a rest argOpt h_dec h_running h_gas h_stack
+    | a :: rest, h => cases h; exact .pop s a rest h_dec h_running h_gas h_stack
     | [], h       => nomatch h
   | MLOAD =>
     match h_stack : s.stack, h with
@@ -597,7 +585,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                             offset.toNat 32 h_mem).toMachineState offset with
         | mk v μ' =>
           simp [h_load] at h; cases h
-          exact .mload s offset rest v μ' argOpt h_dec h_running h_gas h_stack h_mem h_load
+          exact .mload s offset rest v μ' h_dec h_running h_gas h_stack h_mem h_load
       · simp [h_mem] at h
     | [], h => nomatch h
   | MSTORE =>
@@ -609,7 +597,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                          offset.toNat 32
       · simp [h_mem] at h
         cases h
-        exact .mstore s offset value rest argOpt h_dec h_running h_gas h_stack h_mem
+        exact .mstore s offset value rest h_dec h_running h_gas h_stack h_mem
       · simp [h_mem] at h
     | [], h     => nomatch h
     | [_], h    => nomatch h
@@ -622,13 +610,13 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                          offset.toNat 1
       · simp [h_mem] at h
         cases h
-        exact .mstore8 s offset value rest argOpt h_dec h_running h_gas h_stack h_mem
+        exact .mstore8 s offset value rest h_dec h_running h_gas h_stack h_mem
       · simp [h_mem] at h
     | [], h     => nomatch h
     | [_], h    => nomatch h
   | SLOAD =>
     match h_stack : s.stack, h with
-    | key :: rest, h => cases h; exact .sload s key rest argOpt h_dec h_running h_gas h_stack
+    | key :: rest, h => cases h; exact .sload s key rest h_dec h_running h_gas h_stack
     | [], h         => nomatch h
   | SSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -654,7 +642,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                     h_gas).gasAvailable
           · simp [h_dyn] at h
             cases h
-            exact .sstore s key value rest argOpt h_dec h_running
+            exact .sstore s key value rest h_dec h_running
                     (by simp at h_perm; exact h_perm) h_gas h_stack h_sentry h_dyn
           · simp [h_dyn] at h
         | [], h     => nomatch h
@@ -666,7 +654,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
       | some (.JUMPDEST, none), h =>
         simp [h_target] at h
         cases h
-        exact .jump s dest rest argOpt h_dec h_running h_gas h_stack h_target
+        exact .jump s dest rest h_dec h_running h_gas h_stack h_target
       | some (op', some _), h =>
         simp [h_target] at h
       | some (.StopArith _, none), h
@@ -705,7 +693,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
       · -- cond = 0: not-taken branch
         simp [h_cond] at h
         cases h
-        apply Step.jumpi_notTaken s dest cond rest argOpt h_dec h_running h_gas h_stack
+        apply Step.jumpi_notTaken s dest cond rest h_dec h_running h_gas h_stack
         intro hh; exact hh h_cond
       · -- cond ≠ 0: taken-or-bad-jump branch
         simp [h_cond] at h
@@ -713,7 +701,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         | some (.JUMPDEST, none), h =>
           simp at h
           cases h
-          apply Step.jumpi_taken s dest cond rest argOpt h_dec h_running h_gas h_stack
+          apply Step.jumpi_taken s dest cond rest h_dec h_running h_gas h_stack
           · exact h_cond
           · exact h_target
         | some (op', some _), h => simp at h
@@ -747,13 +735,13 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         | none, h => simp at h
     | [], h => nomatch h
     | [_], h => nomatch h
-  | PC       => cases h; exact .pc s argOpt h_dec h_running h_gas
-  | JUMPDEST => cases h; exact .jumpdest s argOpt h_dec h_running h_gas
-  | MSIZE    => cases h; exact .msize s argOpt h_dec h_running h_gas
-  | GAS      => cases h; exact .gas s argOpt h_dec h_running h_gas
+  | PC       => cases h; exact .pc s h_dec h_running h_gas
+  | JUMPDEST => cases h; exact .jumpdest s h_dec h_running h_gas
+  | MSIZE    => cases h; exact .msize s h_dec h_running h_gas
+  | GAS      => cases h; exact .gas s h_dec h_running h_gas
   | TLOAD =>
     match h_stack : s.stack, h with
-    | key :: rest, h => cases h; exact .tload s key rest argOpt h_dec h_running h_gas h_stack
+    | key :: rest, h => cases h; exact .tload s key rest h_dec h_running h_gas h_stack
     | [], h         => nomatch h
   | TSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -763,7 +751,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
       match h_stack : s.stack, h with
       | key :: value :: rest, h =>
         cases h
-        exact .tstore s key value rest argOpt h_dec h_running
+        exact .tstore s key value rest h_dec h_running
                 (by simp at h_perm; exact h_perm) h_gas h_stack
       | [], h     => nomatch h
       | [_], h    => nomatch h
@@ -780,7 +768,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                 dOff.toNat sz.toNat sOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
           cases h
-          exact .mcopy s dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+          exact .mcopy s dOff sOff sz rest h_dec h_running h_gas h_stack h_mem h_dyn
         · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h     => nomatch h
@@ -806,7 +794,7 @@ theorem push_sound (s : State) (op : Operation.PushOp) (argOpt : Option (UInt256
     -- PUSH0 case: stepF returns .ok (push 0). argOpt is unused.
     simp at h
     cases h
-    exact Step.push0 s argOpt h_dec h_running h_gas
+    exact Step.push0 s (State.decoded_to_op h_dec) h_running h_gas
   | k+1, hw, h_dec, h_gas, h =>
     -- PUSHk case: width is k+1, argOpt determines whether we succeed.
     match h_arg : argOpt, h with
@@ -818,8 +806,7 @@ theorem push_sound (s : State) (op : Operation.PushOp) (argOpt : Option (UInt256
 
 theorem log_sound (s : State) (op : Operation.LogOp)
     (h_running : s.halt = .Running)
-    (argOpt : Option (UInt256 × Nat))
-    (h_dec : s.decoded = some (.Log op, argOpt))
+    (h_dec : s.decodedOp = some (.Log op))
     (h_gas : Gas.baseCost s.fork (.Log op) ≤ s.gasAvailable)
     {sf : State}
     (h : stepF.log s (s.consumeGas (Gas.baseCost s.fork (.Log op)) h_gas) op = .ok sf) :
@@ -852,7 +839,7 @@ theorem log_sound (s : State) (op : Operation.LogOp)
               simp at h_perm; exact h_perm
             have h_stack' : s.stack = offset :: size :: topics ++ rest' := by
               rw [h_stack, h_split]; rfl
-            exact Step.log s n offset size topics rest' argOpt h_dec h_running h_perm'
+            exact Step.log s n offset size topics rest' h_dec h_running h_perm'
                            h_gas h_len h_stack' h_mem h_dyn
           | none =>
             simp [h_pop] at h
@@ -914,33 +901,33 @@ theorem stepF_sound (s s' : State) (h : stepF s = .ok s') : Step s s' := by
         -- Split on the operation kind.
         cases op with
         | StopArith op =>
-          exact stepF.stopArith_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.stopArith_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | CompBit op =>
-          exact stepF.compBit_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.compBit_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Keccak op =>
-          exact stepF.keccak_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.keccak_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Env op =>
-          exact stepF.env_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.env_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Block op =>
-          exact stepF.block_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.block_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | StackMemFlow op =>
-          exact stepF.stackMemFlow_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.stackMemFlow_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Push op =>
           exact stepF.push_sound s op argOpt h_running h_dec h_gas h
         | Dup op =>
-          exact stepF.dup_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.dup_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Swap op =>
-          exact stepF.swap_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.swap_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | DupN op =>
-          exact stepF.dupN_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.dupN_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | SwapN op =>
-          exact stepF.swapN_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.swapN_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Exchange op =>
-          exact stepF.exchange_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.exchange_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | Log op =>
-          exact stepF.log_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.log_sound s op h_running (State.decoded_to_op h_dec) h_gas h
         | System op =>
-          exact stepF.system_sound s op h_running argOpt h_dec h_gas h
+          exact stepF.system_sound s op h_running (State.decoded_to_op h_dec) h_gas h
       · -- gas < cost
         nomatch h
   -- Non-Running halts: `stepF` either reports `.error` (empty call stack —

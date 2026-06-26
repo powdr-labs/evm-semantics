@@ -303,17 +303,21 @@ flowchart LR
 ```
 
 - **`Step`** (`EVM/Step.lean`) — each success constructor names its premises
-  explicitly. The typical shape is `h_op` (decoded operation), `h_running`,
-  `h_gas` (`Gas.baseCost s.fork op ≤ s.gasAvailable`, a `Nat` `≤`), and an `h_stack` shape,
-  but it varies: `Step.stop` carries no `h_gas`/`h_stack` (while
+  explicitly. The typical shape is `h_op : s.decodedOp = some .X` (where
+  `s.decodedOp : Option Operation` is the op-only projection of
+  `s.decoded`), `h_running`, `h_gas`
+  (`Gas.baseCost s.fork op ≤ s.gasAvailable`, a `Nat` `≤`), and an `h_stack`
+  shape, but it varies: `Step.stop` carries no `h_gas`/`h_stack` (while
   `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`) and stackless reads omit
-  `h_stack`. `consumeGas` takes the gas-sufficiency proof
-  as an argument so the saturating subtraction is provably safe. `keccak256`
-  is declared `opaque` in `Crypto/Keccak256.lean` (so the relational rules
-  are independent of any particular hash); the executable evaluator runs
-  the real Keccak-256 thanks to a sibling `@[implemented_by keccak256Impl]`
-  attribute that points at the self-contained implementation in
-  `Crypto/Keccak256.lean`. Halted states have no successors
+  `h_stack`. `Step.pushN` is the one success rule that uses the full
+  `s.decoded`, because it consumes the PUSH immediate. `consumeGas` takes
+  the gas-sufficiency proof as an argument so the saturating subtraction is
+  provably safe. `keccak256` is declared `opaque` in `Crypto/Keccak256.lean`
+  (so the relational rules are independent of any particular hash); the
+  executable evaluator runs the real Keccak-256 thanks to a sibling
+  `@[implemented_by keccak256Impl]` attribute that points at the
+  self-contained implementation in `Crypto/Keccak256.lean`. Halted states
+  have no successors
   (`Step.not_from_halted`).
 - **`Eval`** (`EVM/BigStep.lean`) — `Steps` is the reflexive-transitive closure;
   `Eval s r` holds when `Steps` reaches a halted state whose `toResult` is `r`.
