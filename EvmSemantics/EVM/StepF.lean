@@ -587,8 +587,39 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .error e => .error e
     | _ => underflow
   | .INVALID => .error .InvalidInstruction
+  | .CALL => match s.stack with
+    | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest =>
+      -- `s'` already paid the base (`G_call`) fee. Charge memory expansion for
+      -- both the args and return ranges, then the value/new-account surcharge.
+      match chargeMem2 s' argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat with
+      | .error e => .error e
+      | .ok s2 =>
+        let tgt      := AccountAddress.ofUInt256 toArg
+        let callee   := s2.accountMap tgt
+        let valNZ    : Bool := value.toNat != 0
+        let surcharge := Gas.callSurcharge valNZ callee.isEmpty
+        if hsc : surcharge ≤ s2.gasAvailable then
+          let s3 := s2.consumeGas surcharge hsc
+          let caller := s3.accountMap s3.executionEnv.codeOwner
+          -- Depth limit or insufficient balance ⇒ the call is not taken: the
+          -- forwarded gas is *not* spent and `0` is pushed.
+          if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
+            .ok (s3.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+          else
+            -- EIP-150: forward at most 63/64 of the remaining gas; add the
+            -- value stipend to what the callee receives.
+            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable)
+            if hfw : forwarded ≤ s3.gasAvailable then
+              let s4       := s3.consumeGas forwarded hfw
+              let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
+              let calldata := MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat
+              .ok (s4.enterCall rest tgt value calldata callee.code
+                     childGas retOff.toNat retLen.toNat)
+            else .error .OutOfGas
+        else .error .OutOfGas
+    | _ => underflow
   -- Out-of-scope in v1.
-  | .CREATE | .CREATE2 | .CALL | .CALLCODE
+  | .CREATE | .CREATE2 | .CALLCODE
   | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => .error .InvalidInstruction
 
 end stepF
@@ -624,7 +655,13 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
         | .System op       => stepF.system       s s' op
       else
         .error .OutOfGas
-  | _ => .error .InvalidInstruction
+  | _ =>
+    -- The active frame has halted. If suspended callers remain, resume the
+    -- top one (this is the executable mirror of the `Step.callReturn*` rules);
+    -- otherwise the whole execution is done and `stepF` should not be called.
+    match s.callStack with
+    | []        => .error .InvalidInstruction
+    | f :: rest => .ok (s.resumeByHalt f rest)
 
 end EVM
 end EvmSemantics

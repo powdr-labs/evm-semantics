@@ -98,7 +98,14 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .RETURN | .REVERT | .INVALID                           => 0
     -- Out-of-scope dynamic ops; `1` is a placeholder.
     | .CREATE | .CREATE2                                     => 1
-    | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        => 1
+    -- CALL family base access fee. Constantinople (EIP-150): flat 700.
+    -- Cancun warm access (EIP-2929): 100 (cold 2600 not yet modelled). The
+    -- value/new-account surcharge and 63/64 forwarding are computed in
+    -- `stepF.system` / `Step.call`, not here (cf. memory expansion for MSTORE).
+    | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        =>
+      match fork with
+      | .Constantinople => 700
+      | .Cancun         => 100
     | .SELFDESTRUCT                                          => 1
 
 /-- EIP-2200 SSTORE stipend sentry (Istanbul onward, including Cancun):
@@ -156,6 +163,27 @@ def Gas.copyWordCost (size : UInt256) : Nat :=
 /-- Per-byte LOG data cost (Yellow Paper `G_logdata = 8`): `8 · size`. -/
 def Gas.logDataCost (size : UInt256) : Nat :=
   8 * size.toNat
+
+/-- The EIP-150 "all but one 64th" gas-forwarding cap: a CALL may forward at
+    most `g - ⌊g/64⌋` of the `g` gas remaining (after the call's own
+    base/value/new-account/memory costs are paid). -/
+def Gas.allButOneSixtyFourth (g : Nat) : Nat := g - g / 64
+
+/-- The stipend (`G_callstipend = 2300`) added to the gas a callee receives
+    when a non-zero `value` is transferred — it is *given* to the callee on top
+    of the forwarded gas (funded by the `G_callvalue` surcharge), not charged to
+    the caller again. -/
+def Gas.callStipend : Nat := 2300
+
+/-- The dynamic surcharge a CALL pays on top of its base fee, given whether a
+    non-zero value is transferred (`valueNonZero`) and whether the target
+    account is currently empty (`targetEmpty`). `G_callvalue = 9000` for a value
+    transfer; `G_newaccount = 25000` when that transfer also brings a previously
+    empty account into existence. (Pre-EIP-2929 Constantinople schedule; the
+    flat `G_call = 700` access fee is the `baseCost`.) -/
+def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
+  (if valueNonZero then 9000 else 0) +
+  (if valueNonZero && targetEmpty then 25000 else 0)
 
 /-- Per-byte EXP cost. The per-byte multiplier is `10` at Frontier and
     `50` post-Spurious-Dragon (EIP-160). The legacy ethereum/tests

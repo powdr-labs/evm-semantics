@@ -42,12 +42,14 @@ namespace EVM
 -- Lemmas about `Eval` that don't go through `stepF`.
 ----------------------------------------------------------------------------
 
-/-- A halted state's only `Eval` derivation is `Eval.halted`. -/
+/-- A *done* state's (halted, empty call stack) only `Eval` derivation is
+    `Eval.halted`. -/
 theorem Eval.halted_inv {s : State} {r : ExecutionResult}
-    (h_halt : s.halt ≠ .Running) (h_eval : Eval s r) : r = s.toResult := by
+    (h_halt : s.halt ≠ .Running) (h_cs : s.callStack = []) (h_eval : Eval s r) :
+    r = s.toResult := by
   cases h_eval with
-  | halted _ => rfl
-  | stepThen st _ => exact absurd (Step.not_from_halted st h_halt) (fun h => h)
+  | halted _ _ => rfl
+  | stepThen st _ => exact absurd (Step.not_from_done st h_halt h_cs) (fun h => h)
 
 ----------------------------------------------------------------------------
 -- Helper soundness lemmas.
@@ -323,8 +325,44 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
   | INVALID =>
     -- stepF.system returns .error on INVALID; no .ok possible
     nomatch h
+  | CALL =>
+    match h_stack : s.stack, h with
+    | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest, h =>
+      unfold chargeMem2 at h
+      by_cases h_mem :
+          (s.consumeGas (Gas.baseCost s.fork (.System .CALL)) h_gas).canExpandMemory2
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+      · -- memory expansion affordable; reduce the chargeMem2 match, then split
+        -- the remaining surcharge / depth-balance / forwarding branches.
+        simp only [h_mem, dif_pos] at h
+        split at h
+        · rename_i h_sc
+          split at h
+          · -- depth limit or insufficient balance ⇒ not taken
+            rename_i h_fail
+            cases h
+            exact .callFail s gasArg toArg value argsOff argsLen retOff retLen rest
+              argOpt _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl h_fail
+          · -- taken
+            rename_i h_take
+            split at h
+            · rename_i h_fw
+              cases h
+              exact .call s gasArg toArg value argsOff argsLen retOff retLen rest
+                argOpt _ _ _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl
+                h_take rfl h_fw rfl
+            · nomatch h
+        · nomatch h
+      · simp [h_mem] at h
+    | [], h                                  => nomatch h
+    | [_], h                                 => nomatch h
+    | [_, _], h                              => nomatch h
+    | [_, _, _], h                           => nomatch h
+    | [_, _, _, _], h                        => nomatch h
+    | [_, _, _, _, _], h                     => nomatch h
+    | [_, _, _, _, _, _], h                  => nomatch h
   -- Out-of-scope ops: stepF returns .error
-  | CREATE | CREATE2 | CALL | CALLCODE | DELEGATECALL | STATICCALL | SELFDESTRUCT =>
+  | CREATE | CREATE2 | CALLCODE | DELEGATECALL | STATICCALL | SELFDESTRUCT =>
     nomatch h
 
 theorem dup_sound (s : State) (op : Operation.DupOp)
@@ -822,6 +860,20 @@ end stepF
 -- a helper contradict `h : … = .ok s'` directly.
 ----------------------------------------------------------------------------
 
+/-- Soundness of `stepF`'s resume path: resuming a halted active frame that
+    still has suspended callers produces a `Step` (one of the `callReturn*`
+    rules). The `.Running` arm of `resumeByHalt` is excluded by `h_nr`. -/
+theorem resume_sound (s : State) (f : Frame) (rest : List Frame)
+    (h_nr : s.halt ≠ .Running) (h_stack : s.callStack = f :: rest) :
+    Step s (s.resumeByHalt f rest) := by
+  unfold State.resumeByHalt
+  split
+  · exact absurd ‹s.halt = .Running› h_nr
+  · exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack
+  · exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack
+  · exact .callReturnRevert s f rest ‹_› h_stack
+  · exact .callReturnException s f rest _ ‹_› h_stack
+
 /-- **Soundness of the executable shadow.** Every `.ok` outcome of `stepF`
     corresponds to a derivation of the relational small-step `Step`.
 
@@ -829,7 +881,7 @@ end stepF
     `split at h`. The boring branches (already-halted source, decode
     failure, gas-check failure) all contradict `h : … = .ok s'`. The
     interesting branches dispatch to the 14 per-helper soundness lemmas
-    proven above, one per top-level `Operation` constructor. -/
+    proven above, plus the resume path via `resume_sound`. -/
 theorem stepF_sound (s s' : State) (h : stepF s = .ok s') : Step s s' := by
   unfold stepF at h
   simp only [Id.run] at h
@@ -879,7 +931,16 @@ theorem stepF_sound (s s' : State) (h : stepF s = .ok s') : Step s s' := by
           exact stepF.system_sound s op h_running argOpt h_dec h_gas h
       · -- gas < cost
         nomatch h
-  all_goals nomatch h
+  -- Non-Running halts: `stepF` either reports `.error` (empty call stack —
+  -- the execution is done) or resumes the top caller (`.ok`, via the
+  -- `callReturn*` rules). Discharge both for each halt kind.
+  all_goals
+    split at h
+    · nomatch h
+    · rename_i f rest h_cs
+      injection h with h_eq
+      subst h_eq
+      exact resume_sound s f rest (by simp_all) h_cs
 
 end EVM
 end EvmSemantics

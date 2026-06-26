@@ -28,12 +28,13 @@ def initState (code : ByteArray) (gas : Nat) : State :=
 /-- Iterate `stepF` until the state halts or we hit a step bound. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
   if fuel = 0 then .error .OutOfFuel else
-    match s.halt with
-    | .Running =>
+    -- Loop until the whole execution is *done* (halted with an empty call
+    -- stack); a nested CALL leaves the active frame halted with callers still
+    -- suspended, and `stepF` resumes them.
+    if s.isDone then .ok s else
       match stepF s with
       | .ok s'  => run s' (fuel - 1)
       | .error e => .error e
-    | _ => .ok s
 
 /-- The demo program: `PUSH1 0x05 PUSH1 0x03 ADD STOP`. -/
 def demoCode : ByteArray := ⟨#[0x60, 0x05, 0x60, 0x03, 0x01, 0x00]⟩

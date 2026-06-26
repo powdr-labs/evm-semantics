@@ -163,12 +163,14 @@ def buildState (testObj : Json) : State := buildStateWith testObj hugeGas
     evaluator itself), so no harness compensation is needed here. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
   if fuel = 0 then .error .OutOfFuel else
-    match s.halt with
-    | .Running =>
+    -- A nested CALL leaves the active frame halted while `callStack` is
+    -- non-empty; `stepF` then resumes the caller. So we loop until the whole
+    -- execution is *done* (halted with an empty call stack), not merely until
+    -- the active frame halts.
+    if s.isDone then .ok s else
       match stepF s with
       | .ok s'   => run s' (fuel - 1)
       | .error e => .error e
-    | _ => .ok s
 
 ----------------------------------------------------------------------------
 -- Opcode pre-scan

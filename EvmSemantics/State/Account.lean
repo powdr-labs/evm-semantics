@@ -92,6 +92,12 @@ def empty : Account :=
   { nonce := ⟨0⟩, balance := ⟨0⟩, code := .empty
     storage := Storage.empty, tstorage := Storage.empty }
 
+/-- An account is *empty* (EIP-161 "dead": zero nonce, zero balance, no code).
+    A CALL transferring value into an empty account pays the `G_newaccount`
+    surcharge for bringing it into existence. -/
+def isEmpty (a : Account) : Bool :=
+  a.nonce.toNat = 0 && a.balance.toNat = 0 && a.code.size = 0
+
 end Account
 
 instance : Inhabited Account := ⟨Account.empty⟩
@@ -117,6 +123,13 @@ def set (σ : AccountMap) (a : AccountAddress) (acc : Account) : AccountMap :=
 
 @[simp] theorem get_set_other (σ : AccountMap) (a a' : AccountAddress) (acc : Account)
     (h : a' ≠ a) : (σ.set a acc) a' = σ a' := by simp [AccountMap.set, h]
+
+/-- Move `v` wei from `src` to `dst`. Sequential updates so a self-transfer
+    (`src = dst`) is a no-op on the balance. Underflow is the caller's
+    responsibility to rule out (a CALL checks `balance ≥ value` first). -/
+def transfer (σ : AccountMap) (src dst : AccountAddress) (v : UInt256) : AccountMap :=
+  let σ₁ := σ.set src { (σ src) with balance := (σ src).balance - v }
+  σ₁.set dst { (σ₁ dst) with balance := (σ₁ dst).balance + v }
 
 end AccountMap
 

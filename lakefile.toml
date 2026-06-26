@@ -30,3 +30,7 @@ root = "Main"
 [[lean_exe]]
 name = "vmtests"
 root = "VMRunner"
+
+[[lean_exe]]
+name = "statetests"
+root = "StateTestRunner"
