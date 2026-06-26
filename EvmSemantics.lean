@@ -17,6 +17,7 @@ public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.BigStep
 public import EvmSemantics.EVM.StepF
 public import EvmSemantics.EVM.Equiv
+public import EvmSemantics.Crypto.Keccak256
 
 /-!
 `EvmSemantics` — a relational small-step / big-step semantics of the

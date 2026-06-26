@@ -54,7 +54,7 @@ graph TD
         Exception["EVM/Exception.lean<br/>ExecutionException"]
         State["EVM/State.lean<br/>EVM.State = SharedState<br/>+ pc · stack · halt"]
         Decode["EVM/Decode.lean<br/>byte → Operation + immediate<br/>(end-of-code ⇒ STOP)"]
-        Gas["EVM/Gas.lean<br/>Gas.cost : Operation → Nat"]
+        Gas["EVM/Gas.lean<br/>Gas.baseCost : Fork → Operation → Nat"]
         Halted["EVM/Halted.lean<br/>ExecutionResult<br/>+ State.toResult"]
     end
 
@@ -145,17 +145,44 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   ByteArray → pc → Option (Operation × Option (UInt256 × Nat))` returning the
   operation plus any PUSH immediate (value + width). Reading past code end
   decodes as `STOP` (Yellow-Paper zero-padding).
-- **`Gas.lean`** — `Gas.cost : Operation → Nat`, the real Yellow-Paper *base*
-  fee for every opcode. Two kinds of dynamic cost are not yet modelled: (a)
-  state-dependent opcodes (SSTORE/SLOAD, EIP-2929 cold/warm `BALANCE`/`EXT*`,
-  and the out-of-scope CALL/CREATE/SELFDESTRUCT family) are stubbed at cost `1`
-  with an explicit `TODO(dynamic)` comment; (b) per-word/byte/topic add-ons
-  (EXP, the `*COPY` ops, LOG, KECCAK256) carry their correct static base only,
-  with no `TODO(dynamic)` marker — so don't expect that marker to enumerate
-  every non-comparable opcode (`VMRunner.gasComparableOpcode` is the actual
-  gate). See `VMTESTS.md` for the breakdown.
+- **`Gas.lean`** — `Gas.baseCost : Fork → Operation → Nat`, the *static*
+  per-opcode fee parameterised by the hard fork (`Constantinople` /
+  `Cancun`). Alongside, several **dynamic cost** helpers (also fork-aware
+  where it matters):
+  - `Gas.sstoreCost fork original current new` — pre-EIP-1283 (Constantinople)
+    or EIP-2200 net-metered (Cancun);
+  - `Gas.copyWordCost size` — `3 · ⌈size/32⌉` for all five copy opcodes;
+  - `Gas.keccakWordCost size` — `6 · ⌈size/32⌉` for KECCAK256;
+  - `Gas.logDataCost size` — `8 · size` for LOG;
+  - `Gas.expByteCost fork exponent` — Frontier (10) or post-Spurious-Dragon
+    (50) per exponent byte;
+  - `Gas.sstoreSentry fork gas` — the EIP-2200 stipend (≤ 2300 → OOG) for
+    Cancun only.
+  Memory expansion gas is charged separately by `stepF.chargeMem` /
+  `chargeMem2`. The only remaining dynamic costs we don't yet model are
+  the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
+  `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
+  pending an `accessedAccounts` set in `Substate`) and the CALL / CREATE /
+  SELFDESTRUCT family (out of scope in v1). `VMRunner.gasComparableOpcode`
+  is the actual gate for which tests can be gas-checked. See `VMTESTS.md`
+  for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
   halted `State` into the flat success/returned/reverted/exception sum.
+- **`Fork.lean`** — `inductive Fork = Constantinople | Cancun`; the active
+  fork is carried on `ExecutionEnv.fork` and threaded through `Gas.baseCost` /
+  `Gas.sstoreCost` / `Gas.expByteCost`.
+
+**Crypto** (`EvmSemantics/Crypto/`)
+- **`Keccak256.lean`** — a self-contained implementation of the original
+  Keccak hash function (the variant Ethereum uses, delimiter `0x01`, not
+  NIST SHA-3's `0x06`): the Keccak-f[1600] permutation (state = 25 ×
+  64-bit lanes, 24 rounds of θ-ρ-π-χ-ι), the sponge driver specialised to
+  Keccak-256 (rate 1088 bits, capacity 512 bits, 256-bit output), and a
+  `keccak256Impl : ByteArray → UInt256` that packs the 32-byte digest
+  big-endian. The file then declares `opaque keccak256 : ByteArray →
+  UInt256` wired to `keccak256Impl` via `@[implemented_by]`. The
+  relational `Step` rules see only the opaque signature, so soundness is
+  independent of the hash; the executable `stepF` runs the real thing.
 
 **Semantics** — see the next two sections.
 
@@ -163,6 +190,9 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
 - **`Main.lean`** — `initState` + a `partial def run` fuel loop over `stepF`;
   the demo runs `PUSH1 5; PUSH1 3; ADD; STOP`.
 - **`VMRunner.lean`** (exe `vmtests`) — the conformance harness; see below.
+- **`KeccakTest.lean`** (exe `keccak_test`) — differential check that our
+  `Keccak256` agrees with well-known Ethereum hash vectors (empty input,
+  `"abc"`, the ERC-20 `transfer(address,uint256)` selector).
 
 ## Data flow of one execution step
 
@@ -176,7 +206,7 @@ flowchart TD
     Halt -->|no| Done([run returns s; loop ends])
     Halt -->|yes| Dec["stepF s → decodeAt code pc<br/>(Decode.lean)"]
     Dec -->|"none: unassigned byte"| Invalid["error InvalidInstruction"]
-    Dec -->|"some (op, imm)<br/>(past code end ⇒ STOP)"| GasChk{"Gas.cost op<br/>≤ gasAvailable?"}
+    Dec -->|"some (op, imm)<br/>(past code end ⇒ STOP)"| GasChk{"Gas.baseCost fork op<br/>≤ gasAvailable?"}
     GasChk -->|no| OOG["error OutOfGas"]
     GasChk -->|yes| Consume["consumeGas<br/>(proof-carrying)"]
     Consume --> Dispatch{"dispatch on<br/>Operation group"}
@@ -221,12 +251,17 @@ flowchart LR
 
 - **`Step`** (`EVM/Step.lean`) — each success constructor names its premises
   explicitly. The typical shape is `h_op` (decoded operation), `h_running`,
-  `h_gas` (`Gas.cost op ≤ s.gasAvailable`, a `Nat` `≤`), and an `h_stack` shape,
+  `h_gas` (`Gas.baseCost s.fork op ≤ s.gasAvailable`, a `Nat` `≤`), and an `h_stack` shape,
   but it varies: `Step.stop` carries no `h_gas`/`h_stack` (while
   `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`) and stackless reads omit
   `h_stack`. `consumeGas` takes the gas-sufficiency proof
-  as an argument so the saturating subtraction is provably safe. `keccak256` is an `opaque` function here. Halted states have
-  no successors (`Step.not_from_halted`).
+  as an argument so the saturating subtraction is provably safe. `keccak256`
+  is declared `opaque` in `Crypto/Keccak256.lean` (so the relational rules
+  are independent of any particular hash); the executable evaluator runs
+  the real Keccak-256 thanks to a sibling `@[implemented_by keccak256Impl]`
+  attribute that points at the self-contained implementation in
+  `Crypto/Keccak256.lean`. Halted states have no successors
+  (`Step.not_from_halted`).
 - **`Eval`** (`EVM/BigStep.lean`) — `Steps` is the reflexive-transitive closure;
   `Eval s r` holds when `Steps` reaches a halted state whose `toResult` is `r`.
 - **`stepF`** (`EVM/StepF.lean`) — the same opcode logic as a total `Except`
@@ -250,9 +285,10 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
 2. **Pre-scan the bytecode** (`scanCode` + `gasComparableOpcode` /
    `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
    the real `exec.gas` budget and compare the remaining `gas`) when every opcode
-   has a faithful fixed cost; otherwise *gas-ignored* (inject `hugeGas = 2^63`,
-   never compare gas). Unsupported opcodes (CALL/CREATE family, SELFDESTRUCT)
-   and keccak-dependent tests are skipped here.
+   has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
+   `hugeGas = 2^63`, never compare gas). Only the CALL / CREATE family and
+   `SELFDESTRUCT` are skipped outright; KECCAK256 / EXTCODEHASH now run
+   (real Keccak-256 is wired in via `Crypto/Keccak256.lean`).
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
    (`pass` / `fail` / `skip` / `incon` / `crash`).

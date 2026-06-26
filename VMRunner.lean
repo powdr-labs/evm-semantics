@@ -182,8 +182,8 @@ def skipReasonOf (op : Operation) : Option String :=
   match op with
   | .System .CALL | .System .CALLCODE | .System .DELEGATECALL | .System .STATICCALL
   | .System .CREATE | .System .CREATE2 | .System .SELFDESTRUCT => some "unsupported"
-  | .Keccak _        => some "keccak"
-  | .Env .EXTCODEHASH => some "keccak"
+  -- KECCAK256 and EXTCODEHASH are now backed by a real Keccak-256 impl
+  -- (`EvmSemantics.Crypto.Keccak256`), so we no longer skip them.
   | _ => none
 
 /-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
@@ -192,9 +192,8 @@ def skipReasonOf (op : Operation) : Option String :=
     eligible for gas comparison against the corpus's expected `gas` value. -/
 def gasComparableOpcode (op : Operation) : Bool :=
   match op with
-  -- KECCAK256: skipped via `skipReasonOf` (keccak256 is opaque). Per-word
-  -- cost not yet charged either, but irrelevant since the test is skipped.
-  | .Keccak _ => false
+  -- KECCAK256 now fully modelled: base 30 + per-word 6·⌈size/32⌉.
+  | .Keccak _ => true
   -- EIP-2929 cold/warm-split account / slot access — not yet modelled.
   | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
   -- SLOAD: Constantinople flat 50 (Frontier value used by corpus).
