@@ -7,17 +7,23 @@ calls, no transaction processing, uniform gas.
 
 ## How to run
 ```
-# one-time: fetch the corpus (the LegacyTests/ dir in ethereum/tests is a
-# submodule that points at this repo)
-git clone --depth 1 https://github.com/ethereum/legacytests
+# one-time: fetch the corpus and pin it to the CORPUS_REV that CI uses and that
+# .github/vmtests-baseline.txt was generated against (the LegacyTests/ dir in
+# ethereum/tests is a submodule that points at this repo)
+REV=$(grep -m1 'CORPUS_REV:' .github/workflows/ci.yml | awk '{print $2}')
+git clone https://github.com/ethereum/legacytests
+git -C legacytests checkout "$REV"
 
 lake build vmtests
 ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests
 # single test:
 ./.lake/build/bin/vmtests --file <path>/.../add0.json
 ```
-Each test runs in its own child process (`--file` mode), so an evaluator panic or
-hang only loses that one test instead of aborting the whole run.
+The full suite runs tests as in-process Lean `Task`s across `jobs` workers (`-j`
+/ `VMTESTS_JOBS`, default 8) — there is no subprocess isolation (a deliberate
+~7× speedup over the old subprocess-per-file design), so a hard evaluator panic
+aborts the whole run; a `Task` that merely throws is recorded as one `crash`.
+Use `--file <one>.json` to run a single test in its own process for isolation.
 
 ## Current results (609 tests)
 ```
@@ -77,7 +83,8 @@ summary. The full output and normalized summary are uploaded as artifacts.
 - **Classification.** A test with a `post` expects success; absence of `post`
   expects an exceptional halt. Out-of-gas / out-of-fuel cases that the evaluator
   can't reproduce under infinite gas are reported as `incon` rather than
-  pass/fail. A child that aborts (panic) or times out is reported as `crash`.
+  pass/fail. A worker `Task` that throws is reported as `crash` (a hard panic
+  aborts the whole run instead).
 
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.
@@ -106,10 +113,14 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
   (so the test isn't gas-checked) or the loop legitimately runs to the
   evaluator's `fuel = 2_000_000` cap.
 
-### StackOverflow not raised executably
-`stepF` enforces no 1024-deep stack limit; the cap exists only in the relation
-`Step` (`Step.lean`). No VMTest in the suite currently turns this into a mismatch,
-but it remains a divergence between `stepF` and `Step`.
+### StackOverflow not enforced
+`stepF` enforces no 1024-deep stack limit. The relation `Step` has a
+`stackOverflow` constructor, but its *success* rules (e.g. `push0`, `pushN`)
+carry no stack-length guard, so from a near-full stack both a successful push
+and the `stackOverflow` successor are derivable — `Step` doesn't make the cap
+exclusive either. No VMTest in the suite currently turns this into a mismatch,
+but closing it needs guards on the `Step` success rules *and* a check in
+`stepF`.
 
 ## Evaluator behavior relied upon
 - **End-of-code implicit STOP.** `Decode.decodeAt` returns `(STOP, none)` for
@@ -125,9 +136,10 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
 - [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
       `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
       (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
-- [ ] **Executable `StackOverflow`** — enforce the 1024-deep stack limit in
-      `stepF` (currently only in the relation `Step`), removing a `stepF`/`Step`
-      divergence.
+- [ ] **Enforce the 1024-deep stack limit** — add the cap to `stepF` **and**
+      guard the `Step` success rules (`push0`/`pushN`/…), since neither side
+      currently rules out an oversized push (see "StackOverflow not enforced"
+      above).
 
 ### Keccak (lift the 23 keccak skips)
 - [ ] Provide a concrete Keccak-256 (e.g. via `@[implemented_by]` on the `opaque`

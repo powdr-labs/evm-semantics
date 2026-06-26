@@ -16,8 +16,9 @@ set -euo pipefail
 raw="${1:?usage: vmtests_summary.sh <raw-output-file>}"
 
 # The final aggregate line, e.g.
-#   pass=491 fail=4 skip(unsup=6 keccak=23 gas=2) incon=28 crash=55 (total 609)
-total_line="$(grep -E 'pass=[0-9]+ fail=[0-9]+' "$raw" | tail -1 || true)"
+#   pass=558 (gas-checked=32) fail=0 skip(unsup=6 keccak=23 gas=2) incon=20 crash=0 (total 609)
+# Tolerate the optional `(gas-checked=N)` field that now sits between pass= and fail=.
+total_line="$(grep -E 'pass=[0-9]+ (\(gas-checked=[0-9]+\) )?fail=[0-9]+' "$raw" | tail -1 || true)"
 if [ -z "$total_line" ]; then
   echo "vmtests_summary.sh: no aggregate 'pass=… fail=…' line found in '$raw'" \
        "— the run is incomplete or its output format changed." >&2
@@ -38,7 +39,10 @@ echo "total=$(sed -nE 's/.*total ([0-9]+).*/\1/p' <<<"$total_line")"
 # Named FAIL/CRASH notes look like:  "    FAIL smod0: ..."  /  "    CRASH exp1.json: timeout"
 # Key on the identifier only (not the message), so reworded messages or a
 # CRASH<->FAIL category flip do not register as spurious regressions.
-grep -E '^[[:space:]]+(FAIL|CRASH) ' "$raw" \
+# `|| true`: a clean run has zero FAIL/CRASH lines, where `grep` exits 1 —
+# without this, `set -o pipefail` would fail the whole script after it already
+# wrote a valid summary (and CI would treat a clean run as unparseable).
+{ grep -E '^[[:space:]]+(FAIL|CRASH) ' "$raw" || true; } \
   | sed -E 's/^[[:space:]]+(FAIL|CRASH) ([^:]+):.*/\2/' \
   | sort -u \
   | sed 's/^/test=/'
