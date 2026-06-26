@@ -42,25 +42,24 @@ trivial program.
 - **Excluded from v1:** `CALL` family, `CREATE`/`CREATE2`, `SELFDESTRUCT`,
   transaction processing (`Υ`), block validation, precompiled
   contracts, RLP encoding.
-- **Gas:** `Gas.cost` charges the real Yellow-Paper **base** fee for
-  every opcode (e.g. `ADD`=3, `MUL`=5, `EXP`=10, `KECCAK256`=30,
-  `JUMPI`=10, `TLOAD`/`TSTORE`=100). The opcodes whose real cost has a
-  *dynamic* component our model doesn't yet track — SLOAD/SSTORE and the
-  EIP-2929 cold/warm `BALANCE`/`EXT*` reads, plus the out-of-scope
-  CALL/CREATE/SELFDESTRUCT family — are stubbed at cost `1` with a
-  `TODO(dynamic)` comment; per-word/per-byte/per-topic add-ons
-  (copies, LOG, KECCAK256) keep their static base only. The relational
-  `Step.outOfGas` rule covers only the *static* base cost
-  (`s.gasAvailable < Gas.cost op`); `stepF` additionally rejects insufficient
-  *memory-expansion* gas (`chargeMem`/`chargeMem2` → `OutOfGas`), but `Step` has
-  **no** matching memory-expansion-OOG successor — its memory rules just carry
-  an `h_mem` premise — so that exception case is a known `stepF`/`Step`
-  asymmetry. Completing the schedule is **not** a `Gas.cost`-only edit: the
-  missing parts depend on stack operands and world state, memory-expansion gas
-  is already charged in `stepF` (`chargeMem`/`chargeMem2`), so a change must stay
-  in lockstep
-  across `Step`, `stepF`, the soundness proof, and the harness's
-  `VMRunner.gasComparableOpcode` gate.
+- **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
+  threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
+  the static Yellow-Paper fee per fork (`Constantinople` matches the
+  legacy ethereum/tests corpus — Frontier-era SLOAD = 50, EXP per-byte = 10;
+  `Cancun` uses the modern warm-priced reads and Spurious-Dragon EXP).
+  All major **dynamic costs** are also modelled: memory expansion
+  (`chargeMem` / `chargeMem2`, Yellow-Paper quadratic), `Gas.sstoreCost`
+  (pre-EIP-1283 for Constantinople / EIP-2200 for Cancun, with the
+  EIP-2200 stipend sentry via `Gas.sstoreSentry`), `Gas.copyWordCost`,
+  `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`. The relational
+  `Step.outOfGas` is generalised to accept a `cost : Nat` witness with
+  `Gas.baseCost ≤ cost`, so dynamic-cost OOG (memory expansion, sstoreCost,
+  per-word/byte/topic charges) is expressible. The only remaining unmodelled
+  costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
+  `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
+  in `Substate`) and the out-of-scope CALL / CREATE / SELFDESTRUCT family.
+  Schedule changes need to stay in lockstep across `Step`, `stepF`, the
+  soundness proof, and `VMRunner.gasComparableOpcode`.
 - **World state:** modelled as plain functions, not hash maps —
   `Storage = UInt256 → UInt256`, `AccountMap = AccountAddress → Account`,
   address sets as `α → Prop`. This trades enumerability for clean
@@ -125,7 +124,7 @@ arguments, dangerous instances, etc.) on every declaration under the
 There is intentionally **no `scripts/nolints.json` allow-list file** —
 all findings are addressed in source: short doc-strings everywhere, and
 `@[nolint unusedArguments]` / `attribute [nolint ...]` annotations on
-the handful of intentional exceptions (`Gas.cost`'s ignored `_op`,
+the handful of intentional exceptions (`Gas.sstoreCost`'s ignored `_original`,
 `State.consumeGas`'s proof-witness `_h`, the auto-derived `Repr.repr`
 declarations from `deriving Repr`, the trivial `Keccak.injEq` from a
 single-constructor `deriving DecidableEq`, and the inner-loop helpers
@@ -162,9 +161,11 @@ only `h_op`/`h_running` — though `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_m
       (arg       : Option (UInt256 × Nat))
       (h_op      : s.decoded = some (.ADD, arg))
       (h_running : s.halt = .Running)
-      (h_gas     : Gas.cost .ADD ≤ s.gasAvailable)
+      (h_gas     : Gas.baseCost s.fork .ADD ≤ s.gasAvailable)
       (h_stack   : s.stack = a :: b :: rest)
-    : Step s ((s.consumeGas (Gas.cost .ADD) h_gas).replaceStackAndIncrPC ((a + b) :: rest))
+    : Step s
+        ((s.consumeGas (Gas.baseCost s.fork .ADD) h_gas).replaceStackAndIncrPC
+          ((a + b) :: rest))
 ```
 
 (`gasAvailable` is a `Nat`, so the gas premise is a plain `Nat` `≤`; the operand

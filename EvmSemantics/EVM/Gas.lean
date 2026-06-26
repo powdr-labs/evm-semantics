@@ -155,10 +155,14 @@ def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
     else 100
 
 /-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
-    Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY,
-    and as the per-word part of `KECCAK256` (with `6` instead of `3`). -/
+    Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY. -/
 def Gas.copyWordCost (size : UInt256) : Nat :=
   3 * ((size.toNat + 31) / 32)
+
+/-- Per-word KECCAK256 cost (Yellow Paper `G_keccak256word = 6`):
+    `6 · ⌈size/32⌉`. -/
+def Gas.keccakWordCost (size : UInt256) : Nat :=
+  6 * ((size.toNat + 31) / 32)
 
 /-- Per-byte LOG data cost (Yellow Paper `G_logdata = 8`): `8 · size`. -/
 def Gas.logDataCost (size : UInt256) : Nat :=

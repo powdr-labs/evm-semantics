@@ -169,8 +169,12 @@ def keccak (s s' : State) : Operation.KeccakOps → Except ExecutionException St
     | offset :: size :: rest =>
       match chargeMem s' offset.toNat size.toNat with
       | .ok s'' =>
-        let bs := MachineState.readPadded s.memory offset.toNat size.toNat
-        .ok (s''.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
+        let dyn := Gas.keccakWordCost size
+        if h : dyn ≤ s''.gasAvailable then
+          let s''' := s''.consumeGas dyn h
+          let bs := MachineState.readPadded s.memory offset.toNat size.toNat
+          .ok (s'''.replaceStackAndIncrPC (EvmSemantics.keccak256 bs :: rest))
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
 
