@@ -27,24 +27,26 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 ## Current results (609 tests)
 ```
-pass=561 (gas-checked=330) fail=0 skip=29 (unsup=6 keccak=23 gas=0) incon=19 crash=0
+pass=584 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=19 crash=0
 ```
-- **gas-checked=330** — every test whose bytecode uses only opcodes with
-  an exact gas cost in our schedule (every fixed-cost op + SLOAD + SSTORE
-  via the pre-EIP-1283 schedule) runs with the test's real `exec.gas`
-  budget, and the corpus's remaining-`gas` value is compared.
+- **gas-checked=492** — every test whose bytecode uses only opcodes with
+  an exact gas cost in our schedule runs with the test's real `exec.gas`
+  budget, and the corpus's remaining-`gas` value is compared. The schedule
+  currently covers: every fixed-cost op, SLOAD/SSTORE (pre-EIP-1283), all
+  five `*COPY` opcodes with per-word cost, KECCAK256 (base + per-word),
+  LOG with per-byte cost, and EXP with per-byte exponent cost.
 - **fail=0** — every gas-checked test that passes the storage/return-data
   comparison also matches the expected remaining-gas value.
 - **Corpus fork note.** The legacy ethereum/tests `Constantinople` corpus
   was generated against pre-EIP-1283 rules (EIP-1283 was scheduled for
   Constantinople but reverted in Petersburg). Specifically the corpus
   uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
-  schedule matches this so the comparison is sound; bumping to a newer
-  corpus would mean bumping SLOAD too (see `Gas.lean`).
-- The remaining 231 non-gas-checked passes still run in gas-ignored mode
-  (`gasAvailable = 2^63`) because their bytecode contains an opcode with
-  a still-unmodelled dynamic cost (KECCAK256, *COPY, LOG, EXP, BALANCE /
-  EXT*, CALL family).
+  `Constantinople` fork matches this so the comparison is sound; the
+  `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
+- The remaining 92 non-gas-checked passes still run in gas-ignored mode
+  (`gasAvailable = 2^63`) because their bytecode contains an opcode whose
+  cold/warm pricing is unmodelled (BALANCE / EXTCODESIZE / EXTCODEHASH /
+  EXTCODECOPY).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -69,25 +71,32 @@ summary. The full output and normalized summary are uploaded as artifacts.
 ## How the harness works
 - **Two gas modes, picked per test by a bytecode pre-scan.**
   - *Gas-checked* mode: the test's bytecode contains only opcodes whose
-    `Gas.cost` matches the Yellow-Paper fee schedule exactly (no cold/warm,
-    no per-word/byte/topic). Then the test runs with `exec.gas` as its real
+    full gas cost is captured in our schedule (`Gas.baseCost` + the dynamic
+    helpers: memory expansion, `sstoreCost`, `copyWordCost`, `keccakWordCost`,
+    `logDataCost`, `expByteCost`). The test runs with `exec.gas` as its real
     budget, and the remaining `gas` field is compared against the corpus.
   - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
-    compare `gas`. Used whenever any opcode has a dynamic component our
-    schedule doesn't model (SSTORE, SLOAD, BALANCE, EXT*, *COPY, EXP, LOG,
-    CALL family, SELFDESTRUCT, CREATE family).
-- **Tests using the `GAS` opcode (0x5a) are skipped** (2) only when the test
-  cannot use gas-checked mode anyway. With the real gas budget the value
-  `GAS` pushes is honest; under hugeGas it would be corrupt.
+    compare `gas`. Used when the bytecode contains an opcode whose cold/warm
+    cost we don't yet model — `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`,
+    `EXTCODECOPY` — or one of the out-of-scope `CALL`/`CREATE`/`SELFDESTRUCT`
+    family.
+- **`GAS` opcode** is fine under gas-checked mode (the pushed value matches
+  the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
+  harness only falls back to hugeGas when *some other* opcode is non-gas-
+  comparable, so the previous "gas-skip" bucket is currently empty.
 - **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan:
   CALL / CALLCODE / DELEGATECALL / STATICCALL / CREATE / CREATE2 / SELFDESTRUCT
   are not implemented by the evaluator.
-- **Tests using keccak are skipped** (23) — KECCAK256 / EXTCODEHASH. `keccak256`
-  is `opaque` and returns 0 at runtime, so any result depending on it (all of
-  vmSha3Test, keccak-derived storage slots, code hashes) would not match.
+- **Keccak is now real.** `EvmSemantics.keccak256` is wired (via
+  `@[implemented_by]`) to a self-contained Keccak-256 implementation in
+  `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,
+  using the *original* Keccak padding `0x01` rather than NIST SHA3's
+  `0x06`). The separate `keccak_test` exe verifies the output against
+  well-known vectors (empty, `"abc"`, ERC-20 `transfer(address,uint256)`
+  selector).
 - **Comparison** covers storage (over the union of pre/post slot keys),
-  return-data, balance, and nonce. Logs are not compared (would need RLP encoding
-  plus a real keccak).
+  return-data, balance, and nonce. Logs are not yet compared in the harness
+  (would need RLP encoding to compute the corpus's `logsHash`).
 - **Classification.** A test with a `post` expects success; absence of `post`
   expects an exceptional halt. Out-of-gas / out-of-fuel cases that the evaluator
   can't reproduce under infinite gas are reported as `incon` rather than
@@ -149,38 +158,37 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       currently rules out an oversized push (see "StackOverflow not enforced"
       above).
 
-### Keccak (lift the 23 keccak skips)
-- [ ] Provide a concrete Keccak-256 (e.g. via `@[implemented_by]` on the `opaque`
-      `keccak256`). *Unlocks all of vmSha3Test + keccak-derived storage/code-hash
-      tests*, and enables **log-hash comparison** (currently logs aren't checked).
-
 ### Evaluator: model dynamic gas costs (lift more tests into gas-checked mode)
-The current schedule has the right *base* cost for every opcode plus
-memory expansion (Yellow-Paper quadratic) and the pre-EIP-1283 SSTORE
-schedule (`Gas.sstoreCost` — `20000` for fresh non-zero set, `5000`
-otherwise). The remaining unmodelled dynamic costs:
+Already modelled: memory expansion (Yellow-Paper quadratic),
+`Gas.sstoreCost` (pre-EIP-1283 for `Constantinople` / EIP-2200 for `Cancun`),
+`Gas.copyWordCost` (5 copy ops × per-word 3), `Gas.keccakWordCost`
+(KECCAK256 per-word 6), `Gas.logDataCost` (LOG per-byte 8),
+`Gas.expByteCost` (EXP per-byteLen — 10 for Frontier-flavoured
+`Constantinople`, 50 for `Cancun`). Remaining gaps:
 
 - [ ] **BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** — EIP-2929
       cold/warm split (2600 / 100). Needs `accessedAccounts` in `Substate`.
-- [ ] **KECCAK256** (`30 + 6 * ⌈size/32⌉`), **CALLDATACOPY / CODECOPY /
-      RETURNDATACOPY / MCOPY** (`3 + 3 * ⌈size/32⌉`), **LOG** (`375 +
-      375*topics + 8*size`), **EXP** (`10 + 50 * byteLen(exponent)`) — each
-      is a small per-word/per-byte/per-topic add-on to the base cost. The
-      `size`/`byteLen` operand is already on the stack; the additions are
-      pure arithmetic.
+      These four are the only ops still dropping tests into gas-ignored mode.
 - [ ] **SSTORE refunds** (clearing a non-zero slot adds `15000` to the
-      refund counter). Not modelled. Affects post-Berlin corpora but the
-      legacy Constantinople corpus reports `gas` without applying refunds,
-      so this isn't currently a source of FAILs.
+      refund counter). Not modelled. The legacy Constantinople corpus reports
+      `gas` without applying refunds, so this isn't currently a source of
+      FAILs; would matter for post-Berlin corpora.
 - [ ] **Modern SSTORE** (EIP-1283 / EIP-2200 / EIP-3529) for newer
       corpora — the `original` value is already threaded through
       `Substate.originalStorage`, so adding the modern schedule is a
-      one-liner in `Gas.sstoreCost`. Keep the pre-EIP-1283 logic available
-      as a fork-specific variant.
+      one-liner in `Gas.sstoreCost`. The `Cancun` branch already does
+      EIP-2200; cold/warm surcharge still missing.
 
 ### Harness improvements
-- [x] **Gas-faithful mode** for fixed-cost-only tests — done (gas-checked=32
-      so far). Adding the dynamic costs above grows that bucket.
+- [x] **Gas-faithful mode** for fixed-cost-only tests — done. Now 492 / 584
+      passes are gas-checked.
+- [x] **Real Keccak-256** (self-contained Keccak-f[1600] + sponge with
+      `0x01` padding in `EvmSemantics.Crypto.Keccak256`, wired via
+      `@[implemented_by]`) — done. `vmSha3Test`'s 18 keccak-skipped tests
+      all pass now.
+- [ ] **Log-hash comparison** — the corpus stores `logsHash` (a keccak over
+      RLP-encoded log entries). We have real keccak now; an RLP encoder
+      would close the loop and let us validate emitted logs end-to-end.
 - [ ] **Storage extra-write detection** — comparison only checks the union of
       pre/post slot keys, so a write to a slot named in neither is invisible.
       Track written keys to close this blind spot.

@@ -240,10 +240,15 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
       unfold chargeMem at h
       by_cases h_mem :
           (s.consumeGas (Gas.baseCost s.fork (.Keccak .KECCAK256)) h_gas).canExpandMemory
-                         offset.toNat size.toNat
+            offset.toNat size.toNat
       · simp [h_mem] at h
-        cases h
-        exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack h_mem
+        by_cases h_dyn : Gas.keccakWordCost size ≤
+            ((s.consumeGas (Gas.baseCost s.fork (.Keccak .KECCAK256))
+                            h_gas).consumeMemExp offset.toNat size.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .keccak256 s offset size rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h           => nomatch h
     | [_], h          => nomatch h
