@@ -531,15 +531,19 @@ inductive Step : State → State → Prop
         (h_stack   : s.stack = addr :: destOff :: srcOff :: sz :: rest)
         (h_mem     : (s.consumeGas (Gas.baseCost s.executionEnv.fork .EXTCODECOPY) h_gas).canExpandMemory
                        destOff.toNat sz.toNat)
+        (h_dyn_gas : Gas.copyWordCost sz ≤
+                       ((s.consumeGas (Gas.baseCost s.executionEnv.fork .EXTCODECOPY)
+                                       h_gas).consumeMemExp destOff.toNat sz.toNat h_mem).gasAvailable)
       : Step s
           (let extCode := (s.accountMap (AccountAddress.ofUInt256 addr)).code
            let bytes := MachineState.readPadded extCode srcOff.toNat sz.toNat
            let s'' := (s.consumeGas (Gas.baseCost s.executionEnv.fork .EXTCODECOPY) h_gas).consumeMemExp
                         destOff.toNat sz.toNat h_mem
+           let s''' := s''.consumeGas (Gas.copyWordCost sz) h_dyn_gas
            let μ' : MachineState :=
-             { s''.toMachineState with
+             { s'''.toMachineState with
                  memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-           { s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+           { s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
 
   | returndatasize (s : State)
         (arg       : Option (UInt256 × Nat))
@@ -849,6 +853,10 @@ inductive Step : State → State → Prop
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_gas     : Gas.baseCost s.executionEnv.fork .SSTORE ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: value :: rest)
+        -- EIP-2200 stipend sentry must not be triggered (Cancun only).
+        (h_sentry  : Gas.sstoreSentry s.executionEnv.fork
+                       (s.consumeGas (Gas.baseCost s.executionEnv.fork .SSTORE) h_gas).gasAvailable
+                     = false)
         (h_dyn_gas : Gas.sstoreCost s.executionEnv.fork
                        (s.substate.originalStorage s.executionEnv.codeOwner key)
                        ((s.accountMap s.executionEnv.codeOwner).storage key) value
@@ -1089,11 +1097,18 @@ inductive Step : State → State → Prop
         (h_op      : s.decoded = some (.INVALID, arg))
       : Step s (s.haltWith .InvalidInstruction)
 
-  /-- Insufficient gas to pay for the decoded operation's cost. -/
-  | outOfGas (s : State) (op : Operation) (arg : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (op, arg))
-        (h_running : s.halt = .Running)
-        (h_gas     : s.gasAvailable < Gas.baseCost s.executionEnv.fork op)
+  /-- Insufficient gas to pay for the decoded operation's *total* cost.
+      `cost` is any witness gas amount at least `baseCost` — this lets the
+      rule fire not only when the static fee alone exceeds the budget but
+      also when a dynamic surcharge does: memory expansion, per-word copy,
+      per-byte LOG/EXP, `Gas.sstoreCost`, or the EIP-2200 stipend. The
+      `h_cost_lb` constraint prevents bogus OOGs (a `cost < baseCost`
+      witness could not actually halt the op). -/
+  | outOfGas (s : State) (op : Operation) (arg : Option (UInt256 × Nat)) (cost : Nat)
+        (h_op       : s.decoded = some (op, arg))
+        (h_running  : s.halt = .Running)
+        (h_cost_lb  : Gas.baseCost s.executionEnv.fork op ≤ cost)
+        (h_gas      : s.gasAvailable < cost)
       : Step s (s.haltWith .OutOfGas)
 
   /-- Stack has fewer items than the operation requires to pop. -/

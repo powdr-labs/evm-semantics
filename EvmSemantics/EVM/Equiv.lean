@@ -458,8 +458,13 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
       by_cases h_mem : (s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .EXTCODECOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
-        cases h
-        exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem
+        by_cases h_dyn : Gas.copyWordCost sz ≤
+            ((s.consumeGas (Gas.baseCost s.executionEnv.fork (.Env .EXTCODECOPY))
+                            h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .extcodecopy s a dOff sOff sz rest argOpt h_dec h_running h_gas h_stack h_mem h_dyn
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h        => exact absurd h (by intro hh; cases hh)
     | [_], h       => exact absurd h (by intro hh; cases hh)
@@ -552,19 +557,26 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
       simp [h_perm] at h
       unfold static at h; cases h
     · simp [h_perm] at h
-      match h_stack : s.stack, h with
-      | key :: value :: rest, h =>
-        by_cases h_dyn :
-          Gas.sstoreCost s.executionEnv.fork (s.substate.originalStorage s.executionEnv.codeOwner key)
-                         ((s.accountMap s.executionEnv.codeOwner).storage key) value
-            ≤ (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)) h_gas).gasAvailable
-        · simp [h_dyn] at h
-          cases h
-          exact .sstore s key value rest argOpt h_dec h_running
-                  (by simp at h_perm; exact h_perm) h_gas h_stack h_dyn
-        · simp [h_dyn] at h
-      | [], h     => exact absurd h (by intro hh; cases hh)
-      | [_], h    => exact absurd h (by intro hh; cases hh)
+      match h_sentry : Gas.sstoreSentry s.executionEnv.fork
+          (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)) h_gas).gasAvailable with
+      | true =>
+        -- EIP-2200 sentry fires → stepF returns OutOfGas, no .ok
+        simp [h_sentry] at h
+      | false =>
+        simp [h_sentry] at h
+        match h_stack : s.stack, h with
+        | key :: value :: rest, h =>
+          by_cases h_dyn :
+            Gas.sstoreCost s.executionEnv.fork (s.substate.originalStorage s.executionEnv.codeOwner key)
+                           ((s.accountMap s.executionEnv.codeOwner).storage key) value
+              ≤ (s.consumeGas (Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)) h_gas).gasAvailable
+          · simp [h_dyn] at h
+            cases h
+            exact .sstore s key value rest argOpt h_dec h_running
+                    (by simp at h_perm; exact h_perm) h_gas h_stack h_sentry h_dyn
+          · simp [h_dyn] at h
+        | [], h     => exact absurd h (by intro hh; cases hh)
+        | [_], h    => exact absurd h (by intro hh; cases hh)
   | JUMP =>
     match h_stack : s.stack, h with
     | dest :: rest, h =>

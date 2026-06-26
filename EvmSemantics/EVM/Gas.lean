@@ -101,6 +101,16 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        => 1
     | .SELFDESTRUCT                                          => 1
 
+/-- EIP-2200 SSTORE stipend sentry (Istanbul onward, including Cancun):
+    an SSTORE that finds `gasleft ≤ G_callstipend = 2300` at entry must
+    halt with `OutOfGas` *regardless* of the actual `sstoreCost` — even
+    a no-op write. Constantinople (which reverted EIP-1283) has no such
+    sentry, so it returns `false` here. -/
+def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
+  match fork with
+  | .Constantinople => false
+  | .Cancun         => decide (gas ≤ 2300)
+
 /-- Dynamic gas cost of an SSTORE under `fork`, given the slot's
     `original` value (at frame start), `current` value (just before this
     write), and the `new` value being written.

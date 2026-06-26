@@ -242,12 +242,16 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | a :: destOff :: srcOff :: sz :: rest =>
       match chargeMem s' destOff.toNat sz.toNat with
       | .ok s'' =>
-        let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
-        let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
-        let μ' : MachineState :=
-          { s''.toMachineState with
-              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        let dyn := Gas.copyWordCost sz
+        if h : dyn ≤ s''.gasAvailable then
+          let s''' := s''.consumeGas dyn h
+          let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
+          let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
+          let μ' : MachineState :=
+            { s'''.toMachineState with
+                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
   | .RETURNDATASIZE =>
@@ -354,6 +358,10 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .SSTORE =>
     if ¬ s.executionEnv.permitStateMutation then static
+    -- EIP-2200 stipend sentry: at Cancun, halt OOG if gasleft ≤ 2300,
+    -- *regardless* of whether the actual `sstoreCost` would fit.
+    else if Gas.sstoreSentry s.executionEnv.fork s'.gasAvailable then
+      .error .OutOfGas
     else match s.stack with
     | key :: value :: rest =>
       let addr     := s.executionEnv.codeOwner
