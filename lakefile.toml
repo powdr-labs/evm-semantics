@@ -38,3 +38,4 @@ root = "StateTestRunner"
 [[lean_exe]]
 name = "keccak_test"
 root = "KeccakTest"
+
