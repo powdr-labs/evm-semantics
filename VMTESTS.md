@@ -136,9 +136,10 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
 - [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
       `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
       (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
-- [ ] **Executable `StackOverflow`** — enforce the 1024-deep stack limit in
-      `stepF` (currently only in the relation `Step`), removing a `stepF`/`Step`
-      divergence.
+- [ ] **Enforce the 1024-deep stack limit** — add the cap to `stepF` **and**
+      guard the `Step` success rules (`push0`/`pushN`/…), since neither side
+      currently rules out an oversized push (see "StackOverflow not enforced"
+      above).
 
 ### Keccak (lift the 23 keccak skips)
 - [ ] Provide a concrete Keccak-256 (e.g. via `@[implemented_by]` on the `opaque`

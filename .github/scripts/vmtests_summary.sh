@@ -16,8 +16,9 @@ set -euo pipefail
 raw="${1:?usage: vmtests_summary.sh <raw-output-file>}"
 
 # The final aggregate line, e.g.
-#   pass=491 fail=4 skip(unsup=6 keccak=23 gas=2) incon=28 crash=55 (total 609)
-total_line="$(grep -E 'pass=[0-9]+ fail=[0-9]+' "$raw" | tail -1 || true)"
+#   pass=558 (gas-checked=32) fail=0 skip(unsup=6 keccak=23 gas=2) incon=20 crash=0 (total 609)
+# Tolerate the optional `(gas-checked=N)` field that now sits between pass= and fail=.
+total_line="$(grep -E 'pass=[0-9]+ (\(gas-checked=[0-9]+\) )?fail=[0-9]+' "$raw" | tail -1 || true)"
 if [ -z "$total_line" ]; then
   echo "vmtests_summary.sh: no aggregate 'pass=… fail=…' line found in '$raw'" \
        "— the run is incomplete or its output format changed." >&2
