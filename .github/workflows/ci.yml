@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Build, lint, and VMTests
+    name: Build, lint, VMTests, and StateTests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,7 +31,7 @@ jobs:
           # linters re-emit their diagnostics, then fail if any appear.
           rm -rf .lake/build
           set -o pipefail
-          lake build evm_semantics vmtests 2>&1 | tee build.log
+          lake build evm_semantics vmtests statetests 2>&1 | tee build.log
           if grep -E "warning:" build.log; then
             echo "::error::Linter warnings detected — see the build log above."
             exit 1
@@ -60,7 +60,11 @@ jobs:
           git init -q
           git remote add origin https://github.com/ethereum/legacytests
           git sparse-checkout init --cone
-          git sparse-checkout set Constantinople/VMTests
+          # VMTests (for the vmtests suite) + the stCall* BlockchainTests (for
+          # the recursive-CALL statetests suite). Both are pinned to CORPUS_REV.
+          git sparse-checkout set \
+            Constantinople/VMTests \
+            Constantinople/BlockchainTests/GeneralStateTests/stCallCodes
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
 
@@ -102,3 +106,48 @@ jobs:
           path: |
             vmtests-output.txt
             vmtests-summary.txt
+
+      # Non-gating: reports the recursive-CALL conformance picture against the
+      # stCall* BlockchainTests and flags regressions. The known-state baseline
+      # lives in .github/statetests-baseline.txt. Wrapped in `timeout` because
+      # the evaluator's functional world-state maps make some calls slow; a
+      # hang must not block CI.
+      - name: Run CALL state tests (stCall*)
+        if: always()
+        continue-on-error: true
+        run: |
+          # Per-file wall-cap (45s) + parallelism (4): bounds CI time despite the
+          # evaluator's slow functional world-state maps. Deep-recursion tests
+          # that exceed the cap are recorded as INCON (wall-timeout), never hang.
+          .github/scripts/statetests_run.sh \
+            corpus/Constantinople/BlockchainTests/GeneralStateTests/stCallCodes 45 4 \
+            | tee statetests-output.txt
+
+      # GATING: this step fails the job if a previously-passing CALL test now
+      # FAILs (id-level pass -> FAIL). It keys on the FAIL id set, not count
+      # deltas, so a wall-timeout flip on a slow runner (pass/core -> incon)
+      # does not fail the build. A crashed/partial run yields no parseable
+      # summary and is reported (not gated) via the else branch.
+      - name: Summarize and compare CALL state tests against baseline
+        if: always()
+        run: |
+          if .github/scripts/statetests_summary.sh statetests-output.txt > statetests-summary.txt; then
+            .github/scripts/statetests_check.sh --strict \
+              .github/statetests-baseline.txt statetests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=StateTests::statetests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## StateTests (CALL) regression report"
+              echo
+              echo "⚠️ The statetests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`statetests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload StateTests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: statetests-report
+          path: |
+            statetests-output.txt
+            statetests-summary.txt

@@ -31,11 +31,14 @@ inductive Steps : State → State → Prop
   | refl  : ∀ s, Steps s s
   | trans : ∀ {s s' s''}, Step s s' → Steps s' s'' → Steps s s''
 
-/-- Big-step evaluation: zero or more `Step`s ending in a halted state,
-    projected to an `ExecutionResult`. -/
+/-- Big-step evaluation: zero or more `Step`s ending in a *done* state (the
+    active frame has halted **and** no suspended callers remain), projected to
+    an `ExecutionResult`. -/
 inductive Eval : State → ExecutionResult → Prop
-  /-- Zero-step case: the state is already halted. -/
-  | halted   : ∀ {s}, s.halt ≠ .Running → Eval s s.toResult
+  /-- Zero-step case: the state is already done — halted with an empty call
+      stack. (A halted frame with callers still on the stack is *not* done; it
+      has a `Step.callReturn*` successor.) -/
+  | halted   : ∀ {s}, s.halt ≠ .Running → s.callStack = [] → Eval s s.toResult
   /-- Take one step, then evaluate the rest. -/
   | stepThen : ∀ {s s' r}, Step s s' → Eval s' r → Eval s r
 
@@ -57,38 +60,42 @@ end Steps
 
 namespace Eval
 
-/-- The big-step relation is just the small-step closure plus a halt:
-    `Eval s r ↔ ∃ s', Steps s s' ∧ s'.halt ≠ Running ∧ s'.toResult = r`. -/
+/-- The big-step relation is just the small-step closure plus a *done* state:
+    `Eval s r ↔ ∃ s', Steps s s' ∧ s'.halt ≠ Running ∧ s'.callStack = [] ∧ s'.toResult = r`. -/
 theorem iff_steps_halted {s : State} {r : ExecutionResult} :
-    Eval s r ↔ ∃ s', Steps s s' ∧ s'.halt ≠ .Running ∧ s'.toResult = r := by
+    Eval s r ↔
+      ∃ s', Steps s s' ∧ s'.halt ≠ .Running ∧ s'.callStack = [] ∧ s'.toResult = r := by
   constructor
   · intro h
     induction h with
-    | halted h_h => exact ⟨_, .refl _, h_h, rfl⟩
+    | halted h_h h_cs => exact ⟨_, .refl _, h_h, h_cs, rfl⟩
     | stepThen st _ ih =>
-      obtain ⟨s'', steps, h_h, h_r⟩ := ih
-      exact ⟨s'', .trans st steps, h_h, h_r⟩
-  · rintro ⟨s', steps, h_h, h_r⟩
+      obtain ⟨s'', steps, h_h, h_cs, h_r⟩ := ih
+      exact ⟨s'', .trans st steps, h_h, h_cs, h_r⟩
+  · rintro ⟨s', steps, h_h, h_cs, h_r⟩
     induction steps with
-    | refl _ => subst h_r; exact .halted h_h
-    | trans st _ ih => exact .stepThen st (ih h_h h_r)
+    | refl _ => subst h_r; exact .halted h_h h_cs
+    | trans st _ ih => exact .stepThen st (ih h_h h_cs h_r)
 
-/-- A halted state evaluates only to its `toResult`. -/
-theorem of_halted {s : State} (h : s.halt ≠ .Running) : Eval s s.toResult :=
-  .halted h
+/-- A done state (halted with an empty call stack) evaluates only to its
+    `toResult`. -/
+theorem of_halted {s : State} (h : s.halt ≠ .Running) (h_cs : s.callStack = []) :
+    Eval s s.toResult :=
+  .halted h h_cs
 
 end Eval
 
-/-! ### Determinism of halting
+/-! ### A *done* state has no successor
 
-Every constructor of `Step` carries the hypothesis `h_running : s.halt = .Running`.
-So a halted state has no successor under `Step`. -/
+Every opcode constructor of `Step` carries `h_running : s.halt = .Running`, and
+the three `callReturn*` resume constructors carry `h_stack : s.callStack = _ :: _`.
+So a state that is halted (`halt ≠ .Running`) *and* has an empty call stack
+(`callStack = []`) has no successor under `Step`. -/
 
-theorem Step.not_from_halted {s s' : State} (h : Step s s') (h_h : s.halt ≠ .Running) :
-    False := by
-  -- Each Step constructor exposes h_running : s.halt = .Running, which
-  -- contradicts h_h. The discharge is `cases h` followed by chaining the
-  -- hypothesis. For brevity we use a single tactic block.
+theorem Step.not_from_done {s s' : State}
+    (h : Step s s') (h_h : s.halt ≠ .Running) (h_cs : s.callStack = []) : False := by
+  -- Opcode constructors contradict `h_h` via their `h_running`; the resume
+  -- constructors contradict `h_cs` via their `h_stack : callStack = _ :: _`.
   cases h <;> simp_all
 
 end EVM

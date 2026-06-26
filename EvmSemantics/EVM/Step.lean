@@ -1016,6 +1016,90 @@ inductive Step : State → State → Prop
            { s'' with halt := .Reverted, hReturn := bs, stack := rest })
 
   ----------------------------------------------------------------------------
+  -- CALL. The intermediate gas-charged states `s' s2 s3 s4` are introduced as
+  -- explicit parameters tied down by equation hypotheses (rather than inlined),
+  -- so each later hypothesis can refer to the previous state by name. This
+  -- mirrors `stepF.system`'s `.CALL` arm step-for-step.
+  ----------------------------------------------------------------------------
+
+  /-- CALL with `value ≠ 0` attempted while the active frame disallows state
+      mutation (static mode). Halts the frame with `StaticModeViolation` *before*
+      paying any of the call's gas, mirroring `stepF.system`'s early static
+      check. A zero-value CALL is still permitted in static mode. -/
+  | callStatic (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (arg : Option (UInt256 × Nat))
+        (h_op       : s.decoded = some (.CALL, arg))
+        (h_running  : s.halt = .Running)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_perm     : s.executionEnv.permitStateMutation = false)
+        (h_value    : value.toNat ≠ 0)
+      : Step s (s.haltWith .StaticModeViolation)
+
+  /-- CALL (taken): pop the 7 args; charge base (`G_call`), memory expansion for
+      the args+return ranges, and the value/new-account surcharge; check the
+      depth limit and caller balance; forward 63/64 of the remaining gas plus
+      the value stipend; transfer `value`; and enter the callee frame. -/
+  | call (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (arg : Option (UInt256 × Nat))
+        (s' s2 s3 s4 : State) (forwarded : Nat)
+        (h_op      : s.decoded = some (.CALL, arg))
+        (h_running : s.halt = .Running)
+        (h_gas     : Gas.baseCost s.fork .CALL ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CALL) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_sc      : Gas.callSurcharge (value.toNat != 0)
+                       (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
+                       ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0)
+                       (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
+        (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
+                        (s3.accountMap s3.executionEnv.codeOwner).balance < value))
+        (h_fwd     : forwarded =
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
+        (h_fw      : forwarded ≤ s3.gasAvailable)
+        (h_s4      : s4 = s3.consumeGas forwarded h_fw)
+      : Step s
+          (s4.enterCall rest (AccountAddress.ofUInt256 toArg) value
+             (MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat)
+             (s2.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+             retOff.toNat retLen.toNat)
+
+  /-- CALL (not taken): the depth limit is hit or the caller cannot afford the
+      value. Base+memory+surcharge gas is still charged; `0` is pushed and the
+      forwarded gas is *not* spent. -/
+  | callFail (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (arg : Option (UInt256 × Nat))
+        (s' s2 s3 : State)
+        (h_op      : s.decoded = some (.CALL, arg))
+        (h_running : s.halt = .Running)
+        (h_gas     : Gas.baseCost s.fork .CALL ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CALL) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_sc      : Gas.callSurcharge (value.toNat != 0)
+                       (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
+                       ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0)
+                       (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
+        (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
+                       (s3.accountMap s3.executionEnv.codeOwner).balance < value)
+      : Step s
+          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).
   ----------------------------------------------------------------------------
 
@@ -1180,6 +1264,39 @@ inductive Step : State → State → Prop
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
         (h_oob     : srcOff.toNat + sz.toNat > s.returnData.size)
       : Step s (s.haltWith .InvalidMemoryAccess)
+
+  ----------------------------------------------------------------------------
+  -- Call return / resume rules.
+  --
+  -- Unlike every rule above, these fire on a *halted* active frame whose
+  -- `callStack` is non-empty: the child has finished, so we pop the caller
+  -- frame `f` and resume it (writing the child's return data into the
+  -- caller's memory and pushing the success flag). They carry NO `h_running`
+  -- — instead a `h_halt` on the concrete halt kind plus a non-empty-stack
+  -- hypothesis. This is the only place a non-Running state has a successor.
+  ----------------------------------------------------------------------------
+
+  /-- Child STOP/RETURN: resume the caller with success flag `1`, keeping the
+      child's world mutations and refunding its unspent gas. -/
+  | callReturnSuccess (s : State) (f : Frame) (rest : List Frame)
+        (h_halt  : s.halt = .Success ∨ s.halt = .Returned)
+        (h_stack : s.callStack = f :: rest)
+      : Step s (s.resumeSuccess f rest)
+
+  /-- Child REVERT: resume the caller with failure flag `0`, roll the world
+      back to the call-time snapshot, return the revert data, refund unspent gas. -/
+  | callReturnRevert (s : State) (f : Frame) (rest : List Frame)
+        (h_halt  : s.halt = .Reverted)
+        (h_stack : s.callStack = f :: rest)
+      : Step s (s.resumeRevert f rest)
+
+  /-- Child exceptional halt: resume the caller with failure flag `0`, roll the
+      world back, return no data, and refund nothing. -/
+  | callReturnException (s : State) (f : Frame) (rest : List Frame)
+        (e : ExecutionException)
+        (h_halt  : s.halt = .Exception e)
+        (h_stack : s.callStack = f :: rest)
+      : Step s (s.resumeException f rest)
 
 end EVM
 end EvmSemantics

@@ -32,5 +32,9 @@ name = "vmtests"
 root = "VMRunner"
 
 [[lean_exe]]
+name = "statetests"
+root = "StateTestRunner"
+
+[[lean_exe]]
 name = "keccak_test"
 root = "KeccakTest"
