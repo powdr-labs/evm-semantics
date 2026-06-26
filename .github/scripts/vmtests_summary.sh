@@ -39,7 +39,10 @@ echo "total=$(sed -nE 's/.*total ([0-9]+).*/\1/p' <<<"$total_line")"
 # Named FAIL/CRASH notes look like:  "    FAIL smod0: ..."  /  "    CRASH exp1.json: timeout"
 # Key on the identifier only (not the message), so reworded messages or a
 # CRASH<->FAIL category flip do not register as spurious regressions.
-grep -E '^[[:space:]]+(FAIL|CRASH) ' "$raw" \
+# `|| true`: a clean run has zero FAIL/CRASH lines, where `grep` exits 1 —
+# without this, `set -o pipefail` would fail the whole script after it already
+# wrote a valid summary (and CI would treat a clean run as unparseable).
+{ grep -E '^[[:space:]]+(FAIL|CRASH) ' "$raw" || true; } \
   | sed -E 's/^[[:space:]]+(FAIL|CRASH) ([^:]+):.*/\2/' \
   | sort -u \
   | sed 's/^/test=/'
