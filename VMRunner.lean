@@ -29,39 +29,9 @@ open EvmSemantics.EVM
 
 namespace VMRunner
 
-----------------------------------------------------------------------------
--- Hex helpers
-----------------------------------------------------------------------------
-
-def hexVal (c : Char) : Nat :=
-  if '0' ≤ c ∧ c ≤ '9' then c.toNat - '0'.toNat
-  else if 'a' ≤ c ∧ c ≤ 'f' then c.toNat - 'a'.toNat + 10
-  else if 'A' ≤ c ∧ c ≤ 'F' then c.toNat - 'A'.toNat + 10
-  else 0
-
-def strip0x (s : String) : String :=
-  if s.startsWith "0x" ∨ s.startsWith "0X" then String.ofList (s.toList.drop 2) else s
-
-def hexToNat (s : String) : Nat :=
-  (strip0x s).foldl (fun acc c => acc * 16 + hexVal c) 0
-
-def hexToUInt256 (s : String) : UInt256 := UInt256.ofNat (hexToNat s)
-
-def hexToAddress (s : String) : AccountAddress := AccountAddress.ofNat (hexToNat s)
-
-/-- Parse a `0x`-hex bytestring into a `ByteArray` (pairs of nibbles). -/
-def hexToBytes (s : String) : ByteArray := Id.run do
-  let cs0 := (strip0x s).toList
-  let cs := if cs0.length % 2 == 1 then '0' :: cs0 else cs0
-  let mut out : ByteArray := .empty
-  let mut rest := cs
-  while rest.length ≥ 2 do
-    match rest with
-    | hi :: lo :: tl =>
-      out := out.push (UInt8.ofNat (hexVal hi * 16 + hexVal lo))
-      rest := tl
-    | _ => rest := []
-  return out
+-- Hex helpers (`hexToNat`, `hexToBytes`, …) come from `EvmSemantics.Hex`;
+-- see `EvmSemantics/Data/Hex.lean`.
+open EvmSemantics.Hex
 
 ----------------------------------------------------------------------------
 -- JSON helpers
