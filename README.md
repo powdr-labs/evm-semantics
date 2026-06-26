@@ -159,8 +159,7 @@ only `h_op`/`h_running` — though `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_m
 
 ```lean
 | add (s : State) (a b : UInt256) (rest : List UInt256)
-      (arg       : Option (UInt256 × Nat))
-      (h_op      : s.decoded = some (.ADD, arg))
+      (h_op      : s.decodedOp = some .ADD)
       (h_running : s.halt = .Running)
       (h_gas     : Gas.cost .ADD ≤ s.gasAvailable)
       (h_stack   : s.stack = a :: b :: rest)
@@ -168,7 +167,9 @@ only `h_op`/`h_running` — though `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_m
 ```
 
 (`gasAvailable` is a `Nat`, so the gas premise is a plain `Nat` `≤`; the operand
-stack is `List UInt256`.)
+stack is `List UInt256`. `s.decodedOp` is the op-only projection of `s.decoded`
+— `pushN` is the one rule that uses the full `s.decoded`, since it consumes the
+PUSH immediate.)
 
 `consumeGas` takes the gas-sufficiency proof as an explicit argument so
 the saturating Nat subtraction is provably safe — no truncation

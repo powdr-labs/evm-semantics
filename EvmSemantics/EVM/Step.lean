@@ -9,21 +9,20 @@ public import EvmSemantics.EVM.Gas
 
 Each *success* rule has the same anatomy:
 
-1. **Argument-polymorphism parameter** `arg : Option (UInt256 × Nat)` —
-   the immediate-argument slot the decoder returns for PUSH-like ops
-   (`none` for everything else). Quantifying it lets the soundness
-   proof thread whatever the decoder produced without first proving
-   an `argOpt = none` invariant.
-2. **Decoding hypothesis** —
-   `s.decoded = some (op, arg)` where `s.decoded = Decode.decodeAt s.executionEnv.code s.pc.toNat`.
-3. **Running hypothesis** — `s.halt = .Running`.
-4. **Static-mode hypothesis** (only for state-mutating ops) —
+1. **Decoding hypothesis** — `s.decodedOp = some op`, where
+   `s.decodedOp` is the operation-only projection of
+   `Decode.decodeAt s.executionEnv.code s.pc.toNat`. Only `pushN` uses
+   the full `s.decoded` (it consumes the immediate); everything else
+   gets a one-field hypothesis because the immediate-argument slot is
+   irrelevant to the rule.
+2. **Running hypothesis** — `s.halt = .Running`.
+3. **Static-mode hypothesis** (only for state-mutating ops) —
    `s.executionEnv.permitStateMutation = true`.
-5. **Gas hypothesis** — `Gas.baseCost s.fork op ≤ s.gasAvailable`. Passed
+4. **Gas hypothesis** — `Gas.baseCost s.fork op ≤ s.gasAvailable`. Passed
    explicitly to `consumeGas` so the saturating `Nat` subtraction is
    provably safe — no truncation case-splits downstream.
-6. **Stack-shape hypothesis** — `s.stack = a :: b :: rest` (or similar).
-7. **Output-state computation** — the successor state given by record
+5. **Stack-shape hypothesis** — `s.stack = a :: b :: rest` (or similar).
+6. **Output-state computation** — the successor state given by record
    updaters / `s.consumeGas` / `s.replaceStackAndIncrPC`.
 
 *Exception* rules (stack-underflow, out-of-gas, bad-jump, …) live in
@@ -115,6 +114,21 @@ def consumeMemExp2 (s : State) (off1 sz1 off2 sz2 : Nat)
 def decoded (s : State) : Option (Operation × Option (UInt256 × Nat)) :=
   Decode.decodeAt s.executionEnv.code s.pc.toNat
 
+/-- Just the decoded operation at the current `pc`, dropping the immediate.
+    Used as the `h_op` hypothesis on every `Step` success rule that doesn't
+    consume PUSH-style immediate data — most of them — so the constructor
+    doesn't have to existentially quantify the unused `arg` slot. -/
+@[reducible] def decodedOp (s : State) : Option Operation := s.decoded.map (·.1)
+
+/-- Bridge between `decoded` and `decodedOp`: if the full decode produced
+    `(op, imm)` then the op-only projection produces `op`. Used in
+    `Equiv.lean` to thread `decodedOp`-shaped premises onto `Step`
+    constructors after `stepF` has obtained the `(op, imm)` pair from
+    `decoded`. -/
+theorem decoded_to_op {s : State} {op : Operation} {imm : Option (UInt256 × Nat)}
+    (h : s.decoded = some (op, imm)) : s.decodedOp = some op := by
+  simp [decodedOp, h]
+
 end State
 
 /-- The small-step relation. One constructor per opcode for the success
@@ -127,8 +141,7 @@ inductive Step : State → State → Prop
 
   /-- ADD: pop `a`, `b`; push `a + b`. -/
   | add (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.ADD, arg))
+        (h_op      : s.decodedOp = some .ADD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .ADD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -137,8 +150,7 @@ inductive Step : State → State → Prop
 
   /-- MUL: pop `a`, `b`; push `a * b`. -/
   | mul (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MUL, arg))
+        (h_op      : s.decodedOp = some .MUL)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MUL ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -147,8 +159,7 @@ inductive Step : State → State → Prop
 
   /-- SUB: pop `a`, `b`; push `a - b`. -/
   | sub (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SUB, arg))
+        (h_op      : s.decodedOp = some .SUB)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SUB ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -157,8 +168,7 @@ inductive Step : State → State → Prop
 
   /-- DIV: pop `a`, `b`; push `a / b` (0 if `b = 0`). -/
   | div (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.DIV, arg))
+        (h_op      : s.decodedOp = some .DIV)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .DIV ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -167,8 +177,7 @@ inductive Step : State → State → Prop
 
   /-- SDIV: signed division. -/
   | sdiv (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SDIV, arg))
+        (h_op      : s.decodedOp = some .SDIV)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SDIV ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -177,8 +186,7 @@ inductive Step : State → State → Prop
 
   /-- MOD: pop `a`, `b`; push `a % b` (0 if `b = 0`). -/
   | mod (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MOD, arg))
+        (h_op      : s.decodedOp = some .MOD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -187,8 +195,7 @@ inductive Step : State → State → Prop
 
   /-- SMOD: signed modulo. -/
   | smod (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SMOD, arg))
+        (h_op      : s.decodedOp = some .SMOD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SMOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -197,8 +204,7 @@ inductive Step : State → State → Prop
 
   /-- ADDMOD: pop `a`, `b`, `n`; push `(a + b) mod n`. -/
   | addmod (s : State) (a b n : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.ADDMOD, arg))
+        (h_op      : s.decodedOp = some .ADDMOD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .ADDMOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: n :: rest)
@@ -207,8 +213,7 @@ inductive Step : State → State → Prop
 
   /-- MULMOD: pop `a`, `b`, `n`; push `(a * b) mod n`. -/
   | mulmod (s : State) (a b n : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MULMOD, arg))
+        (h_op      : s.decodedOp = some .MULMOD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MULMOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: n :: rest)
@@ -219,8 +224,7 @@ inductive Step : State → State → Prop
       Yellow-Paper `G_exp = 10`; `h_dyn_gas` charges the per-byte exponent
       cost `Gas.expByteCost s.fork b` (= `50 · byteLen(b)` post-Spurious-Dragon). -/
   | exp (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.EXP, arg))
+        (h_op      : s.decodedOp = some .EXP)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .EXP ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -233,8 +237,7 @@ inductive Step : State → State → Prop
 
   /-- SIGNEXTEND: pop `b`, `x`; sign-extend `x` from byte index `b`. -/
   | signextend (s : State) (b x : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SIGNEXTEND, arg))
+        (h_op      : s.decodedOp = some .SIGNEXTEND)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SIGNEXTEND ≤ s.gasAvailable)
         (h_stack   : s.stack = b :: x :: rest)
@@ -246,8 +249,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   | lt (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.LT, arg))
+        (h_op      : s.decodedOp = some .LT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .LT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -255,8 +257,7 @@ inductive Step : State → State → Prop
                   (UInt256.lt a b :: rest))
 
   | gt (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.GT, arg))
+        (h_op      : s.decodedOp = some .GT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .GT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -264,8 +265,7 @@ inductive Step : State → State → Prop
                   (UInt256.gt a b :: rest))
 
   | slt (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SLT, arg))
+        (h_op      : s.decodedOp = some .SLT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SLT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -273,8 +273,7 @@ inductive Step : State → State → Prop
                   (UInt256.slt a b :: rest))
 
   | sgt (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SGT, arg))
+        (h_op      : s.decodedOp = some .SGT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SGT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -282,8 +281,7 @@ inductive Step : State → State → Prop
                   (UInt256.sgt a b :: rest))
 
   | eq (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.EQ, arg))
+        (h_op      : s.decodedOp = some .EQ)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .EQ ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -291,8 +289,7 @@ inductive Step : State → State → Prop
                   (UInt256.eq a b :: rest))
 
   | iszero (s : State) (a : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.ISZERO, arg))
+        (h_op      : s.decodedOp = some .ISZERO)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .ISZERO ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
@@ -300,8 +297,7 @@ inductive Step : State → State → Prop
                   (UInt256.isZero a :: rest))
 
   | and (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.AND, arg))
+        (h_op      : s.decodedOp = some .AND)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .AND ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -309,8 +305,7 @@ inductive Step : State → State → Prop
                   (UInt256.land a b :: rest))
 
   | or (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.OR, arg))
+        (h_op      : s.decodedOp = some .OR)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .OR ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -318,8 +313,7 @@ inductive Step : State → State → Prop
                   (UInt256.lor a b :: rest))
 
   | xor_ (s : State) (a b : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.XOR, arg))
+        (h_op      : s.decodedOp = some .XOR)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .XOR ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
@@ -327,8 +321,7 @@ inductive Step : State → State → Prop
                   (UInt256.xor a b :: rest))
 
   | not (s : State) (a : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.NOT, arg))
+        (h_op      : s.decodedOp = some .NOT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .NOT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
@@ -336,8 +329,7 @@ inductive Step : State → State → Prop
                   (UInt256.lnot a :: rest))
 
   | byte_ (s : State) (i x : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BYTE, arg))
+        (h_op      : s.decodedOp = some .BYTE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BYTE ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: x :: rest)
@@ -345,8 +337,7 @@ inductive Step : State → State → Prop
                   (UInt256.byteAt i x :: rest))
 
   | shl (s : State) (shift v : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SHL, arg))
+        (h_op      : s.decodedOp = some .SHL)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SHL ≤ s.gasAvailable)
         (h_stack   : s.stack = shift :: v :: rest)
@@ -354,8 +345,7 @@ inductive Step : State → State → Prop
                   (UInt256.shiftLeft v shift :: rest))
 
   | shr (s : State) (shift v : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SHR, arg))
+        (h_op      : s.decodedOp = some .SHR)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SHR ≤ s.gasAvailable)
         (h_stack   : s.stack = shift :: v :: rest)
@@ -363,8 +353,7 @@ inductive Step : State → State → Prop
                   (UInt256.shiftRight v shift :: rest))
 
   | sar (s : State) (shift v : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SAR, arg))
+        (h_op      : s.decodedOp = some .SAR)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SAR ≤ s.gasAvailable)
         (h_stack   : s.stack = shift :: v :: rest)
@@ -379,8 +368,7 @@ inductive Step : State → State → Prop
       `h_mem` is the memory-expansion-gas precondition checked *after* the op
       cost has been deducted (mirroring `stepF.chargeMem`'s behaviour). -/
   | keccak256 (s : State) (offset size : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.KECCAK256, arg))
+        (h_op      : s.decodedOp = some .KECCAK256)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .KECCAK256 ≤ s.gasAvailable)
         (h_stack   : s.stack = offset :: size :: rest)
@@ -397,16 +385,14 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   | address (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.ADDRESS, arg))
+        (h_op      : s.decodedOp = some .ADDRESS)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .ADDRESS ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .ADDRESS) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.codeOwner.toUInt256 :: s.stack))
 
   | balance (s : State) (addr : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BALANCE, arg))
+        (h_op      : s.decodedOp = some .BALANCE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BALANCE ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
@@ -414,24 +400,21 @@ inductive Step : State → State → Prop
                   ((s.accountMap (AccountAddress.ofUInt256 addr)).balance :: rest))
 
   | origin (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.ORIGIN, arg))
+        (h_op      : s.decodedOp = some .ORIGIN)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .ORIGIN ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .ORIGIN) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.sender.toUInt256 :: s.stack))
 
   | caller (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CALLER, arg))
+        (h_op      : s.decodedOp = some .CALLER)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALLER ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .CALLER) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.source.toUInt256 :: s.stack))
 
   | callvalue (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CALLVALUE, arg))
+        (h_op      : s.decodedOp = some .CALLVALUE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALLVALUE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .CALLVALUE) h_gas).replaceStackAndIncrPC
@@ -440,8 +423,7 @@ inductive Step : State → State → Prop
   /-- CALLDATALOAD: pop `i`; push 32 bytes of calldata starting at `i`,
       zero-padded if past the end. -/
   | calldataload (s : State) (i : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CALLDATALOAD, arg))
+        (h_op      : s.decodedOp = some .CALLDATALOAD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALLDATALOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: rest)
@@ -452,8 +434,7 @@ inductive Step : State → State → Prop
              (UInt256.ofNat word :: rest))
 
   | calldatasize (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CALLDATASIZE, arg))
+        (h_op      : s.decodedOp = some .CALLDATASIZE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALLDATASIZE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .CALLDATASIZE) h_gas).replaceStackAndIncrPC
@@ -463,8 +444,7 @@ inductive Step : State → State → Prop
       `h_dyn_gas` charges the per-word copy cost `3 · ⌈sz/32⌉` on top of the
       static fee and the memory-expansion charge. -/
   | calldatacopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CALLDATACOPY, arg))
+        (h_op      : s.decodedOp = some .CALLDATACOPY)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALLDATACOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
@@ -484,8 +464,7 @@ inductive Step : State → State → Prop
            { s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
 
   | codesize (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CODESIZE, arg))
+        (h_op      : s.decodedOp = some .CODESIZE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CODESIZE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .CODESIZE) h_gas).replaceStackAndIncrPC
@@ -493,8 +472,7 @@ inductive Step : State → State → Prop
 
   /-- CODECOPY: pop destOffset, srcOffset, size; copy current code to memory. -/
   | codecopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CODECOPY, arg))
+        (h_op      : s.decodedOp = some .CODECOPY)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CODECOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
@@ -514,16 +492,14 @@ inductive Step : State → State → Prop
            { s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
 
   | gasprice (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.GASPRICE, arg))
+        (h_op      : s.decodedOp = some .GASPRICE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .GASPRICE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .GASPRICE) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.gasPrice :: s.stack))
 
   | extcodesize (s : State) (addr : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.EXTCODESIZE, arg))
+        (h_op      : s.decodedOp = some .EXTCODESIZE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .EXTCODESIZE ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
@@ -533,8 +509,7 @@ inductive Step : State → State → Prop
   /-- EXTCODECOPY: pop addr, destOffset, srcOffset, size; copy external
       code bytes to memory. -/
   | extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.EXTCODECOPY, arg))
+        (h_op      : s.decodedOp = some .EXTCODECOPY)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .EXTCODECOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: destOff :: srcOff :: sz :: rest)
@@ -555,8 +530,7 @@ inductive Step : State → State → Prop
            { s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
 
   | returndatasize (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.RETURNDATASIZE, arg))
+        (h_op      : s.decodedOp = some .RETURNDATASIZE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .RETURNDATASIZE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .RETURNDATASIZE) h_gas).replaceStackAndIncrPC
@@ -565,8 +539,7 @@ inductive Step : State → State → Prop
   /-- RETURNDATACOPY: pop destOffset, srcOffset, size; copy returndata to memory.
       Out-of-bounds reads raise `InvalidMemoryAccess` (handled in Phase 5). -/
   | returndatacopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.RETURNDATACOPY, arg))
+        (h_op      : s.decodedOp = some .RETURNDATACOPY)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .RETURNDATACOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
@@ -587,8 +560,7 @@ inductive Step : State → State → Prop
            { s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
 
   | extcodehash (s : State) (addr : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.EXTCODEHASH, arg))
+        (h_op      : s.decodedOp = some .EXTCODEHASH)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .EXTCODEHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
@@ -600,8 +572,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   | blockhash (s : State) (n : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BLOCKHASH, arg))
+        (h_op      : s.decodedOp = some .BLOCKHASH)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BLOCKHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = n :: rest)
@@ -609,72 +580,63 @@ inductive Step : State → State → Prop
                   (s.executionEnv.header.blockHash n :: rest))
 
   | coinbase (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.COINBASE, arg))
+        (h_op      : s.decodedOp = some .COINBASE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .COINBASE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .COINBASE) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.coinbase.toUInt256 :: s.stack))
 
   | timestamp (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.TIMESTAMP, arg))
+        (h_op      : s.decodedOp = some .TIMESTAMP)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .TIMESTAMP ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .TIMESTAMP) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.timestamp :: s.stack))
 
   | number (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.NUMBER, arg))
+        (h_op      : s.decodedOp = some .NUMBER)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .NUMBER ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .NUMBER) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.number :: s.stack))
 
   | prevrandao (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.PREVRANDAO, arg))
+        (h_op      : s.decodedOp = some .PREVRANDAO)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .PREVRANDAO ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .PREVRANDAO) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.prevRandao :: s.stack))
 
   | gaslimit (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.GASLIMIT, arg))
+        (h_op      : s.decodedOp = some .GASLIMIT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .GASLIMIT ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .GASLIMIT) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.gasLimit :: s.stack))
 
   | chainid (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.CHAINID, arg))
+        (h_op      : s.decodedOp = some .CHAINID)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CHAINID ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .CHAINID) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.chainId :: s.stack))
 
   | selfbalance (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SELFBALANCE, arg))
+        (h_op      : s.decodedOp = some .SELFBALANCE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SELFBALANCE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .SELFBALANCE) h_gas).replaceStackAndIncrPC
                   ((s.accountMap s.executionEnv.codeOwner).balance :: s.stack))
 
   | basefee (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BASEFEE, arg))
+        (h_op      : s.decodedOp = some .BASEFEE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BASEFEE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .BASEFEE) h_gas).replaceStackAndIncrPC
                   (s.executionEnv.header.baseFeePerGas :: s.stack))
 
   | blobhash (s : State) (i : UInt256) (rest : List UInt256) (h : UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BLOBHASH, arg))
+        (h_op      : s.decodedOp = some .BLOBHASH)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BLOBHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: rest)
@@ -684,8 +646,7 @@ inductive Step : State → State → Prop
 
   /-- BLOBHASH when index is out of range — push 0. -/
   | blobhash_oob (s : State) (i : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BLOBHASH, arg))
+        (h_op      : s.decodedOp = some .BLOBHASH)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BLOBHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: rest)
@@ -694,8 +655,7 @@ inductive Step : State → State → Prop
                   (⟨0⟩ :: rest))
 
   | blobbasefee (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.BLOBBASEFEE, arg))
+        (h_op      : s.decodedOp = some .BLOBBASEFEE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .BLOBBASEFEE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .BLOBBASEFEE) h_gas).replaceStackAndIncrPC
@@ -706,8 +666,7 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   | pop (s : State) (a : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.POP, arg))
+        (h_op      : s.decodedOp = some .POP)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .POP ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
@@ -716,8 +675,7 @@ inductive Step : State → State → Prop
 
   /-- PUSH0: push `0`. -/
   | push0 (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.Push ⟨0, by decide⟩, arg))
+        (h_op      : s.decodedOp = some (.Push ⟨0, by decide⟩))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork (.Push ⟨0, by decide⟩) ≤ s.gasAvailable)
       : Step s
@@ -742,8 +700,7 @@ inductive Step : State → State → Prop
 
   /-- DUPn: copy `stack[n]` (0-indexed from top) to the top. -/
   | dup (s : State) (n : Fin 16) (v : UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.Dup ⟨n⟩, arg))
+        (h_op      : s.decodedOp = some (.Dup ⟨n⟩))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork (.Dup ⟨n⟩) ≤ s.gasAvailable)
         (h_get     : s.stack[n.val]? = some v)
@@ -753,8 +710,7 @@ inductive Step : State → State → Prop
 
   /-- SWAPn: swap top with `stack[n+1]`. -/
   | swap (s : State) (n : Fin 16) (stk' : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.Swap ⟨n⟩, arg))
+        (h_op      : s.decodedOp = some (.Swap ⟨n⟩))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork (.Swap ⟨n⟩) ≤ s.gasAvailable)
         (h_swap    : s.stack.exchange 0 (n.val + 1) = some stk')
@@ -767,8 +723,7 @@ inductive Step : State → State → Prop
   /-- MLOAD: pop offset; push the 32-byte word at memory[offset]. -/
   | mload (s : State) (offset : UInt256) (rest : List UInt256)
         (v : UInt256) (μ' : MachineState)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MLOAD, arg))
+        (h_op      : s.decodedOp = some .MLOAD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MLOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = offset :: rest)
@@ -783,8 +738,7 @@ inductive Step : State → State → Prop
 
   /-- MSTORE: pop offset, value; write `value` as 32 bytes at memory[offset]. -/
   | mstore (s : State) (offset value : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MSTORE, arg))
+        (h_op      : s.decodedOp = some .MSTORE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MSTORE ≤ s.gasAvailable)
         (h_stack   : s.stack = offset :: value :: rest)
@@ -798,8 +752,7 @@ inductive Step : State → State → Prop
 
   /-- MSTORE8: pop offset, value; write the low byte of `value` at memory[offset]. -/
   | mstore8 (s : State) (offset value : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MSTORE8, arg))
+        (h_op      : s.decodedOp = some .MSTORE8)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MSTORE8 ≤ s.gasAvailable)
         (h_stack   : s.stack = offset :: value :: rest)
@@ -812,8 +765,7 @@ inductive Step : State → State → Prop
            { s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
 
   | msize (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MSIZE, arg))
+        (h_op      : s.decodedOp = some .MSIZE)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MSIZE ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .MSIZE) h_gas).replaceStackAndIncrPC
@@ -823,8 +775,7 @@ inductive Step : State → State → Prop
       Touches *both* the read range `[srcOff, srcOff+sz)` and the write range
       `[destOff, destOff+sz)`; expansion gas is charged for their union. -/
   | mcopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.MCOPY, arg))
+        (h_op      : s.decodedOp = some .MCOPY)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .MCOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
@@ -847,8 +798,7 @@ inductive Step : State → State → Prop
 
   /-- SLOAD: pop key; push storage[key] from the executing contract. -/
   | sload (s : State) (key : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SLOAD, arg))
+        (h_op      : s.decodedOp = some .SLOAD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .SLOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
@@ -860,8 +810,7 @@ inductive Step : State → State → Prop
       `Gas.sstoreCost s.fork original current value` on top of the (zero) static
       fee, so the actual gas deducted matches the dynamic schedule. -/
   | sstore (s : State) (key value : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SSTORE, arg))
+        (h_op      : s.decodedOp = some .SSTORE)
         (h_running : s.halt = .Running)
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_gas     : Gas.baseCost s.fork .SSTORE ≤ s.gasAvailable)
@@ -888,8 +837,7 @@ inductive Step : State → State → Prop
 
   /-- TLOAD: like SLOAD but reads from transient storage. -/
   | tload (s : State) (key : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.TLOAD, arg))
+        (h_op      : s.decodedOp = some .TLOAD)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .TLOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
@@ -898,8 +846,7 @@ inductive Step : State → State → Prop
 
   /-- TSTORE: like SSTORE but writes to transient storage. -/
   | tstore (s : State) (key value : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.TSTORE, arg))
+        (h_op      : s.decodedOp = some .TSTORE)
         (h_running : s.halt = .Running)
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_gas     : Gas.baseCost s.fork .TSTORE ≤ s.gasAvailable)
@@ -918,8 +865,7 @@ inductive Step : State → State → Prop
 
   /-- JUMP: pop destination; set `pc := dest` if the destination is a JUMPDEST. -/
   | jump (s : State) (dest : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.JUMP, arg))
+        (h_op      : s.decodedOp = some .JUMP)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: rest)
@@ -930,8 +876,7 @@ inductive Step : State → State → Prop
   /-- JUMPI (taken): pop dest, cond; if `cond ≠ 0` and dest is a JUMPDEST,
       set `pc := dest`. -/
   | jumpi_taken (s : State) (dest cond : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.JUMPI, arg))
+        (h_op      : s.decodedOp = some .JUMPI)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
@@ -942,8 +887,7 @@ inductive Step : State → State → Prop
 
   /-- JUMPI (not taken): pop dest, cond; if `cond = 0`, fall through to `pc + 1`. -/
   | jumpi_notTaken (s : State) (dest cond : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.JUMPI, arg))
+        (h_op      : s.decodedOp = some .JUMPI)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
@@ -952,8 +896,7 @@ inductive Step : State → State → Prop
                   rest)
 
   | pc (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.PC, arg))
+        (h_op      : s.decodedOp = some .PC)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .PC ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .PC) h_gas).replaceStackAndIncrPC
@@ -963,8 +906,7 @@ inductive Step : State → State → Prop
       deducted (Yellow Paper §9.4.7 / EIP-150), so we read the post-charge
       `s'.gasAvailable` rather than the original `s.gasAvailable`. -/
   | gas (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.GAS, arg))
+        (h_op      : s.decodedOp = some .GAS)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .GAS ≤ s.gasAvailable)
       : Step s
@@ -972,8 +914,7 @@ inductive Step : State → State → Prop
            s'.replaceStackAndIncrPC (UInt256.ofNat s'.gasAvailable :: s.stack))
 
   | jumpdest (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.JUMPDEST, arg))
+        (h_op      : s.decodedOp = some .JUMPDEST)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .JUMPDEST ≤ s.gasAvailable)
       : Step s ((s.consumeGas (Gas.baseCost s.fork .JUMPDEST) h_gas).incrPC)
@@ -983,14 +924,12 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   | stop (s : State)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.STOP, arg))
+        (h_op      : s.decodedOp = some .STOP)
         (h_running : s.halt = .Running)
       : Step s { s with halt := .Success, hReturn := .empty }
 
   | return_ (s : State) (offset size : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.RETURN, arg))
+        (h_op      : s.decodedOp = some .RETURN)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .RETURN ≤ s.gasAvailable)
         (h_stack   : s.stack = offset :: size :: rest)
@@ -1003,8 +942,7 @@ inductive Step : State → State → Prop
            { s'' with halt := .Returned, hReturn := bs, stack := rest })
 
   | revert (s : State) (offset size : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.REVERT, arg))
+        (h_op      : s.decodedOp = some .REVERT)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .REVERT ≤ s.gasAvailable)
         (h_stack   : s.stack = offset :: size :: rest)
@@ -1029,9 +967,9 @@ inductive Step : State → State → Prop
       the value stipend; transfer `value`; and enter the callee frame. -/
   | call (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
-        (rest : List UInt256) (arg : Option (UInt256 × Nat))
+        (rest : List UInt256)
         (s' s2 s3 s4 : State) (forwarded : Nat)
-        (h_op      : s.decoded = some (.CALL, arg))
+        (h_op      : s.decodedOp = some .CALL)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALL ≤ s.gasAvailable)
         (h_stack   : s.stack =
@@ -1063,9 +1001,9 @@ inductive Step : State → State → Prop
       forwarded gas is *not* spent. -/
   | callFail (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
-        (rest : List UInt256) (arg : Option (UInt256 × Nat))
+        (rest : List UInt256)
         (s' s2 s3 : State)
-        (h_op      : s.decoded = some (.CALL, arg))
+        (h_op      : s.decodedOp = some .CALL)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .CALL ≤ s.gasAvailable)
         (h_stack   : s.stack =
@@ -1090,8 +1028,7 @@ inductive Step : State → State → Prop
   /-- LOG `n`: pop offset, size, then `n` topics; append a log entry. -/
   | log (s : State) (n : Fin 5) (offset size : UInt256)
         (topics : List UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.Log ⟨n⟩, arg))
+        (h_op      : s.decodedOp = some (.Log ⟨n⟩))
         (h_running  : s.halt = .Running)
         (h_perm     : s.executionEnv.permitStateMutation = true)
         (h_gas      : Gas.baseCost s.fork (.Log ⟨n⟩) ≤ s.gasAvailable)
@@ -1119,8 +1056,7 @@ inductive Step : State → State → Prop
 
   /-- DUPN with immediate `n`: duplicate `stack[n]` to the top. PC += 2. -/
   | dupN (s : State) (n : Fin 256) (v : UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.DupN ⟨n⟩, arg))
+        (h_op      : s.decodedOp = some (.DupN ⟨n⟩))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork (.DupN ⟨n⟩) ≤ s.gasAvailable)
         (h_get     : s.stack[n.val]? = some v)
@@ -1129,8 +1065,7 @@ inductive Step : State → State → Prop
 
   /-- SWAPN with immediate `n`: swap top with `stack[n+1]`. PC += 2. -/
   | swapN (s : State) (n : Fin 256) (stk' : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.SwapN ⟨n⟩, arg))
+        (h_op      : s.decodedOp = some (.SwapN ⟨n⟩))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork (.SwapN ⟨n⟩) ≤ s.gasAvailable)
         (h_swap    : s.stack.exchange 0 (n.val + 1) = some stk')
@@ -1140,8 +1075,7 @@ inductive Step : State → State → Prop
   /-- EXCHANGE with packed immediate `b`: swap `stack[n+1]` and `stack[m+1]`
       where `n = b >>> 4` and `m = b &&& 0xf`. PC += 2. -/
   | exchange (s : State) (b : Fin 256) (stk' : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.Exchange ⟨b⟩, arg))
+        (h_op      : s.decodedOp = some (.Exchange ⟨b⟩))
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork (.Exchange ⟨b⟩) ≤ s.gasAvailable)
         (h_swap    : s.stack.exchange
@@ -1174,8 +1108,7 @@ inductive Step : State → State → Prop
   /-- The explicit `INVALID` opcode (`0xfe`). -/
   | invalidOpcode (s : State)
         (h_running : s.halt = .Running)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.INVALID, arg))
+        (h_op      : s.decodedOp = some .INVALID)
       : Step s (s.haltWith .InvalidInstruction)
 
   /-- Insufficient gas to pay for the decoded operation's *total* cost.
@@ -1185,16 +1118,16 @@ inductive Step : State → State → Prop
       per-byte LOG/EXP, `Gas.sstoreCost`, or the EIP-2200 stipend. The
       `h_cost_lb` constraint prevents bogus OOGs (a `cost < baseCost`
       witness could not actually halt the op). -/
-  | outOfGas (s : State) (op : Operation) (arg : Option (UInt256 × Nat)) (cost : Nat)
-        (h_op       : s.decoded = some (op, arg))
+  | outOfGas (s : State) (op : Operation) (cost : Nat)
+        (h_op       : s.decodedOp = some op)
         (h_running  : s.halt = .Running)
         (h_cost_lb  : Gas.baseCost s.fork op ≤ cost)
         (h_gas      : s.gasAvailable < cost)
       : Step s (s.haltWith .OutOfGas)
 
   /-- Stack has fewer items than the operation requires to pop. -/
-  | stackUnderflow (s : State) (op : Operation) (arg : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (op, arg))
+  | stackUnderflow (s : State) (op : Operation)
+        (h_op      : s.decodedOp = some op)
         (h_running : s.halt = .Running)
         (h_under   : s.stack.length < op.popArity)
       : Step s (s.haltWith .StackUnderflow)
@@ -1202,8 +1135,8 @@ inductive Step : State → State → Prop
   /-- Executing this operation would grow the stack beyond the 1024-item
       EVM limit. Requires `popArity ≤ length` so the subtraction is well
       defined. -/
-  | stackOverflow (s : State) (op : Operation) (arg : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (op, arg))
+  | stackOverflow (s : State) (op : Operation)
+        (h_op      : s.decodedOp = some op)
         (h_running : s.halt = .Running)
         (h_pop_ok  : op.popArity ≤ s.stack.length)
         (h_over    : s.stack.length - op.popArity + op.pushArity > 1024)
@@ -1211,8 +1144,8 @@ inductive Step : State → State → Prop
 
   /-- State-mutating operation attempted while
       `executionEnv.permitStateMutation = false`. -/
-  | staticModeViolation (s : State) (op : Operation) (arg : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (op, arg))
+  | staticModeViolation (s : State) (op : Operation)
+        (h_op      : s.decodedOp = some op)
         (h_running : s.halt = .Running)
         (h_mut     : op.isStateMutating = true)
         (h_perm    : s.executionEnv.permitStateMutation = false)
@@ -1220,8 +1153,7 @@ inductive Step : State → State → Prop
 
   /-- JUMP to a destination that is not a `JUMPDEST` (or off the code). -/
   | jumpBadDest (s : State) (dest : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.JUMP, arg))
+        (h_op      : s.decodedOp = some .JUMP)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: rest)
@@ -1230,8 +1162,7 @@ inductive Step : State → State → Prop
 
   /-- JUMPI with `cond ≠ 0` but destination is not a `JUMPDEST`. -/
   | jumpiBadDest (s : State) (dest cond : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.JUMPI, arg))
+        (h_op      : s.decodedOp = some .JUMPI)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
@@ -1241,8 +1172,7 @@ inductive Step : State → State → Prop
 
   /-- RETURNDATACOPY with `srcOffset + size > returnData.size`. -/
   | returndatacopyOob (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
-        (arg       : Option (UInt256 × Nat))
-        (h_op      : s.decoded = some (.RETURNDATACOPY, arg))
+        (h_op      : s.decodedOp = some .RETURNDATACOPY)
         (h_running : s.halt = .Running)
         (h_gas     : Gas.baseCost s.fork .RETURNDATACOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)

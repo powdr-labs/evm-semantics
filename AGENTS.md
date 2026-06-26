@@ -46,14 +46,18 @@ Three views of the same semantics, with `Step` as the source of truth:
 
 - **`Step : State → State → Prop`** (`EVM/Step.lean`) — small-step relation,
   90 constructors (81 success, one per opcode, + 9 generic exception
-  constructors parametric over the operation). Every success constructor carries
-  `h_running : s.halt = .Running`; most also carry `h_gas : Gas.cost op ≤
-  s.gasAvailable` (`gasAvailable : Nat`) and an `h_stack` shape, but the exact
-  premises vary — `Step.stop` has no `h_gas`/`h_stack` (whereas
-  `Step.return_`/`Step.revert` carry `h_gas`, `h_stack`, and `h_mem`), and
-  stackless reads (`address`, `coinbase`, `pc`, …) have no `h_stack`. Read the
-  actual constructor; `consumeGas` takes the gas-sufficiency proof
-  explicitly so the saturating Nat subtraction is provably safe.
+  constructors parametric over the operation). Every success constructor
+  carries `h_op : s.decodedOp = some .X` (the op-only projection of
+  `s.decoded`) plus `h_running : s.halt = .Running`; most also carry
+  `h_gas : Gas.cost op ≤ s.gasAvailable` (`gasAvailable : Nat`) and an
+  `h_stack` shape, but the exact premises vary — `Step.stop` has no
+  `h_gas`/`h_stack` (whereas `Step.return_`/`Step.revert` carry `h_gas`,
+  `h_stack`, and `h_mem`), and stackless reads (`address`, `coinbase`,
+  `pc`, …) have no `h_stack`. **Exception:** `Step.pushN` is the one
+  success rule that uses the full `s.decoded` premise, because it
+  consumes the PUSH immediate. Read the actual constructor; `consumeGas`
+  takes the gas-sufficiency proof explicitly so the saturating Nat
+  subtraction is provably safe.
 - **`Eval : State → ExecutionResult → Prop`** (`EVM/BigStep.lean`) — big-step,
   the reflexive-transitive closure `Steps` ending in a halted state, projected
   by `State.toResult` to `success | returned _ | reverted _ | exception _`.
@@ -112,9 +116,11 @@ Touch these in order, then rebuild + lint + run vmtests:
    *per-word/byte/topic* opcodes keep their correct static base with **no**
    marker — don't slap `TODO(dynamic)` on the latter or overwrite their base
    with `1`. Either way, make sure step 7's `gasComparableOpcode` excludes it.
-4. `EVM/Step.lean` — the success constructor (follow the `add` anatomy: `h_op`,
-   `h_running`, `h_gas`, `h_stack` premises — but adjust for the constructor's
-   kind; halts/stackless reads omit some, see the `Step` note above).
+4. `EVM/Step.lean` — the success constructor (follow the `add` anatomy:
+   `h_op : s.decodedOp = some .X`, `h_running`, `h_gas`, `h_stack` premises
+   — but adjust for the constructor's kind; halts/stackless reads omit
+   some, see the `Step` note above. Only `pushN` keeps the full
+   `s.decoded`-shaped premise to bind the immediate).
 5. `EVM/StepF.lean` — the matching arm in the relevant `stepF.*` helper.
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still closes.
 7. `VMRunner.lean` — update the conformance pre-scan if the opcode's support or
