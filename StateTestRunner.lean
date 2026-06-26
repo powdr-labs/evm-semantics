@@ -246,6 +246,13 @@ structure Tally where
   crash : Nat := 0
   deriving Inhabited
 
+def Tally.add (t u : Tally) : Tally :=
+  { passFull := t.passFull + u.passFull, passCore := t.passCore + u.passCore
+    fail := t.fail + u.fail, incon := t.incon + u.incon, crash := t.crash + u.crash }
+
+def Tally.total (t : Tally) : Nat :=
+  t.passFull + t.passCore + t.fail + t.incon + t.crash
+
 partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
   let mut out := #[]
   for ent in (← p.readDir) do
@@ -254,39 +261,77 @@ partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
     else if path.toString.endsWith ".json" then out := out.push path
   return out.qsort (fun a b => a.toString < b.toString)
 
-/-- Run every `*_Constantinople` test in a file. -/
-def runFile (path : System.FilePath) (verbose : Bool) : IO Tally := do
+/-- Run every `*_Constantinople` test in one file; return one `(tag, name, msg)`
+    triple per test (`tag ∈ {PASS_FULL, PASS_CORE, FAIL, INCON}`). -/
+def runFileResults (path : System.FilePath) : IO (Array (String × String × String)) := do
   let txt ← IO.FS.readFile path
   match Json.parse txt with
-  | .error _ => return { crash := 1 }
+  | .error e => return #[("CRASH", path.fileName.getD path.toString, s!"parse: {e}")]
   | .ok j =>
     let entries := match j with | .obj m => m.toArray.toList | _ => []
-    let mut t : Tally := {}
+    let mut out := #[]
     for (name, testObj) in entries do
       if !name.endsWith "_Constantinople" then continue
-      match runOne testObj with
-      | .passFull => t := { t with passFull := t.passFull + 1 }
-      | .passCore => t := { t with passCore := t.passCore + 1 }
-      | .fail m   => t := { t with fail := t.fail + 1 }
-                     if verbose then IO.println s!"FAIL {name}: {m}"
-      | .incon m  => t := { t with incon := t.incon + 1 }
-                     if verbose then IO.println s!"INCON {name}: {m}"
-    return t
+      let r := match runOne testObj with
+        | .passFull => ("PASS_FULL", name, "")
+        | .passCore => ("PASS_CORE", name, "")
+        | .fail m   => ("FAIL", name, m)
+        | .incon m  => ("INCON", name, m)
+      out := out.push r
+    return out
+
+/-- Run `files`, up to `jobs` `Task`s in flight. Prints per-test `FAIL`/`INCON`
+    notes (stable, spawn order) when `verbose`, then returns the folded tally.
+    Mirrors `VMRunner.runDir`. -/
+def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool) : IO Tally := do
+  let mut t : Tally := {}
+  let mut i := 0
+  let n := files.size
+  let batch := Nat.max 1 jobs
+  while i < n do
+    let stop := Nat.min (i + batch) n
+    let mut tasks : Array (Task (Except IO.Error (Array (String × String × String)))) := #[]
+    for k in [i:stop] do
+      tasks := tasks.push (← IO.asTask (runFileResults files[k]!))
+    for task in tasks do
+      match (← IO.wait task) with
+      | .ok results =>
+        for (tag, name, msg) in results do
+          match tag with
+          | "PASS_FULL" => t := { t with passFull := t.passFull + 1 }
+          | "PASS_CORE" => t := { t with passCore := t.passCore + 1 }
+          | "FAIL"      => t := { t with fail := t.fail + 1 }
+                           if verbose then IO.println s!"FAIL {name}: {msg}"
+          | "INCON"     => t := { t with incon := t.incon + 1 }
+                           if verbose then IO.println s!"INCON {name}: {msg}"
+          | _           => t := { t with crash := t.crash + 1 }
+                           if verbose then IO.println s!"CRASH {name}: {msg}"
+      | .error e =>
+        t := { t with crash := t.crash + 1 }
+        if verbose then IO.println s!"CRASH (task): {e}"
+    i := stop
+  return t
+
+/-- Resolve worker count: `-j N`, else env `STATETESTS_JOBS`, else 8. -/
+def parseJobs (args : List String) : Nat × List String := Id.run do
+  let rec go : List String → Option Nat → List String → Nat × List String
+    | [], n, acc => (n.getD 0, acc.reverse)
+    | "-j" :: v :: rest, _, acc => go rest (some v.toNat!) acc
+    | x :: rest, n, acc => go rest n (x :: acc)
+  go args none []
 
 def main (args : List String) : IO Unit := do
   let verbose := args.contains "-v"
-  let dirs := args.filter (fun a => a != "-v")
-  let root : System.FilePath := dirs.headD "."
+  let (jobs0, rest) := parseJobs (args.filter (· != "-v"))
+  let jobs ← if jobs0 > 0 then pure jobs0 else do
+    match (← IO.getEnv "STATETESTS_JOBS") with
+    | some s => pure (Nat.max 1 s.toNat!)
+    | none   => pure 8
+  let root : System.FilePath := rest.headD "."
   let files ← if (← root.isDir) then collectJson root else pure #[root]
-  let mut tot : Tally := {}
-  for f in files do
-    let t ← runFile f verbose
-    tot := { passFull := tot.passFull + t.passFull, passCore := tot.passCore + t.passCore
-             fail := tot.fail + t.fail, incon := tot.incon + t.incon
-             crash := tot.crash + t.crash }
-  IO.println s!"pass(full={tot.passFull} core+={tot.passCore}) fail={tot.fail} \
-incon={tot.incon} crash={tot.crash} \
-(total {tot.passFull + tot.passCore + tot.fail + tot.incon + tot.crash})"
+  let t ← runFiles files jobs verbose
+  IO.println s!"pass(full={t.passFull} core+={t.passCore}) fail={t.fail} \
+incon={t.incon} crash={t.crash} (total {t.total})"
 
 end StateTests
 
