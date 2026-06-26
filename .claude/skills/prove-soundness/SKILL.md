@@ -41,20 +41,22 @@ exported and does not go through `stepF`.
   it with `nomatch h` / `simp at h` / `exact absurd h …` rather than fabricating
   a transition.
 - **Constructor premises must line up — but they vary by constructor.** A
-  typical arithmetic/stack success constructor takes `h_op`
-  (`s.decoded = some (.OP, arg)`), `h_running`, `h_gas`
+  typical arithmetic/stack `StepRunning` success constructor takes `h_op`
+  (`s.decodedOp = some .OP`), `h_gas`
   (`Gas.cost op ≤ s.gasAvailable` — `gasAvailable` is a `Nat`, no `.toNat`), and
-  an `h_stack` shape. Notable exceptions to check before chasing arguments:
-  `Step.stop` has **only** `h_op` + `h_running` (no `h_gas`, no `h_stack`) —
-  but the other halts differ: `Step.return_`/`Step.revert` carry `h_gas`,
-  `h_stack`, *and* an `h_mem` memory-expansion premise. Stackless reads like
+  an `h_stack` shape; the running guard is *not* a constructor premise — the
+  headline theorem supplies it once via the `Step.running` wrapper. Notable
+  exceptions to check before chasing arguments: `StepRunning.stop` has **only**
+  `h_op` (no `h_gas`, no `h_stack`) — but the other halts differ:
+  `StepRunning.return_`/`StepRunning.revert` carry `h_gas`, `h_stack`, *and* an
+  `h_mem` memory-expansion premise. Stackless reads like
   `address`/`coinbase`/`pc` have `h_gas` but **no** `h_stack`. Read the actual
-  constructor. Supply each premise
-  from the helper's match context; `consumeGas` needs the gas proof explicitly.
+  constructor. Supply each premise from the helper's match context; `consumeGas`
+  needs the gas proof explicitly.
 - **List witnesses.** `log_sound` recovers the topics list via
   `popN_correct` (in `StepF.lean`): `popN stk k = some (topics, rest)` implies
   `topics.length = k ∧ stk = topics ++ rest`. Reuse it rather than re-inducting.
-- **Decoder-width pitfall.** `Step.pushN` takes the immediate width as an
+- **Decoder-width pitfall.** `StepRunning.pushN` takes the immediate width as an
   explicit `immWidth : Nat` parameter (not `k.val`) so push soundness doesn't
   need a separate decoder invariant. Preserve this if you touch PUSH.
 

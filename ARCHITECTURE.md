@@ -59,7 +59,7 @@ graph TD
     end
 
     subgraph "Semantics (three views + proof)"
-        Step["EVM/Step.lean<br/>Step relation (small-step Prop)<br/>90 constructors"]
+        Step["EVM/Step.lean<br/>Step wrapper (small-step Prop)<br/>StepRunning opcode rules · StepReturn resume rules"]
         BigStep["EVM/BigStep.lean<br/>Steps (rtc) · Eval (big-step)"]
         StepF["EVM/StepF.lean<br/>stepF executable shadow<br/>+ 14 per-group helpers"]
         Equiv["EVM/Equiv.lean<br/>stepF_sound (no sorry)<br/>+ 14 helper lemmas"]
@@ -238,10 +238,11 @@ returns `.error .InvalidInstruction`.
 ## Call frames
 
 `CALL` is the only inter-contract opcode currently implemented; it lives in
-`stepF.system`'s `.CALL` arm with a matching `Step.call` / `Step.callFail` /
-`Step.callStatic` triple. Call-frame state is kept on a per-`State`
-`callStack : List Frame` (defined in `State.lean`): each `Frame` snapshots
-the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
+`stepF.system`'s `.CALL` arm with a matching `StepRunning.call` /
+`StepRunning.callFail` / `StepRunning.callStatic` triple, wrapped by
+`Step.running` in the combined relation. Call-frame state is kept on a
+per-`State` `callStack : List Frame` (defined in `State.lean`): each `Frame`
+snapshots the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
 `returnData`, `executionEnv`, the `retOffset`/`retSize` window the caller
 asked for, and the world snapshot (`snapAccountMap`, `snapSubstate`) used to
 roll back on revert / exception.
@@ -249,15 +250,15 @@ roll back on revert / exception.
 The `CALL` arm fires in this order:
 
 1. **Static-mode check** — if `¬ permitStateMutation ∧ value ≠ 0`, halt with
-   `.StaticModeViolation` (mirrored by `Step.callStatic`). Zero-value CALLs
-   remain permitted in static frames.
+   `.StaticModeViolation` (mirrored by `StepRunning.callStatic`). Zero-value
+   CALLs remain permitted in static frames.
 2. **Memory expansion** — `chargeMem2` for the union of the args range and
    the return range.
 3. **Surcharge** — `Gas.callSurcharge` (9000 if value ≠ 0; +25000 if calling
    an empty account).
 4. **Depth/balance pre-check** — if `depth ≥ 1024 ∨ caller.balance < value`,
    the call is *not taken*: push `0`, clear `returnData`, advance PC, keep
-   the unspent forwarded gas. (`Step.callFail`.)
+   the unspent forwarded gas. (`StepRunning.callFail`.)
 5. **63/64 forwarding** — `Gas.allButOneSixtyFourth` caps the gas the callee
    receives; the value stipend is added for non-zero-value calls.
 6. **Enter callee** — `State.enterCall` snapshots the caller frame onto
@@ -302,23 +303,32 @@ flowchart LR
     StepF -.->|"stepF_sound:<br/>stepF s = ok s' → Step s s'<br/>EVM/Equiv.lean (no sorry)"| Step
 ```
 
-- **`Step`** (`EVM/Step.lean`) — each success constructor names its premises
-  explicitly. The typical shape is `h_op : s.decodedOp = some .X` (where
-  `s.decodedOp : Option Operation` is the op-only projection of
-  `s.decoded`), `h_running`, `h_gas`
-  (`Gas.baseCost s.fork op ≤ s.gasAvailable`, a `Nat` `≤`), and an `h_stack`
-  shape, but it varies: `Step.stop` carries no `h_gas`/`h_stack` (while
-  `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`) and stackless reads omit
-  `h_stack`. `Step.pushN` is the one success rule that uses the full
-  `s.decoded`, because it consumes the PUSH immediate. `consumeGas` takes
-  the gas-sufficiency proof as an argument so the saturating subtraction is
-  provably safe. `keccak256` is declared `opaque` in `Crypto/Keccak256.lean`
-  (so the relational rules are independent of any particular hash); the
-  executable evaluator runs the real Keccak-256 thanks to a sibling
-  `@[implemented_by keccak256Impl]` attribute that points at the
-  self-contained implementation in `Crypto/Keccak256.lean`. Halted states
-  have no successors
-  (`Step.not_from_halted`).
+- **`Step`** (`EVM/Step.lean`) — a thin two-constructor wrapper around
+  the actual per-opcode relation. `Step.running` guards a `StepRunning`
+  derivation with `s.halt = .Running`; `Step.returning` wraps a
+  `StepReturn` (each of whose constructors pins a concrete non-`Running`
+  halt kind and a non-empty `callStack`). Splitting the running
+  precondition out onto the wrapper is what lets the ~90 `StepRunning`
+  constructors omit `h_running` entirely.
+  - `StepRunning` carries the per-opcode logic. Each success
+    constructor names its premises explicitly. The typical shape is
+    `h_op : s.decodedOp = some .X` (where `s.decodedOp : Option
+    Operation` is the op-only projection of `s.decoded`), `h_gas`
+    (`Gas.baseCost s.fork op ≤ s.gasAvailable`, a `Nat` `≤`), and an
+    `h_stack` shape, but it varies: `stop` carries no `h_gas`/`h_stack`
+    (while `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`) and
+    stackless reads omit `h_stack`. `pushN` is the one success rule that
+    uses the full `s.decoded`, because it consumes the PUSH immediate.
+  - `StepReturn` has the three `callReturn*` resume rules.
+  - `consumeGas` takes the gas-sufficiency proof as an argument so the
+    saturating subtraction is provably safe. `keccak256` is declared
+    `opaque` in `Crypto/Keccak256.lean` (so the relational rules are
+    independent of any particular hash); the executable evaluator runs
+    the real Keccak-256 thanks to a sibling
+    `@[implemented_by keccak256Impl]` attribute that points at the
+    self-contained implementation in `Crypto/Keccak256.lean`. *Done*
+    states (halted with empty call stack) have no successors under
+    `Step` (`Step.not_from_done`).
 - **`Eval`** (`EVM/BigStep.lean`) — `Steps` is the reflexive-transitive closure;
   `Eval s r` holds when `Steps` reaches a halted state whose `toResult` is `r`.
 - **`stepF`** (`EVM/StepF.lean`) — the same opcode logic as a total `Except`
