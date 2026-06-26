@@ -172,6 +172,50 @@ def decodeAt (code : ByteArray) (pc : Nat) : Option (Operation × Option (UInt25
   else
     some (.STOP, none)
 
+/-! ### Jumpdest analysis
+
+The EVM rejects a JUMP/JUMPI whose target is a `0x5b` byte sitting *inside*
+PUSH immediate data — only `JUMPDEST` opcodes reached as instruction
+boundaries are valid jump targets. `isValidJumpDest code target` walks the
+bytecode from `pc = 0`, skipping past each opcode's immediate, and returns
+`true` iff `target` lands on an instruction boundary whose opcode byte is
+`0x5b`. The walk is bounded by `code.size + 1` iterations: every step
+advances `pc` by at least one byte, so we cannot iterate more often than
+that without exiting the code. -/
+
+/-- Width in bytes of one full instruction (opcode + immediate) for the
+    byte at `pc`. Unassigned bytes count as a single byte. -/
+def instrSize (code : ByteArray) (pc : Nat) : Nat :=
+  if h : pc < code.size then
+    match opcodeOf code[pc] with
+    | some op => 1 + op.argBytes
+    | none    => 1
+  else 1
+
+/-- Walk the bytecode from `pc` looking for `target` as an instruction
+    boundary. Returns `true` iff `pc` reaches `target` exactly *and* the
+    byte at `target` is `0x5b` (`JUMPDEST`). Walking past `target` (which
+    happens iff `target` was inside an immediate) or past the end of `code`
+    returns `false`. `fuel` is decreasing; the caller starts it at
+    `code.size + 1`, which is enough because every step advances `pc` by
+    at least one byte. -/
+def validJumpDestFrom (code : ByteArray) (target : Nat) : Nat → Nat → Bool
+  | _,        0        => false
+  | pc, fuel + 1 =>
+      if pc = target then
+        if h : pc < code.size then code[pc] = 0x5b else false
+      else if pc > target ∨ pc ≥ code.size then
+        false
+      else
+        validJumpDestFrom code target (pc + instrSize code pc) fuel
+
+/-- `true` iff `target` is a valid JUMP/JUMPI destination in `code`: the
+    byte at `target` is `0x5b` (`JUMPDEST`) *and* `target` is reachable from
+    `pc = 0` as an instruction boundary (i.e. not inside any PUSH /
+    DUPN / SWAPN / EXCHANGE immediate). -/
+def isValidJumpDest (code : ByteArray) (target : Nat) : Bool :=
+  validJumpDestFrom code target 0 (code.size + 1)
+
 end Decode
 end EVM
 end EvmSemantics

@@ -35,7 +35,7 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 ## Current results (609 tests)
 ```
-pass=584 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=19 crash=0
+pass=595 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=8 crash=0
 ```
 - **gas-checked=492** — every test whose bytecode uses only opcodes with
   an exact gas cost in our schedule runs with the test's real `exec.gas`
@@ -51,10 +51,10 @@ pass=584 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=19 crash
   uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
   `Constantinople` fork matches this so the comparison is sound; the
   `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
-- The remaining 92 non-gas-checked passes still run in gas-ignored mode
+- The remaining 103 non-gas-checked passes still run in gas-ignored mode
   (`gasAvailable = 2^63`) because their bytecode contains an opcode whose
   cold/warm pricing is unmodelled (BALANCE / EXTCODESIZE / EXTCODEHASH /
-  EXTCODECOPY).
+  EXTCODECOPY) or the unmodelled CALL surcharge.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -132,13 +132,14 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
   past end) pass; `log*…TooHigh` lands as `incon` (real EVM expects a
   memory-expansion OOG halt the gas-ignoring harness can't reproduce).
 
-### INCONCLUSIVE (20) — mostly outside the evaluator's scope; ~11 are real gaps
-- **~11 jump-into-PUSH-data accepted** (`*InsidePushWithJumpDest`,
-  `DynamicJumpPathologicalTest{1,2,3}`): the EVM rejects a JUMP whose target is a
-  `0x5b` byte sitting *inside* PUSH immediate data (`BadJumpDestination`). The
-  evaluator's JUMP just re-decodes the target byte with no push-data-aware
-  jumpdest analysis, so it accepts the jump and halts successfully. **Real
-  soundness gap.**
+### INCONCLUSIVE (8) — all outside the evaluator's scope
+- **Push-data-aware jumpdest analysis is now implemented**
+  (`Decode.isValidJumpDest`): the JUMP/JUMPI rules call
+  `isValidJumpDest code dest.toNat = true` instead of the old
+  `decodeAt = some (.JUMPDEST, none)` check, so a `0x5b` byte sitting
+  inside a PUSH immediate is rejected. The previous 11 inconclusive
+  `*InsidePushWithJumpDest` / `DynamicJumpPathologicalTest{1,2,3}` tests
+  now pass.
 - **Remaining OOG / fuel-exhausted tests** (`*MemExp`, `*OutOfGas*`,
   `*foreverOutOfGas`, `loop-*`, `ackermann33`, `loop_stacklimit_1021`): the
   EVM stops these via gas; we either don't model that opcode's cost yet
@@ -165,9 +166,6 @@ but closing it needs guards on the `Step` success rules *and* a check in
 Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator fixes (turn crashes/fails into passes)
-- [ ] **Push-data-aware jumpdest validation** — reject a JUMP/JUMPI whose target
-      `0x5b` lies inside PUSH immediate data. *Unlocks ~11 inconclusive*
-      (`*InsidePushWithJumpDest`, `DynamicJumpPathologicalTest{1,2,3}`).
 - [ ] **Enforce the 1024-deep stack limit** — add the cap to `stepF` **and**
       guard the `Step` success rules (`push0`/`pushN`/…), since neither side
       currently rules out an oversized push (see "StackOverflow not enforced"
@@ -195,12 +193,6 @@ Already modelled: memory expansion (Yellow-Paper quadratic),
       EIP-2200; cold/warm surcharge still missing.
 
 ### Harness improvements
-- [x] **Gas-faithful mode** for fixed-cost-only tests — done. Now 492 / 584
-      passes are gas-checked.
-- [x] **Real Keccak-256** (self-contained Keccak-f[1600] + sponge with
-      `0x01` padding in `EvmSemantics.Crypto.Keccak256`, wired via
-      `@[implemented_by]`) — done. `vmSha3Test`'s 18 keccak-skipped tests
-      all pass now.
 - [ ] **Log-hash comparison** — the corpus stores `logsHash` (a keccak over
       RLP-encoded log entries). We have real keccak now; an RLP encoder
       would close the loop and let us validate emitted logs end-to-end.

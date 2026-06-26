@@ -640,41 +640,12 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
   | JUMP =>
     match h_stack : s.stack, h with
     | dest :: rest, h =>
-      match h_target : Decode.decodeAt s.executionEnv.code dest.toNat, h with
-      | some (.JUMPDEST, none), h =>
-        simp [h_target] at h
+      match h_valid : Decode.isValidJumpDest s.executionEnv.code dest.toNat, h with
+      | true, h =>
+        simp [h_valid] at h
         cases h
-        exact .jump s dest rest h_dec h_gas h_stack h_target
-      | some (op', some _), h =>
-        simp [h_target] at h
-      | some (.StopArith _, none), h
-      | some (.CompBit _, none), h
-      | some (.Keccak _, none), h
-      | some (.Env _, none), h
-      | some (.Block _, none), h
-      | some (.StackMemFlow .POP, none), h
-      | some (.StackMemFlow .MLOAD, none), h
-      | some (.StackMemFlow .MSTORE, none), h
-      | some (.StackMemFlow .MSTORE8, none), h
-      | some (.StackMemFlow .SLOAD, none), h
-      | some (.StackMemFlow .SSTORE, none), h
-      | some (.StackMemFlow .JUMP, none), h
-      | some (.StackMemFlow .JUMPI, none), h
-      | some (.StackMemFlow .PC, none), h
-      | some (.StackMemFlow .MSIZE, none), h
-      | some (.StackMemFlow .GAS, none), h
-      | some (.StackMemFlow .TLOAD, none), h
-      | some (.StackMemFlow .TSTORE, none), h
-      | some (.StackMemFlow .MCOPY, none), h
-      | some (.Push _, none), h
-      | some (.Dup _, none), h
-      | some (.Swap _, none), h
-      | some (.DupN _, none), h
-      | some (.SwapN _, none), h
-      | some (.Exchange _, none), h
-      | some (.Log _, none), h
-      | some (.System _, none), h => simp [h_target] at h
-      | none, h => simp [h_target] at h
+        exact .jump s dest rest h_dec h_gas h_stack h_valid
+      | false, h => simp [h_valid] at h
     | [], h => nomatch h
   | JUMPI =>
     match h_stack : s.stack, h with
@@ -687,42 +658,12 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         intro hh; exact hh h_cond
       · -- cond ≠ 0: taken-or-bad-jump branch
         simp [h_cond] at h
-        match h_target : Decode.decodeAt s.executionEnv.code dest.toNat, h with
-        | some (.JUMPDEST, none), h =>
+        match h_valid : Decode.isValidJumpDest s.executionEnv.code dest.toNat, h with
+        | true, h =>
           simp at h
           cases h
-          apply StepRunning.jumpi_taken s dest cond rest h_dec h_gas h_stack
-          · exact h_cond
-          · exact h_target
-        | some (op', some _), h => simp at h
-        | some (.StopArith _, none), h
-        | some (.CompBit _, none), h
-        | some (.Keccak _, none), h
-        | some (.Env _, none), h
-        | some (.Block _, none), h
-        | some (.StackMemFlow .POP, none), h
-        | some (.StackMemFlow .MLOAD, none), h
-        | some (.StackMemFlow .MSTORE, none), h
-        | some (.StackMemFlow .MSTORE8, none), h
-        | some (.StackMemFlow .SLOAD, none), h
-        | some (.StackMemFlow .SSTORE, none), h
-        | some (.StackMemFlow .JUMP, none), h
-        | some (.StackMemFlow .JUMPI, none), h
-        | some (.StackMemFlow .PC, none), h
-        | some (.StackMemFlow .MSIZE, none), h
-        | some (.StackMemFlow .GAS, none), h
-        | some (.StackMemFlow .TLOAD, none), h
-        | some (.StackMemFlow .TSTORE, none), h
-        | some (.StackMemFlow .MCOPY, none), h
-        | some (.Push _, none), h
-        | some (.Dup _, none), h
-        | some (.Swap _, none), h
-        | some (.DupN _, none), h
-        | some (.SwapN _, none), h
-        | some (.Exchange _, none), h
-        | some (.Log _, none), h
-        | some (.System _, none), h => simp at h
-        | none, h => simp at h
+          exact .jumpi_taken s dest cond rest h_dec h_gas h_stack h_cond h_valid
+        | false, h => simp at h
     | [], h => nomatch h
     | [_], h => nomatch h
   | PC       => cases h; exact .pc s h_dec h_gas

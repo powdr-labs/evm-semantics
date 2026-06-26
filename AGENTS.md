@@ -110,8 +110,6 @@ DELEGATECALL / STATICCALL, CREATE / CREATE2, SELFDESTRUCT, transaction
 processing, block validation, precompiles, RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
-- **Push-data-aware jumpdest validation** — JUMP/JUMPI don't reject a target
-  inside PUSH immediate data.
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
   `Step` has a `stackOverflow` constructor, its *success* rules (e.g. `push0`,
   `pushN`) carry no stack-length guard, so a near-full stack admits both a
