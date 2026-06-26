@@ -642,8 +642,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       match chargeMem2 s' argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat with
       | .error e => .error e
       | .ok s2 =>
-        let tgt       := AccountAddress.ofUInt256 toArg
-        let codeSrc   := s2.accountMap tgt
+        let codeAddr  := AccountAddress.ofUInt256 toArg  -- where the code comes from
+        let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge valNZ false
         if hsc : surcharge ≤ s2.gasAvailable then
@@ -667,9 +667,54 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
+  | .DELEGATECALL => match s.stack with
+    | gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest =>
+      -- DELEGATECALL pops six items (no `value`). No transfer happens; the
+      -- callee runs in the caller's storage/address context AND inherits
+      -- the caller's `source` (msg.sender) and `weiValue` (CALLVALUE).
+      -- No new-account surcharge applies and there's no balance check.
+      match chargeMem2 s' argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat with
+      | .error e => .error e
+      | .ok s2 =>
+        let tgt      := AccountAddress.ofUInt256 toArg
+        let callee   := s2.accountMap tgt
+        if s2.executionEnv.depth ≥ 1024 then
+          .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+                 (UInt256.ofNat 0 :: rest))
+        else
+          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable)
+          if hfw : forwarded ≤ s2.gasAvailable then
+            let s3       := s2.consumeGas forwarded hfw
+            let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
+            .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
+                   callee.code forwarded retOff.toNat retLen.toNat)
+          else .error .OutOfGas
+    | _ => underflow
+  | .STATICCALL => match s.stack with
+    | gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest =>
+      -- STATICCALL pops six items (no `value`). No transfer happens; the
+      -- callee runs in the *target's* context but with
+      -- `permitStateMutation = false`, so any state-mutating opcode inside
+      -- the callee frame raises `StaticModeViolation`.
+      match chargeMem2 s' argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat with
+      | .error e => .error e
+      | .ok s2 =>
+        let tgt      := AccountAddress.ofUInt256 toArg
+        let callee   := s2.accountMap tgt
+        if s2.executionEnv.depth ≥ 1024 then
+          .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+                 (UInt256.ofNat 0 :: rest))
+        else
+          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable)
+          if hfw : forwarded ≤ s2.gasAvailable then
+            let s3       := s2.consumeGas forwarded hfw
+            let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
+            .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
+                   callee.code forwarded retOff.toNat retLen.toNat)
+          else .error .OutOfGas
+    | _ => underflow
   -- Out-of-scope in v1.
-  | .CREATE | .CREATE2
-  | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => .error .InvalidInstruction
+  | .CREATE | .CREATE2 | .SELFDESTRUCT => .error .InvalidInstruction
 
 end stepF
 

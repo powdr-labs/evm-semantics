@@ -114,19 +114,22 @@ EVM/Step.lean  EVM/BigStep.lean  EVM/StepF.lean  EVM/Equiv.lean
 
 Multi-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
 memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
-EIP-8024, **`CALL` and `CALLCODE`** (with a list-backed call-frame stack,
-EIP-150 63/64 gas forwarding, value-stipend, depth/balance pre-check, and
-`returnData` clearing on the pre-execution failure path). `CALL` adds a
-static-mode value-transfer rejection and may include the new-account
-surcharge; `CALLCODE` runs the target's code in the *caller's* storage /
-address context — no static-mode rejection, no new-account surcharge, and
-the value "transfer" is caller→caller (a balance no-op). The three
+EIP-8024, and the four call-family opcodes **`CALL` / `CALLCODE` /
+`DELEGATECALL` / `STATICCALL`** (with a list-backed call-frame stack,
+EIP-150 63/64 gas forwarding, value stipend for CALL/CALLCODE,
+depth/balance pre-check, and `returnData` clearing on the pre-execution
+failure path). Per-kind differences are isolated to the `CallKind` enum
+in `State.lean`: `CALL` adds a static-mode value-transfer rejection and
+may include the new-account surcharge; `CALLCODE` borrows code and runs
+in the caller's context with a self-transfer no-op; `DELEGATECALL`
+inherits the caller's `source` and `weiValue` (no transfer); `STATICCALL`
+forces `permitStateMutation = false` in the callee frame. The three
 relational `callReturn*` rules cover the success/revert/exception resume
-paths and are shared by both opcodes; `Main.run` / `StateTestRunner.run` /
-`VMRunner.run` all convert a subcall `Except.error` into `resumeException`
-rather than propagating it as a top-level abort. **Excluded:**
-DELEGATECALL / STATICCALL, CREATE / CREATE2, SELFDESTRUCT, transaction
-processing, block validation, precompiles, RLP.
+paths and are shared by all four opcodes; `Main.run` /
+`StateTestRunner.run` / `VMRunner.run` all convert a subcall
+`Except.error` into `resumeException` rather than propagating it as a
+top-level abort. **Excluded:** CREATE / CREATE2, SELFDESTRUCT,
+transaction processing, block validation, precompiles, RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
@@ -143,8 +146,7 @@ processing, block validation, precompiles, RLP.
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and the out-of-scope DELEGATECALL / STATICCALL / CREATE / SELFDESTRUCT
-  family.
+  and the out-of-scope CREATE / CREATE2 / SELFDESTRUCT family.
   `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode

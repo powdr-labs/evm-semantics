@@ -172,7 +172,8 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
   pending an `accessedAccounts` set in `Substate`) and the out-of-scope
-  DELEGATECALL / STATICCALL / CREATE / SELFDESTRUCT family.
+  CREATE / CREATE2 / SELFDESTRUCT family. `DELEGATECALL` and `STATICCALL`
+  are implemented (no value transfer, no new-account surcharge).
   `VMRunner.gasComparableOpcode` is the actual gate for which tests can
   be gas-checked. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
@@ -243,11 +244,16 @@ returns `.error .InvalidInstruction`.
 
 ## Call frames
 
-`CALL` and `CALLCODE` are the inter-contract opcodes currently implemented;
-they live in `stepF.system`'s `.CALL` / `.CALLCODE` arms with matching
-`StepRunning.call` / `StepRunning.callFail` / `StepRunning.callStatic` and
-`StepRunning.callcode` / `StepRunning.callcodeFail` constructors, wrapped
-by `Step.running` in the combined relation. Call-frame state is kept on a
+All four inter-contract opcodes — `CALL`, `CALLCODE`, `DELEGATECALL`, and
+`STATICCALL` — are implemented. They live in `stepF.system`'s matching
+arms with `StepRunning.call` / `callFail` / `callStatic`, `callcode` /
+`callcodeFail`, `delegatecall` / `delegatecallFail`, and `staticcall` /
+`staticcallFail` constructors, all wrapped by `Step.running` in the
+combined relation. The four kinds share a common skeleton (see the
+`CallKind` enum + `State.calleeEnvFor` / `State.enterCallFor` helpers in
+`State.lean`); per-kind differences are isolated to the `calleeCodeOwner`
+/ `calleeSource` / `calleeWeiValue` / `calleePermit` / `transfersValue`
+projections. Call-frame state is kept on a
 per-`State` `callStack : List Frame` (defined in `State.lean`): each `Frame`
 snapshots the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
 `returnData`, `executionEnv`, the `retOffset`/`retSize` window the caller
@@ -281,6 +287,19 @@ never creates a new account; (3) **enter callee** passes the caller's own
 `codeOwner` as the call target, so `enterCall`'s self-transfer is a balance
 no-op and the callee's `codeOwner` stays the caller, while `calleeCode` is
 read from the target account so the borrowed code is what executes.
+
+`DELEGATECALL` and `STATICCALL` both pop *six* stack items (no `value`),
+skip the surcharge entirely (`Gas.callSurcharge false false = 0`), perform
+no balance / value transfer, and have no `*Static` constructor — they
+cannot mutate value directly. They share the same pipeline (memory
+expansion → depth-limit pre-check → 63/64 forwarding → `enterCallFor`):
+* `DELEGATECALL` sets `CallKind.DelegateCall`: the callee inherits the
+  caller's `source` (msg.sender) and `weiValue` (CALLVALUE), runs in the
+  caller's storage context, executes the target's code.
+* `STATICCALL` sets `CallKind.StaticCall`: the callee runs in the
+  target's context (codeOwner = target) but with `permitStateMutation`
+  forced to `false`, so any state-mutating opcode in the new frame is
+  rejected. `CALLVALUE` is forced to `0`.
 
 When the callee halts the *active frame's* `halt` becomes non-`Running` but
 `callStack` is still non-empty — `stepF`'s halt arm calls `State.resumeByHalt`
@@ -370,13 +389,12 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
    the real `exec.gas` budget and compare the remaining `gas`) when every opcode
    has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
-   `hugeGas = 2^63`, never compare gas). The CALL family / CREATE family /
-   SELFDESTRUCT are skipped outright by `skipReasonOf`; KECCAK256 /
-   EXTCODEHASH now run (real Keccak-256 is wired in via
-   `Crypto/Keccak256.lean`). `CALL` and `CALLCODE` are implemented in the
-   evaluator but the VMTests harness still skips them here pending
-   gas-comparison support; the separate `statetests` exe
-   (`StateTestRunner.lean`) is the one that exercises both against the
+   `hugeGas = 2^63`, never compare gas). CREATE / CREATE2 / SELFDESTRUCT
+   are skipped outright by `skipReasonOf`; KECCAK256 / EXTCODEHASH run
+   (real Keccak-256 is wired in via `Crypto/Keccak256.lean`). The four
+   call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
+   `STATICCALL`) are implemented in the evaluator; the separate
+   `statetests` exe (`StateTestRunner.lean`) exercises them against the
    `stCall*` / `stCallCodes` BlockchainTests.
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
