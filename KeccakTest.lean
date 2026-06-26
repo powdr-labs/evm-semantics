@@ -1,20 +1,12 @@
 import EvmSemantics.Crypto.Keccak256
+import EvmSemantics.Data.Hex
 
 open EvmSemantics.Crypto.Keccak (hash)
+open EvmSemantics.Hex (bytesToHex)
 
 /-! Differential test for the from-scratch Keccak-256 implementation in
 `EvmSemantics.Crypto.Keccak256`. Confirms we match well-known Ethereum
 `keccak256` vectors. -/
-
-/-- Hex-encode a `ByteArray` (lowercase). -/
-def hex (bs : ByteArray) : String :=
-  let nibble (n : Nat) : Char :=
-    if n < 10 then Char.ofNat (n + '0'.toNat)
-    else Char.ofNat (n - 10 + 'a'.toNat)
-  let chars : Array Char := bs.toList.foldl
-    (fun acc b => (acc.push (nibble (b.toNat / 16))).push (nibble (b.toNat % 16)))
-    #[]
-  String.ofList chars.toList
 
 def vectors : List (String × String × String) :=
   -- (label, input-as-utf8, expected-hex)
@@ -34,7 +26,7 @@ def main : IO UInt32 := do
   let mut failed := 0
   for (label, input, expected) in vectors do
     let bs := input.toUTF8
-    let got := hex (hash bs)
+    let got := bytesToHex (hash bs)
     let ok := got == expected
     if !ok then failed := failed + 1
     IO.println s!"  [{if ok then "OK  " else "FAIL"}] keccak256({label})"

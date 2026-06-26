@@ -1,4 +1,5 @@
 import EvmSemantics
+import EvmSemantics.Data.Hex
 import Std.Internal.Parsec
 import Lean.Data.Json
 
@@ -27,38 +28,11 @@ open EvmSemantics EvmSemantics.EVM Lean
 
 namespace StateTests
 
+open EvmSemantics.Hex
+
 ----------------------------------------------------------------------------
--- Hex / JSON helpers (kept self-contained).
+-- JSON helpers
 ----------------------------------------------------------------------------
-
-def hexVal (c : Char) : Nat :=
-  if '0' ≤ c ∧ c ≤ '9' then c.toNat - '0'.toNat
-  else if 'a' ≤ c ∧ c ≤ 'f' then c.toNat - 'a'.toNat + 10
-  else if 'A' ≤ c ∧ c ≤ 'F' then c.toNat - 'A'.toNat + 10
-  else 0
-
-def strip0x (s : String) : String :=
-  if s.startsWith "0x" then String.ofList (s.toList.drop 2) else s
-
-def hexToNat (s : String) : Nat :=
-  (strip0x s).foldl (fun acc c => acc * 16 + hexVal c) 0
-
-def hexToUInt256 (s : String) : UInt256 := UInt256.ofNat (hexToNat s)
-def hexToAddress (s : String) : AccountAddress := AccountAddress.ofNat (hexToNat s)
-
-def hexToBytes (s : String) : ByteArray := Id.run do
-  let cs := (strip0x s).toList
-  let mut out := ByteArray.empty
-  let mut i := 0
-  let arr := cs.toArray
-  while i + 1 < arr.size + 1 ∧ i + 1 ≤ arr.size do
-    if i + 1 < arr.size then
-      out := out.push (UInt8.ofNat (hexVal arr[i]! * 16 + hexVal arr[i+1]!))
-      i := i + 2
-    else
-      out := out.push (UInt8.ofNat (hexVal arr[i]! * 16))
-      i := i + 2
-  return out
 
 def strField (j : Json) (k : String) : String :=
   match j.getObjVal? k with
