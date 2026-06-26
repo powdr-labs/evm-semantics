@@ -39,6 +39,21 @@ lake lint                           # Batteries runLinter over the EvmSemantics 
 4. **`Step` and `stepF` must stay in lockstep.** Any opcode change touches both
    the relation and the executable shadow, and the soundness lemma must still
    close. See "Adding/changing an opcode" below.
+5. **Fix at the right altitude — respect the architecture.** Before changing
+   code, understand how it fits the layered design (`Step` as source of truth,
+   `stepF` as its executable shadow, the big-step closure, the conformance
+   harness — see `ARCHITECTURE.md`). Don't patch a symptom locally when the
+   cause belongs in a shared helper, a different layer, or the relation itself.
+   A change that papers over a problem in one handler while leaving the same
+   gap elsewhere (or that diverges `Step` from `stepF`) is not acceptable.
+   When a local fix and an architecturally-correct fix disagree, prefer the
+   latter — or surface the trade-off explicitly rather than silently taking
+   the shortcut.
+6. **Add tests when applicable.** A behavioural change should come with
+   coverage that would have caught the bug or that exercises the new path —
+   a unit test, a soundness lemma, or a VMTests/StateTest corpus case as
+   appropriate (see `VMTESTS.md`). If a change genuinely can't be tested
+   (e.g. a pure refactor or a doc edit), say so rather than skipping silently.
 
 ## Architecture
 
