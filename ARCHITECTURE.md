@@ -19,8 +19,11 @@ definition agrees with the relational one:
   opcode-by-opcode (the thing the demo and the test harness actually run).
 
 `EVM/Equiv.lean` closes `stepF_sound : stepF s = .ok s' → Step s s'` with no
-`sorry`, so any concrete run of `stepF` is backed by a derivation in the
-relational spec.
+`sorry`, so any *successful* `stepF` step is backed by a derivation in the
+relational spec. This covers only the `.ok s'` path — `stepF`'s `.error`
+(exception) results are **not** in general matched by a `Step` successor; the
+memory-expansion `OutOfGas` case (`chargeMem` → `.error`, with no Step-side
+memory-OOG rule) is a current example.
 
 ## Module layers
 

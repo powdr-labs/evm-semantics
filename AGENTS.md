@@ -106,10 +106,15 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 1. `EVM/Operation.lean` — the `Operation` constructor (if new).
 2. `EVM/Decode.lean` — byte → operation + immediate width.
-3. `EVM/Gas.lean` — `Gas.cost`. Use the real fixed cost; if dynamic, leave
-   cost and mark `TODO(dynamic)`.
+3. `EVM/Gas.lean` — `Gas.cost`. Charge the real base fee. For a *dynamic* cost,
+   match the existing convention (see the known-gaps note above): *state-
+   dependent* opcodes are stubbed at `1` with a `TODO(dynamic)` comment, while
+   *per-word/byte/topic* opcodes keep their correct static base with **no**
+   marker — don't slap `TODO(dynamic)` on the latter or overwrite their base
+   with `1`. Either way, make sure step 7's `gasComparableOpcode` excludes it.
 4. `EVM/Step.lean` — the success constructor (follow the `add` anatomy: `h_op`,
-   `h_running`, `h_gas`, `h_stack` premises).
+   `h_running`, `h_gas`, `h_stack` premises — but adjust for the constructor's
+   kind; halts/stackless reads omit some, see the `Step` note above).
 5. `EVM/StepF.lean` — the matching arm in the relevant `stepF.*` helper.
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still closes.
 7. `VMRunner.lean` — update the conformance pre-scan if the opcode's support or
