@@ -87,16 +87,19 @@ end Eval
 
 /-! ### A *done* state has no successor
 
-Every opcode constructor of `Step` carries `h_running : s.halt = .Running`, and
-the three `callReturn*` resume constructors carry `h_stack : s.callStack = _ :: _`.
-So a state that is halted (`halt ≠ .Running`) *and* has an empty call stack
+`Step` has two constructors: `running` (which carries `s.halt = .Running` as
+its explicit precondition) and `returning` (which wraps a `StepReturn`, each
+of whose constructors carries `h_stack : s.callStack = _ :: _`). So a state
+that is halted (`halt ≠ .Running`) *and* has an empty call stack
 (`callStack = []`) has no successor under `Step`. -/
 
 theorem Step.not_from_done {s s' : State}
     (h : Step s s') (h_h : s.halt ≠ .Running) (h_cs : s.callStack = []) : False := by
-  -- Opcode constructors contradict `h_h` via their `h_running`; the resume
-  -- constructors contradict `h_cs` via their `h_stack : callStack = _ :: _`.
-  cases h <;> simp_all
+  -- `running` contradicts `h_h` via its `s.halt = .Running` precondition;
+  -- `returning` contradicts `h_cs` via the inner `h_stack : callStack = _ :: _`.
+  cases h with
+  | running hr _ => exact h_h hr
+  | returning sr => cases sr <;> simp_all
 
 end EVM
 end EvmSemantics

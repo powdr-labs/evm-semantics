@@ -138,10 +138,17 @@ on any warning) and `lake lint` on every push and PR.
 
 ### Two semantics, one source of truth
 
-- **`Step : EVM.State → EVM.State → Prop`** (small-step). One
-  constructor per opcode for the success path, plus generic exception
-  constructors parametric over the operation. Total: 90 constructors
-  (81 success + 9 exception).
+- **`Step : EVM.State → EVM.State → Prop`** (small-step). A thin wrapper
+  with two constructors — `running` (guards a `StepRunning` derivation
+  with `s.halt = .Running`) and `returning` (wraps a `StepReturn`). The
+  per-opcode logic lives in:
+  - **`StepRunning`** — 90 constructors (81 success, one per opcode, +
+    9 generic exception constructors parametric over the operation). No
+    `h_running` premise on any of them; the guard is consumed once on
+    the `Step.running` wrapper.
+  - **`StepReturn`** — 3 `callReturn*` constructors for popping the
+    caller frame when a child halts. Each pins the concrete halt kind
+    and the non-empty call stack.
 - **`Eval : EVM.State → ExecutionResult → Prop`** (big-step). Defined
   as the reflexive-transitive closure of `Step` ending in a halted
   state, projected via `State.toResult` to a flat
@@ -153,17 +160,16 @@ on any warning) and `lake lint` on every push and PR.
 
 ### Rule format
 
-Most success constructors of `Step` follow this anatomy (`Step.stop` carries
-only `h_op`/`h_running` — though `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`
-— and stackless reads omit `h_stack`):
+Most success constructors of `StepRunning` follow this anatomy (`stop` carries
+only `h_op` — though `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem` — and
+stackless reads omit `h_stack`):
 
 ```lean
 | add (s : State) (a b : UInt256) (rest : List UInt256)
       (h_op      : s.decodedOp = some .ADD)
-      (h_running : s.halt = .Running)
       (h_gas     : Gas.cost .ADD ≤ s.gasAvailable)
       (h_stack   : s.stack = a :: b :: rest)
-    : Step s ((s.consumeGas (Gas.cost .ADD) h_gas).replaceStackAndIncrPC ((a + b) :: rest))
+    : StepRunning s ((s.consumeGas (Gas.cost .ADD) h_gas).replaceStackAndIncrPC ((a + b) :: rest))
 ```
 
 (`gasAvailable` is a `Nat`, so the gas premise is a plain `Nat` `≤`; the operand
@@ -177,9 +183,11 @@ case-splits in downstream proofs.
 
 ### Halt model
 
-The `EVM.State` carries a `halt : HaltKind` field. Each `Step`
-constructor has a `h_running : s.halt = .Running` premise, so halted
-states have no successors (proven uniformly via `Step.not_from_halted`).
+The `EVM.State` carries a `halt : HaltKind` field. The `Step.running`
+wrapper carries `s.halt = .Running` as its precondition, and each
+`StepReturn` constructor pins a concrete non-`Running` halt kind via
+`h_halt`, so a *done* state (halted with empty call stack) has no
+successors under `Step` (proven uniformly via `Step.not_from_done`).
 This keeps `Step` as a plain binary relation while still letting `Eval`
 emit a structured result.
 

@@ -44,17 +44,28 @@ lake lint                           # Batteries runLinter over the EvmSemantics 
 
 Three views of the same semantics, with `Step` as the source of truth:
 
-- **`Step : State → State → Prop`** (`EVM/Step.lean`) — small-step relation,
-  90 constructors (81 success, one per opcode, + 9 generic exception
-  constructors parametric over the operation). Every success constructor
-  carries `h_op : s.decodedOp = some .X` (the op-only projection of
-  `s.decoded`) plus `h_running : s.halt = .Running`; most also carry
+- **`Step : State → State → Prop`** (`EVM/Step.lean`) — small-step
+  relation, split for readability into three inductives:
+  - **`StepRunning`** carries the per-opcode logic: 90 constructors (81
+    success + 9 generic exception). Constructors **do not** carry an
+    `h_running : s.halt = .Running` premise — the running guard lives
+    on the `Step.running` wrapper (consumed once).
+  - **`StepReturn`** carries the three `callReturn*` resume rules. Each
+    pins `h_halt : s.halt = …` and `h_stack : s.callStack = _ :: _`, so
+    `StepReturn s s'` alone implies the frame is halted and has
+    callers.
+  - **`Step`** is the two-constructor wrapper: `running` (guards a
+    `StepRunning` with `s.halt = .Running`) and `returning` (wraps a
+    `StepReturn`).
+
+  Each `StepRunning` success constructor carries `h_op : s.decodedOp =
+  some .X` (the op-only projection of `s.decoded`); most also carry
   `h_gas : Gas.cost op ≤ s.gasAvailable` (`gasAvailable : Nat`) and an
-  `h_stack` shape, but the exact premises vary — `Step.stop` has no
-  `h_gas`/`h_stack` (whereas `Step.return_`/`Step.revert` carry `h_gas`,
+  `h_stack` shape, but the exact premises vary — `StepRunning.stop` has
+  no `h_gas`/`h_stack` (whereas `return_`/`revert` carry `h_gas`,
   `h_stack`, and `h_mem`), and stackless reads (`address`, `coinbase`,
-  `pc`, …) have no `h_stack`. **Exception:** `Step.pushN` is the one
-  success rule that uses the full `s.decoded` premise, because it
+  `pc`, …) have no `h_stack`. **Exception:** `StepRunning.pushN` is the
+  one success rule that uses the full `s.decoded` premise, because it
   consumes the PUSH immediate. Read the actual constructor; `consumeGas`
   takes the gas-sufficiency proof explicitly so the saturating Nat
   subtraction is provably safe.
@@ -116,13 +127,16 @@ Touch these in order, then rebuild + lint + run vmtests:
    *per-word/byte/topic* opcodes keep their correct static base with **no**
    marker — don't slap `TODO(dynamic)` on the latter or overwrite their base
    with `1`. Either way, make sure step 7's `gasComparableOpcode` excludes it.
-4. `EVM/Step.lean` — the success constructor (follow the `add` anatomy:
-   `h_op : s.decodedOp = some .X`, `h_running`, `h_gas`, `h_stack` premises
-   — but adjust for the constructor's kind; halts/stackless reads omit
-   some, see the `Step` note above. Only `pushN` keeps the full
-   `s.decoded`-shaped premise to bind the immediate).
+4. `EVM/Step.lean` — the success constructor (in `StepRunning`; follow
+   the `add` anatomy: `h_op : s.decodedOp = some .X`, `h_gas`, `h_stack`
+   premises — but adjust for the constructor's kind; halts/stackless
+   reads omit some, see the `Step` note above. Only `pushN` keeps the
+   full `s.decoded`-shaped premise to bind the immediate. Do **not**
+   add a `h_running` premise — the running guard lives on `Step.running`).
 5. `EVM/StepF.lean` — the matching arm in the relevant `stepF.*` helper.
-6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still closes.
+6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still
+   closes. The helpers produce `StepRunning`; the headline `stepF_sound`
+   wraps with `Step.running h_running`.
 7. `VMRunner.lean` — update the conformance pre-scan if the opcode's support or
    gas status changed: `skipReasonOf` (skip unsupported opcodes) and
    `gasComparableOpcode`. The latter has a catch-all `| _ => true`, so a new
