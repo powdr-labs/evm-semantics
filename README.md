@@ -49,11 +49,16 @@ trivial program.
   EIP-2929 cold/warm `BALANCE`/`EXT*` reads, plus the out-of-scope
   CALL/CREATE/SELFDESTRUCT family — are stubbed at cost `1` with a
   `TODO(dynamic)` comment; per-word/per-byte/per-topic add-ons
-  (copies, LOG, KECCAK256) keep their static base only. The shape of the
-  `OutOfGas` exception rule is faithful throughout. Completing the schedule
-  is **not** a `Gas.cost`-only edit: the missing parts depend on stack
-  operands and world state, memory-expansion gas is already charged in
-  `stepF` (`chargeMem`/`chargeMem2`), so a change must stay in lockstep
+  (copies, LOG, KECCAK256) keep their static base only. The relational
+  `Step.outOfGas` rule covers only the *static* base cost
+  (`s.gasAvailable < Gas.cost op`); `stepF` additionally rejects insufficient
+  *memory-expansion* gas (`chargeMem`/`chargeMem2` → `OutOfGas`), but `Step` has
+  **no** matching memory-expansion-OOG successor — its memory rules just carry
+  an `h_mem` premise — so that exception case is a known `stepF`/`Step`
+  asymmetry. Completing the schedule is **not** a `Gas.cost`-only edit: the
+  missing parts depend on stack operands and world state, memory-expansion gas
+  is already charged in `stepF` (`chargeMem`/`chargeMem2`), so a change must stay
+  in lockstep
   across `Step`, `stepF`, the soundness proof, and the harness's
   `VMRunner.gasComparableOpcode` gate.
 - **World state:** modelled as plain functions, not hash maps —
