@@ -172,8 +172,9 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
   pending an `accessedAccounts` set in `Substate`) and the out-of-scope
-  CREATE / CREATE2 / SELFDESTRUCT family. `DELEGATECALL` and `STATICCALL`
-  are implemented (no value transfer, no new-account surcharge).
+  CREATE / CREATE2 family. `SELFDESTRUCT` charges base 5000 plus the
+  25000 new-account surcharge (`Gas.selfDestructSurcharge`) but is
+  marked non-gas-comparable pending refund modelling.
   `VMRunner.gasComparableOpcode` is the actual gate for which tests can
   be gas-checked. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
@@ -301,6 +302,27 @@ expansion → depth-limit pre-check → 63/64 forwarding → `enterCallFor`):
   forced to `false`, so any state-mutating opcode in the new frame is
   rejected. `CALLVALUE` is forced to `0`.
 
+## SELFDESTRUCT
+
+`SELFDESTRUCT` lives in `stepF.system .SELFDESTRUCT` with matching
+`StepRunning.selfDestruct` / `StepRunning.selfDestructStatic`
+constructors. It pops the beneficiary address, rejects under
+`permitStateMutation = false`, charges base `G_selfdestruct = 5000`
+plus the `Gas.selfDestructSurcharge` (25000 iff the beneficiary is
+empty *and* self has non-zero balance), then calls
+`State.selfDestructTo`. That helper credits the beneficiary with
+self's balance and zeroes self's balance in *credit-then-debit* order
+(not `AccountMap.transfer`'s set-then-set, which would net-cancel a
+self-beneficiary's update and leave the balance unchanged instead of
+burning it). It also marks `self` in `Substate.selfDestructSet` and
+adds `R_selfdestruct = 24000` to the refund counter on Constantinople
+(`0` on Cancun pending EIP-6780). The frame halts with `.Success`. The
+account is *not* deleted at this site — pre-Cancun semantics defer
+deletion to end-of-transaction; for our single-tx test corpora the
+post-state comparison only enumerates accounts listed in the test's
+`post`, so leaving the self-destructed account's storage/code in place
+is observably equivalent to immediate deletion.
+
 When the callee halts the *active frame's* `halt` becomes non-`Running` but
 `callStack` is still non-empty — `stepF`'s halt arm calls `State.resumeByHalt`
 to dispatch on the callee's halt kind:
@@ -389,8 +411,8 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
    the real `exec.gas` budget and compare the remaining `gas`) when every opcode
    has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
-   `hugeGas = 2^63`, never compare gas). CREATE / CREATE2 / SELFDESTRUCT
-   are skipped outright by `skipReasonOf`; KECCAK256 / EXTCODEHASH run
+   `hugeGas = 2^63`, never compare gas). CREATE / CREATE2 are skipped
+   outright by `skipReasonOf`; KECCAK256 / EXTCODEHASH run
    (real Keccak-256 is wired in via `Crypto/Keccak256.lean`). The four
    call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
    `STATICCALL`) are implemented in the evaluator; the separate

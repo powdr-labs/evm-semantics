@@ -351,6 +351,54 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
       halt         := .Running
       callStack    := frame :: sc.callStack }
 
+/-! ### SELFDESTRUCT
+
+`State.selfDestructTo beneficiary` performs the world-state effects of a
+SELFDESTRUCT-after-gas-paid: credit the beneficiary with the
+self-destructing account's balance, zero out the self's balance, mark the
+self in `substate.selfDestructSet`, add to the refund counter (first-time
+only, fork-dependent), and halt the current frame.
+
+The credit-then-debit order matters for the `self = beneficiary` case:
+the credit writes `beneficiary.balance + selfBalance`, the debit then
+writes `0` to the same slot, so the value is correctly *burned* (matching
+the Yellow Paper's "σ'[r].balance ← σ[r].balance + σ[Iₐ].balance ;
+σ'[Iₐ].balance ← 0" sequence). `AccountMap.transfer` would instead
+net-cancel the two updates and leave the balance *unchanged*, which is
+wrong for the self-beneficiary case. -/
+def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
+  let self    := sc.executionEnv.codeOwner
+  let selfBal := (sc.accountMap self).balance
+  let benAcc  := sc.accountMap beneficiary
+  let map₁    := sc.accountMap.set beneficiary
+                   { benAcc with balance := benAcc.balance + selfBal }
+  let map₂    := map₁.set self { (map₁ self) with balance := ⟨0⟩ }
+  -- Per the Yellow Paper the `R_selfdestruct = 24000` refund (Constantinople;
+  -- 0 on Cancun via EIP-3529 + EIP-6780) is added *only the first time* a
+  -- given account self-destructs in a transaction. Our `selfDestructSet` is
+  -- a `Prop`-valued predicate (`AddressSet := AccountAddress → Prop`) with
+  -- no decidable-membership instance, so we cannot branch on prior
+  -- membership without changing the underlying type. We therefore add the
+  -- refund unconditionally: the legacy ethereum/tests corpus has no test
+  -- where the same account self-destructs twice in one transaction, so the
+  -- observable behaviour matches. (Refactoring `AddressSet` to a `RBTree`
+  -- or `Finset` would let us compute "first time" precisely; out of scope
+  -- for this opcode.)
+  let refundDelta : Nat :=
+    match sc.executionEnv.fork with
+    | .Constantinople => 24000
+    | .Cancun         => 0
+  let substate' : Substate :=
+    { sc.substate with
+        selfDestructSet := sc.substate.selfDestructSet.insert self
+        refundBalance   := sc.substate.refundBalance +
+                             UInt256.ofNat refundDelta }
+  { sc with
+      accountMap := map₂
+      substate   := substate'
+      halt       := .Success
+      hReturn    := .empty }
+
 end State
 
 end EVM

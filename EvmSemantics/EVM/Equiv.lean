@@ -453,8 +453,27 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
     | [_, _, _], h                     => nomatch h
     | [_, _, _, _], h                  => nomatch h
     | [_, _, _, _, _], h               => nomatch h
+  | SELFDESTRUCT =>
+    match h_stack : s.stack, h with
+    | beneficiary :: rest, h =>
+      -- Static-mode rejection short-circuits with `.error`, contradicting
+      -- `h : … = .ok sf`. Otherwise the surcharge either fits (the
+      -- `selfDestruct` rule fires) or runs out of gas (impossible).
+      by_cases h_perm : ¬ s.executionEnv.permitStateMutation
+      · simp [h_perm] at h
+        unfold static at h; cases h
+      · simp [h_perm] at h
+        split at h
+        · rename_i h_sc
+          cases h
+          have h_perm' : s.executionEnv.permitStateMutation = true := by
+            simp at h_perm; exact h_perm
+          exact .selfDestruct s beneficiary rest _ h_dec h_gas h_stack
+                  h_perm' rfl h_sc
+        · nomatch h
+    | [], h => nomatch h
   -- Out-of-scope ops: stepF returns .error
-  | CREATE | CREATE2 | SELFDESTRUCT =>
+  | CREATE | CREATE2 =>
     nomatch h
 
 theorem dup_sound (s : State) (op : Operation.DupOp)

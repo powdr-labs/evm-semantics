@@ -713,8 +713,28 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                    callee.code forwarded retOff.toNat retLen.toNat)
           else .error .OutOfGas
     | _ => underflow
+  | .SELFDESTRUCT => match s.stack with
+    | beneficiary :: _ =>
+      -- Static-mode rejects unconditionally: SELFDESTRUCT mutates state
+      -- (balance transfer + scheduled deletion) so it cannot run in a
+      -- static frame even if the beneficiary equals self.
+      if ¬ s.executionEnv.permitStateMutation then static
+      else
+        -- `s'` already paid the base fee (`G_selfdestruct = 5000`). Charge
+        -- the new-account surcharge: 25000 iff the beneficiary is empty
+        -- AND self carries balance (= the transfer brings a fresh account
+        -- into existence). Then commit the transfer + halt via
+        -- `State.selfDestructTo`.
+        let benAddr := AccountAddress.ofUInt256 beneficiary
+        let ben     := s.accountMap benAddr
+        let selfBal : Bool := (s.accountMap s.executionEnv.codeOwner).balance.toNat != 0
+        let surcharge := Gas.selfDestructSurcharge ben.isEmpty selfBal
+        if hsc : surcharge ≤ s'.gasAvailable then
+          .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
+        else .error .OutOfGas
+    | _ => underflow
   -- Out-of-scope in v1.
-  | .CREATE | .CREATE2 | .SELFDESTRUCT => .error .InvalidInstruction
+  | .CREATE | .CREATE2 => .error .InvalidInstruction
 
 end stepF
 

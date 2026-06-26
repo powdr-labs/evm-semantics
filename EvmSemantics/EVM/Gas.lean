@@ -107,7 +107,11 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
       match fork with
       | .Constantinople => 700
       | .Cancun         => 100
-    | .SELFDESTRUCT                                          => 1
+    -- SELFDESTRUCT base fee (`G_selfdestruct = 5000`, EIP-150 onwards).
+    -- The new-account surcharge (25000 if the beneficiary is empty *and*
+    -- the self-destructing account has a non-zero balance) is added in
+    -- `stepF.system`/`StepRunning.selfDestruct` via `Gas.selfDestructSurcharge`.
+    | .SELFDESTRUCT                                          => 5000
 
 /-- EIP-2200 SSTORE stipend sentry (Istanbul onward, including Cancun):
     an SSTORE that finds `gasleft ≤ G_callstipend = 2300` at entry must
@@ -189,6 +193,27 @@ def Gas.callStipend : Nat := 2300
 def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
   (if valueNonZero then 9000 else 0) +
   (if valueNonZero && targetEmpty then 25000 else 0)
+
+/-- The new-account surcharge a SELFDESTRUCT pays when its balance transfer
+    brings a previously empty beneficiary into existence. `G_newaccount =
+    25000` applies iff `beneficiaryEmpty ∧ selfHasBalance` — i.e. only when
+    the transfer actually delivers value to a fresh account. (EIP-150 /
+    Spurious-Dragon EIP-161 semantics; Constantinople and Cancun share this
+    rule because we do not yet model EIP-2929 cold/warm.) -/
+def Gas.selfDestructSurcharge (beneficiaryEmpty selfHasBalance : Bool) : Nat :=
+  if beneficiaryEmpty && selfHasBalance then 25000 else 0
+
+/-- The SELFDESTRUCT refund (`R_selfdestruct = 24000`) added to
+    `Substate.refundBalance` on the *first* time an account self-destructs
+    in a transaction. Constantinople and Cancun differ on whether the
+    refund applies at all — EIP-3529 (London) removed it, and EIP-6780
+    (Cancun) repurposed the opcode entirely — but the legacy ethereum/tests
+    "Constantinople" corpus expects the classic 24000 refund. We return `0`
+    on Cancun pending EIP-6780. -/
+def Gas.selfDestructRefund (fork : Fork) : Nat :=
+  match fork with
+  | .Constantinople => 24000
+  | .Cancun         => 0
 
 /-- Per-byte EXP cost. The per-byte multiplier is `10` at Frontier and
     `50` post-Spurious-Dragon (EIP-160). The legacy ethereum/tests

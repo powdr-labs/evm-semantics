@@ -37,18 +37,19 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 **VMTests (609 tests)**:
 ```
-pass=595 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=8 crash=0
+pass=601 (gas-checked=492) fail=0 skip=0 (unsup=0 keccak=0 gas=0) incon=8 crash=0
 ```
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
 ```
-pass_full=0 pass_core=52 fail=19 incon=9 crash=0
+pass_full=0 pass_core=65 fail=6 incon=9 crash=0
 ```
 - `pass_core` = storage + nonce + code match (the CALL-semantics signal);
   `pass_full` would additionally require exact balances — none reach this
   because exact balances need full gas-refund modelling (SSTORE refunds and
-  cold/warm pricing). The remaining 19 FAILs are all `Suicide*` /
-  `*_RECURSIVE_*` tests; both depend on SELFDESTRUCT, which is out of scope.
+  cold/warm pricing). The remaining 6 FAILs are all `*_ABCB_RECURSIVE`
+  tests where a four-way recursive CALL chain still ends with a storage
+  slot at the deepest contract not getting written.
 - **gas-checked=492** — every test whose bytecode uses only opcodes with
   an exact gas cost in our schedule runs with the test's real `exec.gas`
   budget, and the corpus's remaining-`gas` value is compared. The schedule
@@ -63,10 +64,11 @@ pass_full=0 pass_core=52 fail=19 incon=9 crash=0
   uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
   `Constantinople` fork matches this so the comparison is sound; the
   `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
-- The remaining 103 non-gas-checked passes still run in gas-ignored mode
+- The remaining 109 non-gas-checked passes still run in gas-ignored mode
   (`gasAvailable = 2^63`) because their bytecode contains an opcode whose
   cold/warm pricing is unmodelled (BALANCE / EXTCODESIZE / EXTCODEHASH /
-  EXTCODECOPY) or the unmodelled CALL surcharge.
+  EXTCODECOPY), the unmodelled CALL surcharge, or SELFDESTRUCT (refund
+  counter not yet wired into the gas-comparable arithmetic).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -98,19 +100,21 @@ summary. The full output and normalized summary are uploaded as artifacts.
   - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
     compare `gas`. Used when the bytecode contains an opcode whose cold/warm
     cost we don't yet model — `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`,
-    `EXTCODECOPY`. (CALL family / CREATE family / SELFDESTRUCT short-circuit
-    earlier via `skipReasonOf` — see the next bullet.)
+    `EXTCODECOPY` — or `SELFDESTRUCT` (whose refund counter is unmodelled).
+    (CREATE family short-circuits earlier via `skipReasonOf` — see the
+    next bullet.)
 - **`GAS` opcode** is fine under gas-checked mode (the pushed value matches
   the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
   harness only falls back to hugeGas when *some other* opcode is non-gas-
   comparable, so the previous "gas-skip" bucket is currently empty.
 - **Tests using unsupported opcodes are skipped** via a bytecode pre-scan
-  (`VMRunner.skipReasonOf`): CREATE / CREATE2 / SELFDESTRUCT. The four
-  call-family opcodes (CALL / CALLCODE / DELEGATECALL / STATICCALL) are
-  implemented in the evaluator and exercised by the separate `statetests`
-  exe against the `stCall*` / `stCallCodes` BlockchainTests; the VMTests
-  pre-scan still routes them out via the gas-comparable filter because
-  the call surcharge isn't yet gas-comparable.
+  (`VMRunner.skipReasonOf`): only CREATE / CREATE2 remain. The four
+  call-family opcodes (CALL / CALLCODE / DELEGATECALL / STATICCALL) and
+  SELFDESTRUCT are implemented in the evaluator. The call family is
+  exercised by the separate `statetests` exe against the `stCall*` /
+  `stCallCodes` BlockchainTests; in VMTests these opcodes still route
+  through the gas-comparable filter because their dynamic surcharges
+  aren't yet gas-comparable.
 - **Keccak.** `EvmSemantics.keccak256` is wired (via `@[implemented_by]`)
   to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,
