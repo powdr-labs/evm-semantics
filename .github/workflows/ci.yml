@@ -123,12 +123,16 @@ jobs:
             corpus/Constantinople/BlockchainTests/GeneralStateTests/stCallCodes 45 4 \
             | tee statetests-output.txt
 
+      # GATING: this step fails the job if a previously-passing CALL test now
+      # FAILs (id-level pass -> FAIL). It keys on the FAIL id set, not count
+      # deltas, so a wall-timeout flip on a slow runner (pass/core -> incon)
+      # does not fail the build. A crashed/partial run yields no parseable
+      # summary and is reported (not gated) via the else branch.
       - name: Summarize and compare CALL state tests against baseline
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/statetests_summary.sh statetests-output.txt > statetests-summary.txt; then
-            .github/scripts/statetests_check.sh \
+            .github/scripts/statetests_check.sh --strict \
               .github/statetests-baseline.txt statetests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=StateTests::statetests produced no parseable summary; skipping regression comparison."

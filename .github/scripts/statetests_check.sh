@@ -3,14 +3,21 @@
 # Compare a freshly generated statetests summary against the committed baseline
 # and emit a Markdown regression report on stdout (for $GITHUB_STEP_SUMMARY).
 #
-# This is a REPORT, not a gate: it always exits 0. Regressions are surfaced as
-# GitHub `::warning::` annotations and in the report, but never fail the job.
+# By default this is a REPORT: it exits 0 and only surfaces regressions as
+# GitHub `::warning::` annotations. With `--strict` it becomes a GATE: it exits
+# 1 if there is an id-level regression — a test that was NOT FAILing in the
+# baseline now FAILs (i.e. produces a wrong answer). Gating keys on the FAIL id
+# set, not on count deltas, so a wall-timeout flip (pass/core -> incon on a slow
+# runner) does NOT fail the build — only a genuine pass -> FAIL does.
 #
-# Usage: statetests_check.sh <baseline-file> <current-summary-file>
+# Usage: statetests_check.sh [--strict] <baseline-file> <current-summary-file>
 set -uo pipefail
 
-baseline="${1:?usage: statetests_check.sh <baseline> <current>}"
-current="${2:?usage: statetests_check.sh <baseline> <current>}"
+strict=0
+if [ "${1:-}" = "--strict" ]; then strict=1; shift; fi
+
+baseline="${1:?usage: statetests_check.sh [--strict] <baseline> <current>}"
+current="${2:?usage: statetests_check.sh [--strict] <baseline> <current>}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -65,4 +72,9 @@ if [ "${#improvements[@]}" -gt 0 ]; then
   echo
 fi
 
+# Gate (only with --strict): fail iff a previously-non-FAIL test now FAILs.
+if [ "$strict" -eq 1 ] && [ "${#regressions[@]}" -gt 0 ]; then
+  echo "::error title=StateTests::${#regressions[@]} CALL test(s) regressed (pass -> FAIL); failing the build."
+  exit 1
+fi
 exit 0
