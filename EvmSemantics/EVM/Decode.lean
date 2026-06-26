@@ -183,14 +183,17 @@ bytecode from `pc = 0`, skipping past each opcode's immediate, and returns
 advances `pc` by at least one byte, so we cannot iterate more often than
 that without exiting the code. -/
 
-/-- Width in bytes of one full instruction (opcode + immediate) for the
-    byte at `pc`. Unassigned bytes count as a single byte. -/
-def instrSize (code : ByteArray) (pc : Nat) : Nat :=
+/-- Number of immediate bytes the opcode at `pc` hides from jumpdest
+    analysis. Only PUSH immediates hide bytes: per EIP-8024 the
+    DUPN/SWAPN/EXCHANGE immediates do not affect JUMPDEST analysis, and a
+    `0x5b` byte appearing as such an immediate is still a valid jump
+    target. -/
+def pushDataSize (code : ByteArray) (pc : Nat) : Nat :=
   if h : pc < code.size then
     match opcodeOf code[pc] with
-    | some op => 1 + op.argBytes
-    | none    => 1
-  else 1
+    | some (.Push p) => p.width.val
+    | _              => 0
+  else 0
 
 /-- Walk the bytecode from `pc` looking for `target` as an instruction
     boundary. Returns `true` iff `pc` reaches `target` exactly *and* the
@@ -207,12 +210,13 @@ def validJumpDestFrom (code : ByteArray) (target : Nat) : Nat → Nat → Bool
       else if pc > target ∨ pc ≥ code.size then
         false
       else
-        validJumpDestFrom code target (pc + instrSize code pc) fuel
+        validJumpDestFrom code target (pc + 1 + pushDataSize code pc) fuel
 
 /-- `true` iff `target` is a valid JUMP/JUMPI destination in `code`: the
     byte at `target` is `0x5b` (`JUMPDEST`) *and* `target` is reachable from
-    `pc = 0` as an instruction boundary (i.e. not inside any PUSH /
-    DUPN / SWAPN / EXCHANGE immediate). -/
+    `pc = 0` as an instruction boundary (i.e. not inside any PUSH immediate;
+    EIP-8024 leaves JUMPDEST analysis unchanged for DUPN/SWAPN/EXCHANGE
+    immediates, so those bytes do remain valid jump targets). -/
 def isValidJumpDest (code : ByteArray) (target : Nat) : Bool :=
   validJumpDestFrom code target 0 (code.size + 1)
 
