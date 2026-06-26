@@ -632,8 +632,43 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
+  | .CALLCODE => match s.stack with
+    | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest =>
+      -- CALLCODE differs from CALL in three ways: (i) no static-mode check —
+      -- the value "transfer" is caller→caller, a no-op on balances and so
+      -- not a state mutation; (ii) the new-account portion of the surcharge
+      -- never applies (we never create an account, only borrow code); (iii)
+      -- the callee runs in the caller's storage/address context.
+      match chargeMem2 s' argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat with
+      | .error e => .error e
+      | .ok s2 =>
+        let tgt       := AccountAddress.ofUInt256 toArg
+        let codeSrc   := s2.accountMap tgt
+        let valNZ     : Bool := value.toNat != 0
+        let surcharge := Gas.callSurcharge valNZ false
+        if hsc : surcharge ≤ s2.gasAvailable then
+          let s3 := s2.consumeGas surcharge hsc
+          let caller := s3.accountMap s3.executionEnv.codeOwner
+          if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
+            .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+                   (UInt256.ofNat 0 :: rest))
+          else
+            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable)
+            if hfw : forwarded ≤ s3.gasAvailable then
+              let s4       := s3.consumeGas forwarded hfw
+              let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
+              let calldata := MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat
+              -- Pass the *caller's* address as the call target so
+              -- `enterCall`'s self-transfer is a balance no-op and the
+              -- callee's `codeOwner` stays the caller; supply the target
+              -- account's code as the new frame's code.
+              .ok (s4.enterCall rest s4.executionEnv.codeOwner value calldata
+                     codeSrc.code childGas retOff.toNat retLen.toNat)
+            else .error .OutOfGas
+        else .error .OutOfGas
+    | _ => underflow
   -- Out-of-scope in v1.
-  | .CREATE | .CREATE2 | .CALLCODE
+  | .CREATE | .CREATE2
   | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => .error .InvalidInstruction
 
 end stepF

@@ -986,6 +986,63 @@ inductive StepRunning : State → State → Prop
           ({ s3 with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
+  /-- CALLCODE (taken): like `call`, but the callee runs in the *caller's*
+      storage/address context (its `codeOwner` is unchanged) using the target
+      account's code. Value is "transferred" caller→caller, i.e. a no-op on
+      balances. CALLCODE never creates a new account, so the surcharge uses
+      `targetEmpty = false`. Static mode is *not* rejected here even with a
+      non-zero `value`: no real state mutation occurs at this opcode, and
+      the static flag still propagates into the callee frame. -/
+  | callcode (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 s3 s4 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .CALLCODE)
+        (h_gas     : Gas.baseCost s.fork .CALLCODE ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CALLCODE) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
+        (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
+                        (s3.accountMap s3.executionEnv.codeOwner).balance < value))
+        (h_fwd     : forwarded =
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
+        (h_fw      : forwarded ≤ s3.gasAvailable)
+        (h_s4      : s4 = s3.consumeGas forwarded h_fw)
+      : StepRunning s
+          (s4.enterCall rest s4.executionEnv.codeOwner value
+             (MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat)
+             (s2.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+             retOff.toNat retLen.toNat)
+
+  /-- CALLCODE (not taken): depth limit hit or caller cannot afford the value.
+      Base+memory+surcharge gas is still charged; `0` is pushed; the forwarded
+      gas is *not* spent. -/
+  | callcodeFail (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 s3 : State)
+        (h_op      : s.decodedOp = some .CALLCODE)
+        (h_gas     : Gas.baseCost s.fork .CALLCODE ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CALLCODE) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
+        (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
+                       (s3.accountMap s3.executionEnv.codeOwner).balance < value)
+      : StepRunning s
+          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
   ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).
   ----------------------------------------------------------------------------

@@ -114,13 +114,17 @@ EVM/Step.lean  EVM/BigStep.lean  EVM/StepF.lean  EVM/Equiv.lean
 
 Multi-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
 memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
-EIP-8024, **plain `CALL`** (with a list-backed call-frame stack, EIP-150
-63/64 gas forwarding, value-stipend, depth/balance pre-check, static-mode
-value-transfer rejection, and `returnData` clearing on the pre-execution
-failure path). The three relational `callReturn*` rules cover the
-success/revert/exception resume paths; `Main.run` / `StateTestRunner.run` /
+EIP-8024, **`CALL` and `CALLCODE`** (with a list-backed call-frame stack,
+EIP-150 63/64 gas forwarding, value-stipend, depth/balance pre-check, and
+`returnData` clearing on the pre-execution failure path). `CALL` adds a
+static-mode value-transfer rejection and may include the new-account
+surcharge; `CALLCODE` runs the target's code in the *caller's* storage /
+address context — no static-mode rejection, no new-account surcharge, and
+the value "transfer" is caller→caller (a balance no-op). The three
+relational `callReturn*` rules cover the success/revert/exception resume
+paths and are shared by both opcodes; `Main.run` / `StateTestRunner.run` /
 `VMRunner.run` all convert a subcall `Except.error` into `resumeException`
-rather than propagating it as a top-level abort. **Excluded:** CALLCODE /
+rather than propagating it as a top-level abort. **Excluded:**
 DELEGATECALL / STATICCALL, CREATE / CREATE2, SELFDESTRUCT, transaction
 processing, block validation, precompiles, RLP.
 
@@ -133,13 +137,14 @@ processing, block validation, precompiles, RLP.
 - **Dynamic gas.** `Gas.baseCost fork op` charges the static Yellow-Paper fee
   per fork; dynamic costs are modelled via `Gas.sstoreCost`, `Gas.copyWordCost`,
   `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`, the CALL
-  value/new-account surcharge (`Gas.callSurcharge`) plus 63/64 forwarding
-  (`Gas.allButOneSixtyFourth`), and memory expansion via
+  value/new-account surcharge (`Gas.callSurcharge`; CALLCODE passes
+  `targetEmpty = false` since it never creates an account) plus 63/64
+  forwarding (`Gas.allButOneSixtyFourth`), and memory expansion via
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and the out-of-scope CALLCODE / DELEGATECALL / STATICCALL / CREATE /
-  SELFDESTRUCT family.
+  and the out-of-scope DELEGATECALL / STATICCALL / CREATE / SELFDESTRUCT
+  family.
   `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode

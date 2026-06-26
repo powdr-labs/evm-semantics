@@ -164,13 +164,15 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
     Cancun only;
   - `Gas.callSurcharge valueNZ calleeEmpty` — the CALL value/new-account
     surcharge (`9000` if value ≠ 0, `+25000` if calling an empty account);
+    CALLCODE passes `calleeEmpty = false` since it never creates an
+    account (the code is borrowed; the storage stays with the caller);
   - `Gas.allButOneSixtyFourth gas` — EIP-150 forwarding cap (`gas - gas/64`).
   Memory expansion gas is charged separately by `stepF.chargeMem` /
   `chargeMem2`. The only remaining dynamic costs we don't yet model are
   the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
   pending an `accessedAccounts` set in `Substate`) and the out-of-scope
-  CALLCODE / DELEGATECALL / STATICCALL / CREATE / SELFDESTRUCT family.
+  DELEGATECALL / STATICCALL / CREATE / SELFDESTRUCT family.
   `VMRunner.gasComparableOpcode` is the actual gate for which tests can
   be gas-checked. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
@@ -241,10 +243,11 @@ returns `.error .InvalidInstruction`.
 
 ## Call frames
 
-`CALL` is the only inter-contract opcode currently implemented; it lives in
-`stepF.system`'s `.CALL` arm with a matching `StepRunning.call` /
-`StepRunning.callFail` / `StepRunning.callStatic` triple, wrapped by
-`Step.running` in the combined relation. Call-frame state is kept on a
+`CALL` and `CALLCODE` are the inter-contract opcodes currently implemented;
+they live in `stepF.system`'s `.CALL` / `.CALLCODE` arms with matching
+`StepRunning.call` / `StepRunning.callFail` / `StepRunning.callStatic` and
+`StepRunning.callcode` / `StepRunning.callcodeFail` constructors, wrapped
+by `Step.running` in the combined relation. Call-frame state is kept on a
 per-`State` `callStack : List Frame` (defined in `State.lean`): each `Frame`
 snapshots the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
 `returnData`, `executionEnv`, the `retOffset`/`retSize` window the caller
@@ -268,6 +271,16 @@ The `CALL` arm fires in this order:
 6. **Enter callee** — `State.enterCall` snapshots the caller frame onto
    `callStack`, transfers `value`, installs the callee env, and clears
    `memory` / `returnData` / `hReturn`.
+
+The `CALLCODE` arm runs the same six-step pipeline with three differences:
+(1) **no static-mode check** — the "transfer" is caller→caller and the
+opcode is therefore not a state mutation at this site (state-mutating
+opcodes inside the callee are still rejected because `permitStateMutation`
+propagates); (2) **surcharge** passes `targetEmpty = false` — CALLCODE
+never creates a new account; (3) **enter callee** passes the caller's own
+`codeOwner` as the call target, so `enterCall`'s self-transfer is a balance
+no-op and the callee's `codeOwner` stays the caller, while `calleeCode` is
+read from the target account so the borrowed code is what executes.
 
 When the callee halts the *active frame's* `halt` becomes non-`Running` but
 `callStack` is still non-empty — `stepF`'s halt arm calls `State.resumeByHalt`
@@ -360,10 +373,11 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    `hugeGas = 2^63`, never compare gas). The CALL family / CREATE family /
    SELFDESTRUCT are skipped outright by `skipReasonOf`; KECCAK256 /
    EXTCODEHASH now run (real Keccak-256 is wired in via
-   `Crypto/Keccak256.lean`). Plain `CALL` is implemented in the evaluator
-   but the VMTests harness still skips it here pending gas-comparison
-   support; the separate `statetests` exe (`StateTestRunner.lean`) is the
-   one that exercises `CALL` against the `stCall*` BlockchainTests.
+   `Crypto/Keccak256.lean`). `CALL` and `CALLCODE` are implemented in the
+   evaluator but the VMTests harness still skips them here pending
+   gas-comparison support; the separate `statetests` exe
+   (`StateTestRunner.lean`) is the one that exercises both against the
+   `stCall*` / `stCallCodes` BlockchainTests.
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
    (`pass` / `fail` / `skip` / `incon` / `crash`).

@@ -26,7 +26,7 @@ executable functions, so that reasoning is more direct.
 | 7 | Executable shadow (`stepF`) + demo (`Main.lean`) | ✅ |
 | 8 | Soundness `stepF s = .ok s' → Step s s'` | ✅ (no `sorry`) |
 | 9 | Real Keccak-256 (`EvmSemantics.Crypto.Keccak256`, wired via `@[implemented_by]`) | ✅ |
-| 10 | Plain `CALL` opcode (per-call-frame stack, EIP-150 forwarding, value stipend, static-mode guard, three `callReturn*` rules) | ✅ |
+| 10 | `CALL` and `CALLCODE` opcodes (per-call-frame stack, EIP-150 forwarding, value stipend, static-mode guard on `CALL`, three `callReturn*` rules) | ✅ |
 
 **Demo (`Main.lean`)** runs `PUSH1 5 ; PUSH1 3 ; ADD ; STOP` through the
 executable shadow, producing stack `[8]` and `halt = Success`. Confirms
@@ -40,12 +40,15 @@ trivial program.
   transient), stack manipulation (POP, PUSH0–PUSH32, DUP1–16, SWAP1–16),
   control flow (JUMP, JUMPI, JUMPDEST, PC, GAS), halts (STOP, RETURN,
   REVERT, INVALID), logging (LOG0–LOG4), EIP-8024 (DUPN, SWAPN, EXCHANGE),
-  and plain **`CALL`** with EIP-150 63/64 forwarding, value stipend,
-  depth/balance pre-check, static-mode value-transfer rejection,
-  `returnData` clearing on pre-execution failure, and a list-backed
-  call-frame stack with three resume rules (`callReturnSuccess` /
-  `callReturnRevert` / `callReturnException`).
-- **Excluded from v1:** `CALLCODE` / `DELEGATECALL` / `STATICCALL`,
+  and **`CALL` / `CALLCODE`** with EIP-150 63/64 forwarding, value stipend,
+  depth/balance pre-check, `returnData` clearing on pre-execution failure,
+  and a list-backed call-frame stack with three resume rules
+  (`callReturnSuccess` / `callReturnRevert` / `callReturnException`).
+  `CALL` adds a static-mode value-transfer rejection and the new-account
+  surcharge; `CALLCODE` runs the target's code in the caller's
+  storage/address context — no static-mode rejection, no new-account
+  surcharge, value "transfer" is caller→caller (a balance no-op).
+- **Excluded from v1:** `DELEGATECALL` / `STATICCALL`,
   `CREATE` / `CREATE2`, `SELFDESTRUCT`, transaction processing (`Υ`),
   block validation, precompiled contracts, RLP encoding.
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
@@ -63,10 +66,10 @@ trivial program.
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
   costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
   `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
-  in `Substate`) and the out-of-scope CALLCODE / DELEGATECALL / STATICCALL
-  / CREATE / SELFDESTRUCT family. (Plain `CALL` is modelled — its base
-  fee, memory expansion, value/new-account surcharge via
-  `Gas.callSurcharge`, and 63/64 forwarding via
+  in `Substate`) and the out-of-scope DELEGATECALL / STATICCALL / CREATE /
+  SELFDESTRUCT family. (`CALL` and `CALLCODE` are modelled — base fee,
+  memory expansion, value surcharge via `Gas.callSurcharge` (CALL also
+  pays the new-account portion when applicable), and 63/64 forwarding via
   `Gas.allButOneSixtyFourth` are all charged.)
   Schedule changes need to stay in lockstep across `Step`, `stepF`, the
   soundness proof, and `VMRunner.gasComparableOpcode`.

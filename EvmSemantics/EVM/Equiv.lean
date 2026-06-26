@@ -365,8 +365,40 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
     | [_, _, _, _], h                        => nomatch h
     | [_, _, _, _, _], h                     => nomatch h
     | [_, _, _, _, _, _], h                  => nomatch h
+  | CALLCODE =>
+    match h_stack : s.stack, h with
+    | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest, h =>
+      unfold chargeMem2 at h
+      by_cases h_mem :
+          (s.consumeGas (Gas.baseCost s.fork (.System .CALLCODE)) h_gas).canExpandMemory2
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+      · simp only [h_mem, dif_pos] at h
+        split at h
+        · rename_i h_sc
+          split at h
+          · rename_i h_fail
+            cases h
+            exact .callcodeFail s gasArg toArg value argsOff argsLen retOff retLen rest
+              _ _ _ h_dec h_gas h_stack rfl h_mem rfl h_sc rfl h_fail
+          · rename_i h_take
+            split at h
+            · rename_i h_fw
+              cases h
+              exact .callcode s gasArg toArg value argsOff argsLen retOff retLen rest
+                _ _ _ _ _ h_dec h_gas h_stack rfl h_mem rfl h_sc rfl
+                h_take rfl h_fw rfl
+            · nomatch h
+        · nomatch h
+      · simp [h_mem] at h
+    | [], h                                  => nomatch h
+    | [_], h                                 => nomatch h
+    | [_, _], h                              => nomatch h
+    | [_, _, _], h                           => nomatch h
+    | [_, _, _, _], h                        => nomatch h
+    | [_, _, _, _, _], h                     => nomatch h
+    | [_, _, _, _, _, _], h                  => nomatch h
   -- Out-of-scope ops: stepF returns .error
-  | CREATE | CREATE2 | CALLCODE | DELEGATECALL | STATICCALL | SELFDESTRUCT =>
+  | CREATE | CREATE2 | DELEGATECALL | STATICCALL | SELFDESTRUCT =>
     nomatch h
 
 theorem dup_sound (s : State) (op : Operation.DupOp)

@@ -7,11 +7,11 @@ Two harnesses exercise the verified evaluator (`stepF` / `run`):
   scope (no inter-contract calls, no transaction processing). This is the
   bulk of the conformance coverage; the rest of this document is about it.
 - **`StateTestRunner.lean`** (executable `statetests`) — runs the
-  BlockchainTests **`stCall*`** suites, which exercise the CALL opcode's
-  per-call-frame stack and the three `callReturn*` resume rules. Storage
-  comparison covers the union of pre/post slot keys (so cleared-to-zero
-  slots are caught). CI runs it as a separate, non-gating job against
-  `.github/statetests-baseline.txt`.
+  BlockchainTests **`stCall*` / `stCallCodes`** suites, which exercise the
+  CALL and CALLCODE opcodes' per-call-frame stack and the three
+  `callReturn*` resume rules. Storage comparison covers the union of
+  pre/post slot keys (so cleared-to-zero slots are caught). CI runs it as
+  a separate, non-gating job against `.github/statetests-baseline.txt`.
 
 ## How to run
 ```
@@ -33,10 +33,22 @@ The full suite runs tests as in-process Lean `Task`s across `jobs` workers (`-j`
 aborts the whole run; a `Task` that merely throws is recorded as one `crash`.
 Use `--file <one>.json` to run a single test in its own process for isolation.
 
-## Current results (609 tests)
+## Current results
+
+**VMTests (609 tests)**:
 ```
 pass=595 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=8 crash=0
 ```
+
+**StateTests `stCallCodes` (80 tests, run by `statetests`)**:
+```
+pass_full=0 pass_core=52 fail=19 incon=9 crash=0
+```
+- `pass_core` = storage + nonce + code match (the CALL-semantics signal);
+  `pass_full` would additionally require exact balances — none reach this
+  because exact balances need full gas-refund modelling (SSTORE refunds and
+  cold/warm pricing). The remaining 19 FAILs are all `Suicide*` /
+  `*_RECURSIVE_*` tests; both depend on SELFDESTRUCT, which is out of scope.
 - **gas-checked=492** — every test whose bytecode uses only opcodes with
   an exact gas cost in our schedule runs with the test's real `exec.gas`
   budget, and the corpus's remaining-`gas` value is compared. The schedule
@@ -94,14 +106,16 @@ summary. The full output and normalized summary are uploaded as artifacts.
   comparable, so the previous "gas-skip" bucket is currently empty.
 - **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan
   (`VMRunner.skipReasonOf`): CALL / CALLCODE / DELEGATECALL / STATICCALL /
-  CREATE / CREATE2 / SELFDESTRUCT. Plain `CALL` *is* implemented in the
-  evaluator (with EIP-150 forwarding, value stipend, depth/balance
-  pre-check, static-mode value-transfer rejection, and `returnData`
-  clearing on the pre-execution failure path), and is exercised by the
-  separate `statetests` exe against the `stCall*` BlockchainTests; the
-  VMTests pre-scan continues to skip it pending gas-comparison support
-  for the call surcharge. CALLCODE / DELEGATECALL / STATICCALL / CREATE /
-  CREATE2 / SELFDESTRUCT are not implemented at all.
+  CREATE / CREATE2 / SELFDESTRUCT. `CALL` and `CALLCODE` *are* implemented
+  in the evaluator (with EIP-150 forwarding, value stipend, depth/balance
+  pre-check, and `returnData` clearing on the pre-execution failure path;
+  CALL adds a static-mode value-transfer rejection and the new-account
+  surcharge, CALLCODE runs the target's code in the caller's
+  storage/address context), and are exercised by the separate `statetests`
+  exe against the `stCall*` / `stCallCodes` BlockchainTests; the VMTests
+  pre-scan continues to skip them pending gas-comparison support for the
+  call surcharge. DELEGATECALL / STATICCALL / CREATE / CREATE2 /
+  SELFDESTRUCT are not implemented at all.
 - **Keccak is now real.** `EvmSemantics.keccak256` is wired (via
   `@[implemented_by]`) to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,
