@@ -239,10 +239,15 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
       unfold chargeMem at h
       by_cases h_mem :
           (s.consumeGas (Gas.baseCost s.fork (.Keccak .KECCAK256)) h_gas).canExpandMemory
-                         offset.toNat size.toNat
+            offset.toNat size.toNat
       · simp [h_mem] at h
-        cases h
-        exact .keccak256 s offset size rest h_dec h_running h_gas h_stack h_mem
+        by_cases h_dyn : Gas.keccakWordCost size ≤
+            ((s.consumeGas (Gas.baseCost s.fork (.Keccak .KECCAK256))
+                            h_gas).consumeMemExp offset.toNat size.toNat h_mem).gasAvailable
+        · simp [h_dyn] at h
+          cases h
+          exact .keccak256 s offset size rest h_dec h_running h_gas h_stack h_mem h_dyn
+        · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h           => nomatch h
     | [_], h          => nomatch h
@@ -323,32 +328,39 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
   | CALL =>
     match h_stack : s.stack, h with
     | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest, h =>
-      unfold chargeMem2 at h
-      by_cases h_mem :
-          (s.consumeGas (Gas.baseCost s.fork (.System .CALL)) h_gas).canExpandMemory2
-            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-      · -- memory expansion affordable; reduce the chargeMem2 match, then split
-        -- the remaining surcharge / depth-balance / forwarding branches.
-        simp only [h_mem, dif_pos] at h
-        split at h
-        · rename_i h_sc
+      -- First dispatch the static-mode value-transfer check (`stepF` rejects
+      -- a value-transferring CALL in a static frame before doing anything):
+      -- the true branch returns `.error`, contradicting `h : … = .ok sf`.
+      by_cases h_static : ¬ s.executionEnv.permitStateMutation ∧ value.toNat ≠ 0
+      · simp only [if_pos h_static, static] at h
+        cases h
+      · simp only [if_neg h_static] at h
+        unfold chargeMem2 at h
+        by_cases h_mem :
+            (s.consumeGas (Gas.baseCost s.fork (.System .CALL)) h_gas).canExpandMemory2
+              argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        · -- memory expansion affordable; reduce the chargeMem2 match, then split
+          -- the remaining surcharge / depth-balance / forwarding branches.
+          simp only [h_mem, dif_pos] at h
           split at h
-          · -- depth limit or insufficient balance ⇒ not taken
-            rename_i h_fail
-            cases h
-            exact .callFail s gasArg toArg value argsOff argsLen retOff retLen rest
-              _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl h_fail
-          · -- taken
-            rename_i h_take
+          · rename_i h_sc
             split at h
-            · rename_i h_fw
+            · -- depth limit or insufficient balance ⇒ not taken
+              rename_i h_fail
               cases h
-              exact .call s gasArg toArg value argsOff argsLen retOff retLen rest
-                _ _ _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl
-                h_sc rfl h_take rfl h_fw rfl
-            · nomatch h
-        · nomatch h
-      · simp [h_mem] at h
+              exact .callFail s gasArg toArg value argsOff argsLen retOff retLen rest
+                _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl h_fail
+            · -- taken
+              rename_i h_take
+              split at h
+              · rename_i h_fw
+                cases h
+                exact .call s gasArg toArg value argsOff argsLen retOff retLen rest
+                  _ _ _ _ _ h_dec h_running h_gas h_stack rfl h_mem rfl h_sc rfl
+                  h_take rfl h_fw rfl
+              · nomatch h
+          · nomatch h
+        · simp [h_mem] at h
     | [], h                                  => nomatch h
     | [_], h                                 => nomatch h
     | [_, _], h                              => nomatch h

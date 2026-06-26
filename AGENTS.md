@@ -49,8 +49,8 @@ Three views of the same semantics, with `Step` as the source of truth:
   constructors parametric over the operation). Every success constructor
   carries `h_op : s.decodedOp = some .X` (the op-only projection of
   `s.decoded`) plus `h_running : s.halt = .Running`; most also carry
-  `h_gas : Gas.cost op ≤ s.gasAvailable` (`gasAvailable : Nat`) and an
-  `h_stack` shape, but the exact premises vary — `Step.stop` has no
+  `h_gas : Gas.baseCost s.fork op ≤ s.gasAvailable` (`gasAvailable : Nat`)
+  and an `h_stack` shape, but the exact premises vary — `Step.stop` has no
   `h_gas`/`h_stack` (whereas `Step.return_`/`Step.revert` carry `h_gas`,
   `h_stack`, and `h_mem`), and stackless reads (`address`, `coinbase`,
   `pc`, …) have no `h_stack`. **Exception:** `Step.pushN` is the one
@@ -76,16 +76,25 @@ State/{Account,BlockHeader,ExecutionEnv,Substate}.lean  -- world + per-frame env
 Machine/{MachineState,SharedState}.lean     -- μ (gas, memory, returnData); world+machine bundle
 EVM/Operation.lean                          -- Operation ADT (+ EIP-8024 DUPN/SWAPN/EXCHANGE)
 EVM/Decode.lean                             -- byte -> Operation + immediate
-EVM/Gas.lean                                -- gas cost (fixed-cost opcodes faithful; dynamic = TODO)
+EVM/Fork.lean                               -- inductive Fork = Constantinople | Cancun
+EVM/Gas.lean                                -- Gas.baseCost (per fork) + dynamic cost helpers
+Crypto/Keccak256.lean                       -- self-contained Keccak-f[1600] + opaque keccak256 + @[implemented_by]
 EVM/Exception.lean  EVM/State.lean  EVM/Halted.lean
 EVM/Step.lean  EVM/BigStep.lean  EVM/StepF.lean  EVM/Equiv.lean
 ```
 
 ## Scope (v1)
 
-Single-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
+Multi-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
 memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
-EIP-8024. **Excluded:** CALL family, CREATE/CREATE2, SELFDESTRUCT, transaction
+EIP-8024, **plain `CALL`** (with a list-backed call-frame stack, EIP-150
+63/64 gas forwarding, value-stipend, depth/balance pre-check, static-mode
+value-transfer rejection, and `returnData` clearing on the pre-execution
+failure path). The three relational `callReturn*` rules cover the
+success/revert/exception resume paths; `Main.run` / `StateTestRunner.run` /
+`VMRunner.run` all convert a subcall `Except.error` into `resumeException`
+rather than propagating it as a top-level abort. **Excluded:** CALLCODE /
+DELEGATECALL / STATICCALL, CREATE / CREATE2, SELFDESTRUCT, transaction
 processing, block validation, precompiles, RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
@@ -96,13 +105,17 @@ processing, block validation, precompiles, RLP.
   `pushN`) carry no stack-length guard, so a near-full stack admits both a
   successful push and the `stackOverflow` successor. Closing this needs guards
   on the `Step` success rules *and* a check in `stepF`.
-- **Concrete Keccak** — `keccak256` is `opaque` and returns 0.
-- **Dynamic gas.** `Gas.cost` charges the real base fee for every opcode. Two
-  unmodelled kinds: (a) *state-dependent* opcodes (SSTORE/SLOAD, EIP-2929
-  cold/warm reads, CALL/CREATE/SELFDESTRUCT) are stubbed at cost `1` with a
-  `TODO(dynamic)` comment; (b) *per-word/byte/topic* ops (EXP, `*COPY`, LOG,
-  KECCAK256) keep their correct static base with **no** marker. Don't use
-  `TODO(dynamic)` as the full list — `VMRunner.gasComparableOpcode` is the gate.
+- **Dynamic gas.** `Gas.baseCost fork op` charges the static Yellow-Paper fee
+  per fork; dynamic costs are modelled via `Gas.sstoreCost`, `Gas.copyWordCost`,
+  `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`, the CALL
+  value/new-account surcharge (`Gas.callSurcharge`) plus 63/64 forwarding
+  (`Gas.allButOneSixtyFourth`), and memory expansion via
+  `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
+  EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
+  `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
+  and the out-of-scope CALLCODE / DELEGATECALL / STATICCALL / CREATE /
+  SELFDESTRUCT family.
+  `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode
 
@@ -110,12 +123,13 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 1. `EVM/Operation.lean` — the `Operation` constructor (if new).
 2. `EVM/Decode.lean` — byte → operation + immediate width.
-3. `EVM/Gas.lean` — `Gas.cost`. Charge the real base fee. For a *dynamic* cost,
-   match the existing convention (see the known-gaps note above): *state-
-   dependent* opcodes are stubbed at `1` with a `TODO(dynamic)` comment, while
-   *per-word/byte/topic* opcodes keep their correct static base with **no**
-   marker — don't slap `TODO(dynamic)` on the latter or overwrite their base
-   with `1`. Either way, make sure step 7's `gasComparableOpcode` excludes it.
+3. `EVM/Gas.lean` — `Gas.baseCost`. Charge the real static base fee per fork.
+   For a *dynamic* cost, follow the established pattern: a fork-aware helper
+   (`Gas.copyWordCost`, `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`,
+   `Gas.sstoreCost`) that gets charged in the handler after the dispatcher's
+   `consumeGas baseCost`. If the new dynamic cost touches state the harness
+   can't reproduce (e.g. EIP-2929 cold/warm), leave it stubbed at the
+   warm-access value and mark it `false` in step 7's `gasComparableOpcode`.
 4. `EVM/Step.lean` — the success constructor (follow the `add` anatomy:
    `h_op : s.decodedOp = some .X`, `h_running`, `h_gas`, `h_stack` premises
    — but adjust for the constructor's kind; halts/stackless reads omit

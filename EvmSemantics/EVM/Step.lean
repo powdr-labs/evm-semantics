@@ -3,6 +3,7 @@ module
 public import EvmSemantics.EVM.State
 public import EvmSemantics.EVM.Decode
 public import EvmSemantics.EVM.Gas
+public import EvmSemantics.Crypto.Keccak256
 
 /-!
 `Step` — the small-step relation `Step : EVM.State → EVM.State → Prop`.
@@ -46,12 +47,6 @@ def exchange (s : List α) (i j : Nat) : Option (List α) := do
 end List
 
 namespace EvmSemantics
-
-/-- Opaque Keccak-256 hash. The relational semantics never inspects the
-    output value, only constrains it as the result of this abstract function.
-    A concrete instantiation (e.g. for executable testing) can be supplied
-    in a separate file. -/
-opaque keccak256 : ByteArray → UInt256
 
 /-- The hash of an account's bytecode (as used by EXTCODEHASH). -/
 def Account.codeHash (acc : Account) : UInt256 := keccak256 acc.code
@@ -365,8 +360,8 @@ inductive Step : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- KECCAK256: pop offset, size; push hash of memory[offset..offset+size].
-      `h_mem` is the memory-expansion-gas precondition checked *after* the op
-      cost has been deducted (mirroring `stepF.chargeMem`'s behaviour). -/
+      `h_mem` is the memory-expansion-gas precondition; `h_dyn_gas` charges
+      the per-word cost `6 · ⌈size/32⌉` on top. -/
   | keccak256 (s : State) (offset size : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .KECCAK256)
         (h_running : s.halt = .Running)
@@ -374,11 +369,15 @@ inductive Step : State → State → Prop
         (h_stack   : s.stack = offset :: size :: rest)
         (h_mem     : (s.consumeGas (Gas.baseCost s.fork .KECCAK256) h_gas).canExpandMemory
                        offset.toNat size.toNat)
+        (h_dyn_gas : Gas.keccakWordCost size ≤
+                       ((s.consumeGas (Gas.baseCost s.fork .KECCAK256) h_gas).consumeMemExp
+                          offset.toNat size.toNat h_mem).gasAvailable)
       : Step s
           (let bytes := MachineState.readPadded s.memory offset.toNat size.toNat
-           ((s.consumeGas (Gas.baseCost s.fork .KECCAK256) h_gas).consumeMemExp
-              offset.toNat size.toNat h_mem).replaceStackAndIncrPC
-             (EvmSemantics.keccak256 bytes :: rest))
+           let s'' := (s.consumeGas (Gas.baseCost s.fork .KECCAK256) h_gas).consumeMemExp
+                        offset.toNat size.toNat h_mem
+           let s''' := s''.consumeGas (Gas.keccakWordCost size) h_dyn_gas
+           s'''.replaceStackAndIncrPC (EvmSemantics.keccak256 bytes :: rest))
 
   ----------------------------------------------------------------------------
   -- Environment reads.
@@ -961,6 +960,21 @@ inductive Step : State → State → Prop
   -- mirrors `stepF.system`'s `.CALL` arm step-for-step.
   ----------------------------------------------------------------------------
 
+  /-- CALL with `value ≠ 0` attempted while the active frame disallows state
+      mutation (static mode). Halts the frame with `StaticModeViolation` *before*
+      paying any of the call's gas, mirroring `stepF.system`'s early static
+      check. A zero-value CALL is still permitted in static mode. -/
+  | callStatic (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (h_op       : s.decodedOp = some .CALL)
+        (h_running  : s.halt = .Running)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_perm     : s.executionEnv.permitStateMutation = false)
+        (h_value    : value.toNat ≠ 0)
+      : Step s (s.haltWith .StaticModeViolation)
+
   /-- CALL (taken): pop the 7 args; charge base (`G_call`), memory expansion for
       the args+return ranges, and the value/new-account surcharge; check the
       depth limit and caller balance; forward 63/64 of the remaining gas plus
@@ -1019,7 +1033,9 @@ inductive Step : State → State → Prop
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
         (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
                        (s3.accountMap s3.executionEnv.codeOwner).balance < value)
-      : Step s (s3.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+      : Step s
+          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
 
   ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).
