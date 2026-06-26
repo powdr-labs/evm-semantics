@@ -25,6 +25,8 @@ executable functions, so that reasoning is more direct.
 | 6 | Big-step relation (`Eval`) + reflexive-transitive closure `Steps` | ✅ |
 | 7 | Executable shadow (`stepF`) + demo (`Main.lean`) | ✅ |
 | 8 | Soundness `stepF s = .ok s' → Step s s'` | ✅ (no `sorry`) |
+| 9 | Real Keccak-256 (`EvmSemantics.Crypto.Keccak256`, wired via `@[implemented_by]`) | ✅ |
+| 10 | Plain `CALL` opcode (per-call-frame stack, EIP-150 forwarding, value stipend, static-mode guard, three `callReturn*` rules) | ✅ |
 
 **Demo (`Main.lean`)** runs `PUSH1 5 ; PUSH1 3 ; ADD ; STOP` through the
 executable shadow, producing stack `[8]` and `halt = Success`. Confirms
@@ -33,34 +35,41 @@ trivial program.
 
 ## Scope (locked-in decisions)
 
-- **Local-fragment EVM:** all arithmetic, comparison/bitwise, KECCAK256,
+- **Multi-frame EVM:** all arithmetic, comparison/bitwise, KECCAK256,
   environmental reads, block-context reads, memory, storage (incl.
   transient), stack manipulation (POP, PUSH0–PUSH32, DUP1–16, SWAP1–16),
   control flow (JUMP, JUMPI, JUMPDEST, PC, GAS), halts (STOP, RETURN,
-  REVERT, INVALID), logging (LOG0–LOG4), and EIP-8024 (DUPN, SWAPN,
-  EXCHANGE).
-- **Excluded from v1:** `CALL` family, `CREATE`/`CREATE2`, `SELFDESTRUCT`,
-  transaction processing (`Υ`), block validation, precompiled
-  contracts, RLP encoding.
-- **Gas:** `Gas.cost` charges the real Yellow-Paper **base** fee for
-  every opcode (e.g. `ADD`=3, `MUL`=5, `EXP`=10, `KECCAK256`=30,
-  `JUMPI`=10, `TLOAD`/`TSTORE`=100). The opcodes whose real cost has a
-  *dynamic* component our model doesn't yet track — SLOAD/SSTORE and the
-  EIP-2929 cold/warm `BALANCE`/`EXT*` reads, plus the out-of-scope
-  CALL/CREATE/SELFDESTRUCT family — are stubbed at cost `1` with a
-  `TODO(dynamic)` comment; per-word/per-byte/per-topic add-ons
-  (copies, LOG, KECCAK256) keep their static base only. The relational
-  `Step.outOfGas` rule covers only the *static* base cost
-  (`s.gasAvailable < Gas.cost op`); `stepF` additionally rejects insufficient
-  *memory-expansion* gas (`chargeMem`/`chargeMem2` → `OutOfGas`), but `Step` has
-  **no** matching memory-expansion-OOG successor — its memory rules just carry
-  an `h_mem` premise — so that exception case is a known `stepF`/`Step`
-  asymmetry. Completing the schedule is **not** a `Gas.cost`-only edit: the
-  missing parts depend on stack operands and world state, memory-expansion gas
-  is already charged in `stepF` (`chargeMem`/`chargeMem2`), so a change must stay
-  in lockstep
-  across `Step`, `stepF`, the soundness proof, and the harness's
-  `VMRunner.gasComparableOpcode` gate.
+  REVERT, INVALID), logging (LOG0–LOG4), EIP-8024 (DUPN, SWAPN, EXCHANGE),
+  and plain **`CALL`** with EIP-150 63/64 forwarding, value stipend,
+  depth/balance pre-check, static-mode value-transfer rejection,
+  `returnData` clearing on pre-execution failure, and a list-backed
+  call-frame stack with three resume rules (`callReturnSuccess` /
+  `callReturnRevert` / `callReturnException`).
+- **Excluded from v1:** `CALLCODE` / `DELEGATECALL` / `STATICCALL`,
+  `CREATE` / `CREATE2`, `SELFDESTRUCT`, transaction processing (`Υ`),
+  block validation, precompiled contracts, RLP encoding.
+- **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
+  threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
+  the static Yellow-Paper fee per fork (`Constantinople` matches the
+  legacy ethereum/tests corpus — Frontier-era SLOAD = 50, EXP per-byte = 10;
+  `Cancun` uses the modern warm-priced reads and Spurious-Dragon EXP).
+  All major **dynamic costs** are also modelled: memory expansion
+  (`chargeMem` / `chargeMem2`, Yellow-Paper quadratic), `Gas.sstoreCost`
+  (pre-EIP-1283 for Constantinople / EIP-2200 for Cancun, with the
+  EIP-2200 stipend sentry via `Gas.sstoreSentry`), `Gas.copyWordCost`,
+  `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`. The relational
+  `Step.outOfGas` is generalised to accept a `cost : Nat` witness with
+  `Gas.baseCost ≤ cost`, so dynamic-cost OOG (memory expansion, sstoreCost,
+  per-word/byte/topic charges) is expressible. The only remaining unmodelled
+  costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
+  `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
+  in `Substate`) and the out-of-scope CALLCODE / DELEGATECALL / STATICCALL
+  / CREATE / SELFDESTRUCT family. (Plain `CALL` is modelled — its base
+  fee, memory expansion, value/new-account surcharge via
+  `Gas.callSurcharge`, and 63/64 forwarding via
+  `Gas.allButOneSixtyFourth` are all charged.)
+  Schedule changes need to stay in lockstep across `Step`, `stepF`, the
+  soundness proof, and `VMRunner.gasComparableOpcode`.
 - **World state:** modelled as plain functions, not hash maps —
   `Storage = UInt256 → UInt256`, `AccountMap = AccountAddress → Account`,
   address sets as `α → Prop`. This trades enumerability for clean
@@ -125,7 +134,7 @@ arguments, dangerous instances, etc.) on every declaration under the
 There is intentionally **no `scripts/nolints.json` allow-list file** —
 all findings are addressed in source: short doc-strings everywhere, and
 `@[nolint unusedArguments]` / `attribute [nolint ...]` annotations on
-the handful of intentional exceptions (`Gas.cost`'s ignored `_op`,
+the handful of intentional exceptions (`Gas.sstoreCost`'s ignored `_original`,
 `State.consumeGas`'s proof-witness `_h`, the auto-derived `Repr.repr`
 declarations from `deriving Repr`, the trivial `Keccak.injEq` from a
 single-constructor `deriving DecidableEq`, and the inner-loop helpers
@@ -167,9 +176,11 @@ stackless reads omit `h_stack`):
 ```lean
 | add (s : State) (a b : UInt256) (rest : List UInt256)
       (h_op      : s.decodedOp = some .ADD)
-      (h_gas     : Gas.cost .ADD ≤ s.gasAvailable)
+      (h_gas     : Gas.baseCost s.fork .ADD ≤ s.gasAvailable)
       (h_stack   : s.stack = a :: b :: rest)
-    : StepRunning s ((s.consumeGas (Gas.cost .ADD) h_gas).replaceStackAndIncrPC ((a + b) :: rest))
+    : StepRunning s
+        ((s.consumeGas (Gas.baseCost s.fork .ADD) h_gas).replaceStackAndIncrPC
+          ((a + b) :: rest))
 ```
 
 (`gasAvailable` is a `Nat`, so the gas premise is a plain `Nat` `≤`; the operand

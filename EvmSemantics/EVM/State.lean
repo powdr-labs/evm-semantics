@@ -106,9 +106,16 @@ def haltWith (s : State) (e : ExecutionException) : State :=
 /-- Copy up to `retSize` bytes of a child's output `out` into the caller's
     `mem` at `retOffset`. Only the bytes that exist in `out` are copied (no
     zero-fill beyond `out`), matching the EVM's `min(retSize, |out|)` rule.
-    The memory-expansion gas for this range was already charged at CALL time. -/
+    The memory-expansion gas for this range was already charged at CALL time.
+
+    If there are no bytes to copy (`retSize = 0` or the child returned
+    nothing), `mem` is returned unchanged — `writeBytes` would otherwise pad
+    `mem` up to `retOffset` even with an empty payload, allocating a huge
+    zero buffer when the caller passed a large `retOffset` with zero size. -/
 def writeReturn (mem out : ByteArray) (retOffset retSize : Nat) : ByteArray :=
-  MachineState.writeBytes mem (out.extract 0 (min out.size retSize)) retOffset
+  let copy := out.extract 0 (min out.size retSize)
+  if copy.size = 0 then mem
+  else MachineState.writeBytes mem copy retOffset
 
 /-- Resume a suspended caller `f` (with the remaining `rest` of the call stack)
     after the active frame `child` has halted. Shared verbatim between `stepF`'s
