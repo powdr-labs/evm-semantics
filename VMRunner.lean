@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics
+public import EvmSemantics.Data.Hex
 public import Lean.Data.Json
 
 /-!
@@ -29,8 +30,6 @@ open EvmSemantics.EVM
 
 namespace VMRunner
 
--- Hex helpers (`hexToNat`, `hexToBytes`, …) come from `EvmSemantics.Hex`;
--- see `EvmSemantics/Data/Hex.lean`.
 open EvmSemantics.Hex
 
 ----------------------------------------------------------------------------

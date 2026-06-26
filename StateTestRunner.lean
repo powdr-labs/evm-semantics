@@ -1,4 +1,5 @@
 import EvmSemantics
+import EvmSemantics.Data.Hex
 import Std.Internal.Parsec
 import Lean.Data.Json
 
@@ -27,8 +28,6 @@ open EvmSemantics EvmSemantics.EVM Lean
 
 namespace StateTests
 
--- Hex helpers (`hexToNat`, `hexToBytes`, …) come from `EvmSemantics.Hex`;
--- see `EvmSemantics/Data/Hex.lean`.
 open EvmSemantics.Hex
 
 ----------------------------------------------------------------------------

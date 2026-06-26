@@ -1,7 +1,6 @@
 module
 
 public import EvmSemantics.Data.UInt256
-public import EvmSemantics.Data.Hex
 public import EvmSemantics.State.Account
 public import EvmSemantics.State.BlockHeader
 public import EvmSemantics.State.ExecutionEnv

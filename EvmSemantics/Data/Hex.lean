@@ -45,13 +45,17 @@ def hexToAddress (s : String) : AccountAddress := AccountAddress.ofNat (hexToNat
 
 /-- Decode an optionally-`0x`-prefixed hex string into a `ByteArray`. An
     odd number of nibbles is interpreted as if a leading `0` had been
-    supplied (matching how some legacy corpus fields are written). -/
+    supplied (matching how some legacy corpus fields are written, and the
+    standard EVM hex convention). This replaces an earlier `StateTestRunner`
+    decoder that padded a lone trailing nibble on the right instead. -/
 def hexToBytes (s : String) : ByteArray := Id.run do
   let cs0 := (strip0x s).toList
   let cs := if cs0.length % 2 == 1 then '0' :: cs0 else cs0
   let mut out : ByteArray := .empty
   let mut rest := cs
-  while rest.length ≥ 2 do
+  -- Pattern-match termination keeps this O(n); `rest.length` in the loop
+  -- guard would re-traverse the list each iteration.
+  while !rest.isEmpty do
     match rest with
     | hi :: lo :: tl =>
       out := out.push (UInt8.ofNat (hexVal hi * 16 + hexVal lo))
