@@ -157,9 +157,10 @@ but closing it needs guards on the `Step` success rules *and* a check in
 ## Evaluator behavior relied upon
 - **End-of-code implicit STOP.** `Decode.decodeAt` returns `(STOP, none)` for
   `pc ≥ code.size`, matching the Yellow Paper's zero-padding of code
-  (`0x00` = STOP). Both `stepF` and the relation `Step` (via `Step.stop`) treat
-  running off the end of the code as a successful halt, so programs without an
-  explicit trailing `STOP` (most push/dup/swap/jump tests) behave correctly.
+  (`0x00` = STOP). Both `stepF` and the relation `Step` (via `StepRunning.stop`,
+  wrapped by `Step.running`) treat running off the end of the code as a
+  successful halt, so programs without an explicit trailing `STOP` (most
+  push/dup/swap/jump tests) behave correctly.
 
 ## TODO / next steps
 Ordered by impact on the suite. Each item lists the tests it would unlock.

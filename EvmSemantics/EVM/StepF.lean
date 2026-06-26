@@ -28,7 +28,8 @@ SELFDESTRUCT) are mapped to `InvalidInstruction` in v1.
 The LOG branch uses an auxiliary `popN` helper (defined in section 9
 below) to pop the variable number of topics. `popN_correct` proves it
 preserves the list invariant `topics.length = k ∧ stk = topics ++ rest`,
-which `log_sound` uses to recover the witness list expected by `Step.log`.
+which `log_sound` uses to recover the witness list expected by
+`StepRunning.log`.
 -/
 
 @[expose] public section
@@ -489,7 +490,8 @@ def exchange (s s' : State) (op : Operation.ExchangeOp) : Except ExecutionExcept
     reverse) and reversing once at the base case. The companion lemma
     `popN_correct` (below) certifies the relation
     `popN stk k = some (topics, rest) ↔ topics.length = k ∧ stk = topics ++ rest`,
-    which is what `log_sound` needs to reconstruct the `Step.log` witness. -/
+    which is what `log_sound` needs to reconstruct the `StepRunning.log`
+    witness. -/
 def popN (stk : List UInt256) (k : Nat) : Option (List UInt256 × List UInt256) :=
   go stk k []
 where
@@ -670,8 +672,9 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
         .error .OutOfGas
   | _ =>
     -- The active frame has halted. If suspended callers remain, resume the
-    -- top one (this is the executable mirror of the `Step.callReturn*` rules);
-    -- otherwise the whole execution is done and `stepF` should not be called.
+    -- top one (this is the executable mirror of the `StepReturn.callReturn*`
+    -- rules); otherwise the whole execution is done and `stepF` should not be
+    -- called.
     match s.callStack with
     | []        => .error .InvalidInstruction
     | f :: rest => .ok (s.resumeByHalt f rest)

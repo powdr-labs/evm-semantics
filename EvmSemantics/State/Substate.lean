@@ -25,7 +25,7 @@ namespace EvmSemantics
 structure LogEntry where
   /-- Address of the contract that emitted the log (`Iₐ` at emit time). -/
   address : AccountAddress
-  /-- The indexed topics (`#topics ∈ [0, 4]`, enforced by `Step.log`). -/
+  /-- The indexed topics (`#topics ∈ [0, 4]`, enforced by `StepRunning.log`). -/
   topics  : Array UInt256
   /-- The unindexed data bytes — a copy of `memory[offset..offset+size]`. -/
   data    : ByteArray

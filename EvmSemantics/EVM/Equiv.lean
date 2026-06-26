@@ -74,7 +74,7 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
   unfold stepF.stopArith at h
   cases op with
   | STOP =>
-    -- Note STOP's success doesn't depend on h_gas in the Step constructor
+    -- Note STOP's success doesn't depend on h_gas in the StepRunning constructor.
     cases h; exact .stop s h_dec
   | ADD =>
     match h_stack : s.stack, h with

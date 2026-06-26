@@ -119,7 +119,7 @@ def writeReturn (mem out : ByteArray) (retOffset retSize : Nat) : ByteArray :=
 
 /-- Resume a suspended caller `f` (with the remaining `rest` of the call stack)
     after the active frame `child` has halted. Shared verbatim between `stepF`'s
-    resume path and the `Step.callReturn*` rules so the soundness proof is
+    resume path and the `StepReturn.callReturn*` rules so the soundness proof is
     mechanical. The four call outcomes differ only in the arguments:
 
     | outcome    | `flag` | `out`         | `refund`           | world (`am`,`sub`)      |
@@ -199,8 +199,8 @@ def calleeEnvForCall (sc : State) (tgt : AccountAddress) (value : UInt256)
     deducted** and its memory high-water mark updated; `rest` is the caller
     stack with the 7 call arguments popped. We snapshot the caller into a
     `Frame`, transfer `value`, and install a fresh callee frame that receives
-    `childGas` (forwarded + stipend). Shared verbatim by `stepF` and `Step.call`
-    so the soundness proof is mechanical. -/
+    `childGas` (forwarded + stipend). Shared verbatim by `stepF` and
+    `StepRunning.call` so the soundness proof is mechanical. -/
 def enterCall (sc : State) (rest : List UInt256)
     (tgt : AccountAddress) (value : UInt256) (calldata calleeCode : ByteArray)
     (childGas retOffset retSize : Nat) : State :=
