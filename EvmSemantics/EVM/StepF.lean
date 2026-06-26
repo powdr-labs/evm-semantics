@@ -101,7 +101,7 @@ def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionExcept
   | .EXP => match s.stack with
     | a :: b :: rest =>
       -- Dynamic per-byte exponent cost: `50 · byteLen(b)` (EIP-160).
-      let dyn := Gas.expByteCost s.executionEnv.fork b
+      let dyn := Gas.expByteCost s.fork b
       if h : dyn ≤ s'.gasAvailable then
         .ok ((s'.consumeGas dyn h).replaceStackAndIncrPC (UInt256.expFast a b :: rest))
       else .error .OutOfGas
@@ -360,7 +360,7 @@ def stackMemFlow (s s' : State) :
     if ¬ s.executionEnv.permitStateMutation then static
     -- EIP-2200 stipend sentry: at Cancun, halt OOG if gasleft ≤ 2300,
     -- *regardless* of whether the actual `sstoreCost` would fit.
-    else if Gas.sstoreSentry s.executionEnv.fork s'.gasAvailable then
+    else if Gas.sstoreSentry s.fork s'.gasAvailable then
       .error .OutOfGas
     else match s.stack with
     | key :: value :: rest =>
@@ -368,7 +368,7 @@ def stackMemFlow (s s' : State) :
       let acc      := s.accountMap addr
       let current  := acc.storage key
       let original := s.substate.originalStorage addr key
-      let cost     := Gas.sstoreCost s.executionEnv.fork original current value
+      let cost     := Gas.sstoreCost s.fork original current value
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
@@ -604,7 +604,7 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
     match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
-      let cost := Gas.baseCost s.executionEnv.fork op
+      let cost := Gas.baseCost s.fork op
       if h_g : cost ≤ s.gasAvailable then
         let s' := s.consumeGas cost h_g
         match op with

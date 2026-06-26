@@ -186,7 +186,7 @@ def skipReasonOf (op : Operation) : Option String :=
   | .Env .EXTCODEHASH => some "keccak"
   | _ => none
 
-/-- True when this opcode's `Gas.baseCost s.executionEnv.fork` value matches the real EVM's fee
+/-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
     schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
     component). A test whose bytecode contains only such opcodes is
     eligible for gas comparison against the corpus's expected `gas` value. -/
