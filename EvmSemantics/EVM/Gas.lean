@@ -1,37 +1,42 @@
 module
 
 public import EvmSemantics.EVM.Operation
+public import EvmSemantics.EVM.Fork
+public import EvmSemantics.Data.UInt256
 
 /-!
-`Gas` — fixed (static) gas-cost function for each EVM opcode.
+`Gas` — gas-cost functions, parameterised by the EVM hard fork
+(`EvmSemantics.Fork`).
 
-The cost returned here is the **static** Yellow-Paper fee for the
-operation: the base fee for opcodes whose Yellow-Paper cost has a
-dynamic component (memory expansion, per-word copy cost, per-byte LOG
-cost, topic count) returns only the base. Memory expansion is charged
-separately by `stepF.chargeMem` / `chargeMem2`; per-word and per-byte
-dynamic costs are not yet modelled.
+* `Gas.baseCost fork op` — the *static* per-opcode fee. For opcodes whose
+  real cost has a dynamic component (memory expansion, per-word/byte/topic,
+  EIP-2929 cold/warm, value-dependent SSTORE) this returns only the base;
+  memory expansion is charged separately by `stepF.chargeMem`, and the
+  SSTORE dynamic delta by `Gas.sstoreCost`.
+* `Gas.sstoreCost fork original current new` — the SSTORE dynamic cost,
+  separated from `baseCost` because it depends on the storage state.
 
-Reference constants from the Yellow Paper Appendix G ("Fee Schedule"):
+The two supported forks (`Constantinople` and `Cancun`) mostly share their
+fixed fees; the differences (cold/warm-priced reads, modern SSTORE rules)
+are captured by branching on the `fork` argument. Cold/warm is not yet
+tracked in the substate, so the `Cancun` schedule uses **warm** prices
+throughout (which is a lower bound on the real cost).
 
-| Symbol         | Value | Opcodes                                                   |
-| -------------- | -----:| --------------------------------------------------------- |
-| `G_zero`       |     0 | STOP, RETURN, REVERT                                      |
-| `G_jumpdest`   |     1 | JUMPDEST                                                  |
-| `G_base`       |     2 | environment / block reads, POP, PC, MSIZE, GAS, …         |
-| `G_verylow`    |     3 | ADD/SUB, comparisons, bitwise, MLOAD/MSTORE/MSTORE8, …    |
-| `G_low`        |     5 | MUL/DIV/MOD/SDIV/SMOD, SIGNEXTEND, SELFBALANCE            |
-| `G_mid`        |     8 | ADDMOD/MULMOD, JUMP                                       |
-| `G_high`       |    10 | JUMPI, EXP (base; per-byte part omitted)                  |
-| `G_keccak256`  |    30 | KECCAK256 (base; per-word part omitted)                   |
-| `G_warmaccess` |   100 | BALANCE / EXT* / SLOAD (warm — we don't model cold/warm)  |
-| `G_log`        |   375 | LOG`n` base + `n·G_log` (per-topic) — per-byte omitted    |
-| `G_blockhash`  |    20 | BLOCKHASH                                                 |
+Reference Yellow-Paper constants:
 
-Out-of-scope opcodes (CREATE family, CALL family, SELFDESTRUCT) are
-mapped to the Yellow-Paper base of their static portion as a
-forward-compatibility convenience; v1's evaluator rejects them as
-`InvalidInstruction` before the cost is even consulted.
+| Symbol         | Value | Used by                                                  |
+| -------------- | -----:| -------------------------------------------------------- |
+| `G_zero`       |     0 | STOP, RETURN, REVERT, INVALID                            |
+| `G_jumpdest`   |     1 | JUMPDEST                                                 |
+| `G_base`       |     2 | environment / block reads, POP, PC, MSIZE, GAS, …        |
+| `G_verylow`    |     3 | ADD/SUB, comparisons, bitwise, MLOAD/MSTORE/MSTORE8, …   |
+| `G_low`        |     5 | MUL/DIV/MOD/SDIV/SMOD, SIGNEXTEND, SELFBALANCE           |
+| `G_mid`        |     8 | ADDMOD/MULMOD, JUMP                                      |
+| `G_high`       |    10 | JUMPI, EXP (base)                                        |
+| `G_keccak256`  |    30 | KECCAK256 (base; per-word part omitted)                  |
+| `G_warmaccess` |   100 | warm-priced reads (Cancun)                               |
+| `G_log`        |   375 | LOG`n` base + `n·G_log` (per-topic)                      |
+| `G_blockhash`  |    20 | BLOCKHASH                                                |
 -/
 
 @[expose] public section
@@ -39,32 +44,8 @@ forward-compatibility convenience; v1's evaluator rejects them as
 namespace EvmSemantics
 namespace EVM
 
-/-!
-### Opcodes priced at `1` here pending dynamic-cost support
-
-Several opcodes' real-EVM gas cost is **not** a fixed constant — they are
-priced as cost = 1 below, each tagged with a `TODO(dynamic)` comment:
-
-* **SLOAD, BALANCE, EXTCODESIZE, EXTCODEHASH, EXTCODECOPY** — EIP-2929
-  cold/warm split (2600/2100 vs 100). Needs access-list tracking in
-  `Substate` to model honestly.
-* **SSTORE** — EIP-2200 + EIP-3529: cost depends on the triple
-  (original, current, new) × cold/warm. Anywhere from 100 (no-op warm)
-  to 22100+ (creating a slot cold), plus refunds.
-* **CALL, CALLCODE, DELEGATECALL, STATICCALL** — cold/warm + value-
-  transfer surcharge + new-account surcharge + 63/64 forwarding.
-* **CREATE, CREATE2** — 32000 base plus dynamic init-code (EIP-3860)
-  and per-word memory; out-of-scope opcodes in v1.
-* **SELFDESTRUCT** — 5000 base + 25000 new-account + 2600/100 beneficiary
-  access cost.
-
-All `Log`/`Keccak`/copy ops keep the *base* fee; their per-word /
-per-byte / per-topic dynamic parts are not yet modelled either, but
-those at least have an unambiguous static portion worth charging.
--/
-
-/-- Static (base) gas cost of executing one instance of `op`. -/
-def Gas.cost : Operation → Nat
+/-- Static (base) gas cost of executing one instance of `op` under `fork`. -/
+def Gas.baseCost (fork : Fork) : Operation → Nat
   | .StopArith op => match op with
     | .STOP                                                  => 0
     | .ADD | .SUB                                            => 3
@@ -78,8 +59,14 @@ def Gas.cost : Operation → Nat
     | .CALLDATASIZE | .CODESIZE | .GASPRICE | .RETURNDATASIZE => 2
     | .CALLDATALOAD                                          => 3
     | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY            => 3
-    -- TODO(dynamic): EIP-2929 cold/warm 2600/100. Priced at 1 for now.
-    | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY  => 1
+    -- BALANCE / EXTCODESIZE / EXTCODEHASH / EXTCODECOPY:
+    -- pre-EIP-2929 (Constantinople) used flat 400 / 700 / 700 / 700 — we
+    -- use `1` as a placeholder since none of these are gas-comparable yet.
+    -- Post-EIP-2929 (Cancun) is cold 2600 / warm 100 — we use warm.
+    | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY  =>
+      match fork with
+      | .Constantinople => 1
+      | .Cancun         => 100
   | .Block op => match op with
     | .COINBASE | .TIMESTAMP | .NUMBER | .PREVRANDAO
     | .GASLIMIT | .CHAINID | .BASEFEE | .BLOBBASEFEE         => 2
@@ -92,10 +79,16 @@ def Gas.cost : Operation → Nat
     | .MLOAD | .MSTORE | .MSTORE8 | .MCOPY                   => 3
     | .JUMP                                                  => 8
     | .JUMPI                                                 => 10
-    -- TODO(dynamic): SLOAD is EIP-2929 cold/warm; SSTORE is EIP-2200/3529
-    -- (depends on original/current/new value triple). Priced at 1 for now.
-    -- TLOAD/TSTORE are genuinely fixed at 100 per EIP-1153.
-    | .SLOAD | .SSTORE                                       => 1
+    -- SLOAD:
+    -- Constantinople: 50 (matches the legacy ethereum/tests corpus, which
+    -- actually uses the Frontier value rather than Tangerine-Whistle 200).
+    -- Cancun warm-access: 100 (EIP-2929). Cold (2100) not yet modelled.
+    | .SLOAD                                                 =>
+      match fork with
+      | .Constantinople => 50
+      | .Cancun         => 100
+    -- SSTORE: dynamic — see `Gas.sstoreCost`. Static portion is 0.
+    | .SSTORE                                                => 0
     | .TLOAD | .TSTORE                                       => 100
   | .Push p                          => if p.width.val = 0 then 2 else 3
   | .Dup _ | .Swap _                                         => 3
@@ -103,12 +96,76 @@ def Gas.cost : Operation → Nat
   | .Log l                                  => 375 * (l.topics.val + 1)
   | .System op => match op with
     | .RETURN | .REVERT | .INVALID                           => 0
-    -- TODO(dynamic): CREATE/CREATE2 32000+initcode/word+memory;
-    -- CALL family cold/warm+value+new-account+forwarding; SELFDESTRUCT
-    -- 5000+new-account+cold/warm. All priced at 1 for now.
+    -- Out-of-scope dynamic ops; `1` is a placeholder.
     | .CREATE | .CREATE2                                     => 1
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        => 1
     | .SELFDESTRUCT                                          => 1
+
+/-- EIP-2200 SSTORE stipend sentry (Istanbul onward, including Cancun):
+    an SSTORE that finds `gasleft ≤ G_callstipend = 2300` at entry must
+    halt with `OutOfGas` *regardless* of the actual `sstoreCost` — even
+    a no-op write. Constantinople (which reverted EIP-1283) has no such
+    sentry, so it returns `false` here. -/
+def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
+  match fork with
+  | .Constantinople => false
+  | .Cancun         => decide (gas ≤ 2300)
+
+/-- Dynamic gas cost of an SSTORE under `fork`, given the slot's
+    `original` value (at frame start), `current` value (just before this
+    write), and the `new` value being written.
+
+    **Constantinople** uses the pre-EIP-1283 schedule (EIP-1283 was
+    scheduled for Constantinople but reverted in Petersburg, and the
+    ethereum/tests legacy "Constantinople" corpus reflects the revert):
+
+    | Condition                              | Cost  |
+    |----------------------------------------|------:|
+    | `current = 0 ∧ new ≠ 0` (fresh set)    | 20000 |
+    | otherwise (reset, clear, no-op)        |  5000 |
+
+    **Cancun** uses EIP-2200 net-metered semantics (without the EIP-2929
+    cold/warm bit, which we don't yet model — Cancun's cold surcharge
+    would add 2100 to the first SSTORE of a transaction):
+
+    | Condition                                          | Cost  |
+    |----------------------------------------------------|------:|
+    | `current = new` (no-op)                            |   100 |
+    | `current = original ∧ original = 0` (fresh set)    | 20000 |
+    | `current = original ∧ original ≠ 0` (clean reset)  |  2900 |
+    | otherwise (`current ≠ original`, "dirty")          |   100 |
+
+    Refunds are tracked separately in `Substate.refundBalance` (not yet
+    populated). -/
+def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
+  match fork with
+  | .Constantinople =>
+    if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
+  | .Cancun =>
+    if current.toNat = new.toNat then 100
+    else if current.toNat = original.toNat then
+      if original.toNat = 0 then 20000 else 2900
+    else 100
+
+/-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
+    Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY,
+    and as the per-word part of `KECCAK256` (with `6` instead of `3`). -/
+def Gas.copyWordCost (size : UInt256) : Nat :=
+  3 * ((size.toNat + 31) / 32)
+
+/-- Per-byte LOG data cost (Yellow Paper `G_logdata = 8`): `8 · size`. -/
+def Gas.logDataCost (size : UInt256) : Nat :=
+  8 * size.toNat
+
+/-- Per-byte EXP cost. The per-byte multiplier is `10` at Frontier and
+    `50` post-Spurious-Dragon (EIP-160). The legacy ethereum/tests
+    "Constantinople" corpus uses the Frontier rate, so `Constantinople`
+    selects `10`; `Cancun` uses the modern `50`. `byteLen(0) = 0`. -/
+def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
+  if exponent.toNat = 0 then 0
+  else
+    let perByte := match fork with | .Constantinople => 10 | .Cancun => 50
+    perByte * (Nat.log2 exponent.toNat / 8 + 1)
 
 end EVM
 end EvmSemantics

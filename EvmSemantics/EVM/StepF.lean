@@ -99,7 +99,12 @@ def stopArith (s s' : State) : Operation.StopArithOps → Except ExecutionExcept
     | a :: b :: n :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.mulMod a b n :: rest))
     | _ => underflow
   | .EXP => match s.stack with
-    | a :: b :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.expFast a b :: rest))
+    | a :: b :: rest =>
+      -- Dynamic per-byte exponent cost: `50 · byteLen(b)` (EIP-160).
+      let dyn := Gas.expByteCost s.fork b
+      if h : dyn ≤ s'.gasAvailable then
+        .ok ((s'.consumeGas dyn h).replaceStackAndIncrPC (UInt256.expFast a b :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .SIGNEXTEND => match s.stack with
     | b :: x :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.signExtend b x :: rest))
@@ -199,11 +204,15 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | destOff :: srcOff :: sz :: rest =>
       match chargeMem s' destOff.toNat sz.toNat with
       | .ok s'' =>
-        let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
-        let μ' : MachineState :=
-          { s''.toMachineState with
-              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        let dyn := Gas.copyWordCost sz
+        if h : dyn ≤ s''.gasAvailable then
+          let s''' := s''.consumeGas dyn h
+          let bytes := MachineState.readPadded s.executionEnv.calldata srcOff.toNat sz.toNat
+          let μ' : MachineState :=
+            { s'''.toMachineState with
+                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
   | .CODESIZE =>
@@ -212,11 +221,15 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | destOff :: srcOff :: sz :: rest =>
       match chargeMem s' destOff.toNat sz.toNat with
       | .ok s'' =>
-        let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
-        let μ' : MachineState :=
-          { s''.toMachineState with
-              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        let dyn := Gas.copyWordCost sz
+        if h : dyn ≤ s''.gasAvailable then
+          let s''' := s''.consumeGas dyn h
+          let bytes := MachineState.readPadded s.executionEnv.code srcOff.toNat sz.toNat
+          let μ' : MachineState :=
+            { s'''.toMachineState with
+                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
   | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
@@ -229,12 +242,16 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | a :: destOff :: srcOff :: sz :: rest =>
       match chargeMem s' destOff.toNat sz.toNat with
       | .ok s'' =>
-        let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
-        let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
-        let μ' : MachineState :=
-          { s''.toMachineState with
-              memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        let dyn := Gas.copyWordCost sz
+        if h : dyn ≤ s''.gasAvailable then
+          let s''' := s''.consumeGas dyn h
+          let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
+          let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
+          let μ' : MachineState :=
+            { s'''.toMachineState with
+                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
   | .RETURNDATASIZE =>
@@ -248,11 +265,15 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
       else
         match chargeMem s' destOff.toNat sz.toNat with
         | .ok s'' =>
-          let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
-          let μ' : MachineState :=
-            { s''.toMachineState with
-                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-          .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+          let dyn := Gas.copyWordCost sz
+          if h : dyn ≤ s''.gasAvailable then
+            let s''' := s''.consumeGas dyn h
+            let bytes := MachineState.readPadded s.returnData srcOff.toNat sz.toNat
+            let μ' : MachineState :=
+              { s'''.toMachineState with
+                  memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+            .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+          else .error .OutOfGas
         | .error e => .error e
     | _ => underflow
   | .EXTCODEHASH => match s.stack with
@@ -337,13 +358,22 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .SSTORE =>
     if ¬ s.executionEnv.permitStateMutation then static
+    -- EIP-2200 stipend sentry: at Cancun, halt OOG if gasleft ≤ 2300,
+    -- *regardless* of whether the actual `sstoreCost` would fit.
+    else if Gas.sstoreSentry s.fork s'.gasAvailable then
+      .error .OutOfGas
     else match s.stack with
     | key :: value :: rest =>
-      let addr := s.executionEnv.codeOwner
-      let acc := s.accountMap addr
-      let acc' := { acc with storage := acc.storage.set key value }
-      let σ' := s.accountMap.set addr acc'
-      .ok ({ s' with accountMap := σ' }.replaceStackAndIncrPC rest)
+      let addr     := s.executionEnv.codeOwner
+      let acc      := s.accountMap addr
+      let current  := acc.storage key
+      let original := s.substate.originalStorage addr key
+      let cost     := Gas.sstoreCost s.fork original current value
+      if h : cost ≤ s'.gasAvailable then
+        let acc' := { acc with storage := acc.storage.set key value }
+        let σ'   := s.accountMap.set addr acc'
+        .ok ({ (s'.consumeGas cost h) with accountMap := σ' }.replaceStackAndIncrPC rest)
+      else .error .OutOfGas
     | _ => underflow
   | .JUMP => match s.stack with
     | dest :: rest =>
@@ -364,7 +394,10 @@ def stackMemFlow (s s' : State) :
   | .JUMPDEST => .ok s'.incrPC
   | .MSIZE    =>
     .ok (s'.replaceStackAndIncrPC (MachineState.msize s.toMachineState :: s.stack))
-  | .GAS      => .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.gasAvailable :: s.stack))
+  -- GAS pushes the remaining gas *after* this opcode's own cost is deducted
+  -- (Yellow Paper §9.4.7 / EIP-150): so we read `s'.gasAvailable`, not the
+  -- pre-dispatch `s.gasAvailable`.
+  | .GAS      => .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s'.gasAvailable :: s.stack))
   | .TLOAD => match s.stack with
     | key :: rest =>
       .ok (s'.replaceStackAndIncrPC
@@ -386,8 +419,12 @@ def stackMemFlow (s s' : State) :
       -- `[destOff, destOff+sz)` (write); we charge expansion for the union.
       match chargeMem2 s' destOff.toNat sz.toNat srcOff.toNat sz.toNat with
       | .ok s'' =>
-        let μ' := MachineState.mcopy s''.toMachineState destOff srcOff sz
-        .ok ({ s'' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        let dyn := Gas.copyWordCost sz
+        if h : dyn ≤ s''.gasAvailable then
+          let s''' := s''.consumeGas dyn h
+          let μ' := MachineState.mcopy s'''.toMachineState destOff srcOff sz
+          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
 
@@ -512,14 +549,18 @@ def log (s s' : State) (op : Operation.LogOp) : Except ExecutionException State 
     | offset :: size :: rest =>
       match chargeMem s' offset.toNat size.toNat with
       | .ok s'' =>
-        match popN rest op.topics.val with
-        | some (topics, rest') =>
-          let entry : LogEntry :=
-            { address := s.executionEnv.codeOwner
-              topics  := topics.toArray
-              data    := MachineState.readPadded s.memory offset.toNat size.toNat }
-          .ok ({ s'' with substate := s.substate.appendLog entry }.replaceStackAndIncrPC rest')
-        | none => underflow
+        let dyn := Gas.logDataCost size
+        if h : dyn ≤ s''.gasAvailable then
+          match popN rest op.topics.val with
+          | some (topics, rest') =>
+            let entry : LogEntry :=
+              { address := s.executionEnv.codeOwner
+                topics  := topics.toArray
+                data    := MachineState.readPadded s.memory offset.toNat size.toNat }
+            .ok ({ (s''.consumeGas dyn h) with substate := s.substate.appendLog entry }
+                   |>.replaceStackAndIncrPC rest')
+          | none => underflow
+        else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
 
@@ -563,7 +604,7 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
     match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
-      let cost := Gas.cost op
+      let cost := Gas.baseCost s.fork op
       if h_g : cost ≤ s.gasAvailable then
         let s' := s.consumeGas cost h_g
         match op with

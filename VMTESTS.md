@@ -27,16 +27,24 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 ## Current results (609 tests)
 ```
-pass=558 (gas-checked=32) fail=0 skip=31 (unsup=6 keccak=23 gas=2) incon=20 crash=0
+pass=561 (gas-checked=330) fail=0 skip=29 (unsup=6 keccak=23 gas=0) incon=19 crash=0
 ```
-- **gas-checked=32** — tests whose bytecode uses only opcodes with a fixed
-  Yellow-Paper cost (no SSTORE/SLOAD/COPYs/EXP/LOG/CALL family) are run with
-  the test's actual `exec.gas` budget, and the remaining `gas` field is
-  compared against the corpus expectation.
-- The remaining 526 passes still run in gas-ignored mode (`gasAvailable = 2^63`),
-  because their bytecode contains at least one opcode whose real-EVM cost has
-  a dynamic component (cold/warm, per-word, per-byte, value-dependent SSTORE).
-  See `Gas.cost` in `EvmSemantics/EVM/Gas.lean` for the per-opcode status.
+- **gas-checked=330** — every test whose bytecode uses only opcodes with
+  an exact gas cost in our schedule (every fixed-cost op + SLOAD + SSTORE
+  via the pre-EIP-1283 schedule) runs with the test's real `exec.gas`
+  budget, and the corpus's remaining-`gas` value is compared.
+- **fail=0** — every gas-checked test that passes the storage/return-data
+  comparison also matches the expected remaining-gas value.
+- **Corpus fork note.** The legacy ethereum/tests `Constantinople` corpus
+  was generated against pre-EIP-1283 rules (EIP-1283 was scheduled for
+  Constantinople but reverted in Petersburg). Specifically the corpus
+  uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
+  schedule matches this so the comparison is sound; bumping to a newer
+  corpus would mean bumping SLOAD too (see `Gas.lean`).
+- The remaining 231 non-gas-checked passes still run in gas-ignored mode
+  (`gasAvailable = 2^63`) because their bytecode contains an opcode with
+  a still-unmodelled dynamic cost (KECCAK256, *COPY, LOG, EXP, BALANCE /
+  EXT*, CALL family).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -147,23 +155,28 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       tests*, and enables **log-hash comparison** (currently logs aren't checked).
 
 ### Evaluator: model dynamic gas costs (lift more tests into gas-checked mode)
-The current schedule has the right *base* cost for every opcode but treats the
-following as cost = 1 with a `TODO(dynamic)` comment in `Gas.lean`, because
-their real cost has a state-dependent component we don't yet track:
+The current schedule has the right *base* cost for every opcode plus
+memory expansion (Yellow-Paper quadratic) and the pre-EIP-1283 SSTORE
+schedule (`Gas.sstoreCost` — `20000` for fresh non-zero set, `5000`
+otherwise). The remaining unmodelled dynamic costs:
 
-- [ ] **SSTORE** (EIP-2200 + EIP-3529 — depends on `(original, current, new)`
-      and cold/warm). Highest-impact: SSTORE is how almost every test stores
-      its result, so a correct cost here would lift ~450 tests into
-      gas-checked mode.
-- [ ] **SLOAD / BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** —
-      EIP-2929 cold/warm split (2600 / 100). Needs an
-      `accessedAccounts` / `accessedSlots` set in `Substate`.
+- [ ] **BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** — EIP-2929
+      cold/warm split (2600 / 100). Needs `accessedAccounts` in `Substate`.
 - [ ] **KECCAK256** (`30 + 6 * ⌈size/32⌉`), **CALLDATACOPY / CODECOPY /
       RETURNDATACOPY / MCOPY** (`3 + 3 * ⌈size/32⌉`), **LOG** (`375 +
       375*topics + 8*size`), **EXP** (`10 + 50 * byteLen(exponent)`) — each
       is a small per-word/per-byte/per-topic add-on to the base cost. The
       `size`/`byteLen` operand is already on the stack; the additions are
       pure arithmetic.
+- [ ] **SSTORE refunds** (clearing a non-zero slot adds `15000` to the
+      refund counter). Not modelled. Affects post-Berlin corpora but the
+      legacy Constantinople corpus reports `gas` without applying refunds,
+      so this isn't currently a source of FAILs.
+- [ ] **Modern SSTORE** (EIP-1283 / EIP-2200 / EIP-3529) for newer
+      corpora — the `original` value is already threaded through
+      `Substate.originalStorage`, so adding the modern schedule is a
+      one-liner in `Gas.sstoreCost`. Keep the pre-EIP-1283 logic available
+      as a fork-specific variant.
 
 ### Harness improvements
 - [x] **Gas-faithful mode** for fixed-cost-only tests — done (gas-checked=32

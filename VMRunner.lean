@@ -135,12 +135,15 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       header    := header
       depth     := 0
       permitStateMutation := true
-      blobVersionedHashes := #[] }
+      blobVersionedHashes := #[]
+      fork                := .Constantinople }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
-    substate     := Substate.empty
+    -- Snapshot the pre-state's accountMap so SSTORE's EIP-1283 logic
+    -- can look up the `original` value of any slot.
+    substate     := { Substate.empty with originalAccountMap := accountMap }
     executionEnv := execEnv
     pc           := ⟨0⟩
     stack        := []
@@ -183,27 +186,29 @@ def skipReasonOf (op : Operation) : Option String :=
   | .Env .EXTCODEHASH => some "keccak"
   | _ => none
 
-/-- True when this opcode's `Gas.cost` value matches the real EVM's fee
+/-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
     schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
     component). A test whose bytecode contains only such opcodes is
     eligible for gas comparison against the corpus's expected `gas` value. -/
 def gasComparableOpcode (op : Operation) : Bool :=
   match op with
-  -- Dynamic per-byte: EXP costs 10 + 50*byteLen(exponent).
-  | .EXP => false
-  -- Per-word KECCAK256 (6/word) — already skipped via `skipReasonOf`.
+  -- KECCAK256: skipped via `skipReasonOf` (keccak256 is opaque). Per-word
+  -- cost not yet charged either, but irrelevant since the test is skipped.
   | .Keccak _ => false
-  -- Per-word copy operations (3/word).
-  | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => false
-  -- EIP-2929 cold/warm-split account / slot access.
+  -- EIP-2929 cold/warm-split account / slot access — not yet modelled.
   | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
-  | .SLOAD | .SSTORE => false
+  -- SLOAD: Constantinople flat 50 (Frontier value used by corpus).
+  -- SSTORE: pre-EIP-1283 schedule via `Gas.sstoreCost`. Both fixed ✓.
+  | .SLOAD | .SSTORE => true
+  -- Per-word / per-byte / per-byteLen costs now charged dynamically in
+  -- stepF (and proved in Step): CALLDATACOPY/CODECOPY/RETURNDATACOPY/
+  -- MCOPY use `Gas.copyWordCost`, LOG uses `Gas.logDataCost`, EXP uses
+  -- `Gas.expByteCost`.
+  | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => true
+  | .EXP | .Log _ => true
   -- Out-of-scope / dynamic system ops.
   | .CREATE | .CREATE2 | .CALL | .CALLCODE
   | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => false
-  -- LOG base is 375 + 375*topics; the per-byte (8/byte) data cost isn't
-  -- modelled.
-  | .Log _ => false
   | _ => true
 
 /-- Outcome of a full bytecode scan. `skipReason` overrides everything
