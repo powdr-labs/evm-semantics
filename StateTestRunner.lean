@@ -184,9 +184,15 @@ inductive Outcome where
 
 /-- Compare the run's final accounts to `postState`. Returns a list of
     mismatch descriptions; checks storage/nonce/code always, balance only when
-    `checkBal` is set. -/
-def cmpPost (sf : State) (postEntries : List (String × Json)) (checkBal : Bool) :
-    List String := Id.run do
+    `checkBal` is set.
+
+    Storage is checked over the **union** of pre-state and post-state slot keys
+    for each address: post-state JSON omits zero-valued entries, so a slot that
+    held a non-zero value in pre-state and was cleared (or rolled back) to
+    zero would be invisible if we iterated post-state alone. Slots in pre that
+    are absent from post are expected to be 0. -/
+def cmpPost (sf : State) (preEntries postEntries : List (String × Json))
+    (checkBal : Bool) : List String := Id.run do
   let mut msgs := []
   for (addrStr, accJson) in postEntries do
     let a := hexToAddress addrStr
@@ -197,11 +203,26 @@ def cmpPost (sf : State) (postEntries : List (String × Json)) (checkBal : Bool)
       msgs := s!"{addrStr} nonce {got.nonce.toNat}≠{expNonce.toNat}" :: msgs
     if got.code.toList != expCode.toList then
       msgs := s!"{addrStr} code size {got.code.size}≠{expCode.size}" :: msgs
-    for (slot, val) in storageEntries accJson do
+    -- Build the slot key union: post-state slots ∪ pre-state slots (for the
+    -- same address, if any). Each slot's expected value is the post-state
+    -- entry if listed, otherwise `0` (post-state omits cleared slots).
+    let postSlots := storageEntries accJson
+    let preSlots :=
+      match preEntries.find? (fun (k, _) => k == addrStr) with
+      | some (_, preJson) => storageEntries preJson
+      | none              => []
+    let mut seen : List String := []
+    for (slot, val) in postSlots do
+      seen := slot :: seen
       let k := hexToUInt256 slot
       let want := hexToUInt256 val
       if (got.storage k).toNat != want.toNat then
         msgs := s!"{addrStr}[{slot}] {(got.storage k).toNat}≠{want.toNat}" :: msgs
+    for (slot, _) in preSlots do
+      if seen.contains slot then continue
+      let k := hexToUInt256 slot
+      if (got.storage k).toNat != 0 then
+        msgs := s!"{addrStr}[{slot}] {(got.storage k).toNat}≠0 (cleared)" :: msgs
     if checkBal then
       let expBal := hexToUInt256 (strField accJson "balance")
       if got.balance.toNat != expBal.toNat then
@@ -229,9 +250,10 @@ def runOne (testObj : Json) : Outcome :=
       | .error .OutOfFuel => .incon "fuel exhausted"
       | .error e => .incon s!"top-level halt {repr e}"
       | .ok sf =>
+        let pre := objEntries testObj "pre"
         let post := objEntries testObj "postState"
-        match cmpPost sf post false with
-        | [] => match cmpPost sf post true with
+        match cmpPost sf pre post false with
+        | [] => match cmpPost sf pre post true with
                 | [] => .passFull
                 | _  => .passCore
         | msgs => .fail (String.intercalate "; " (msgs.take 3))

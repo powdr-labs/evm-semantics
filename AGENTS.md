@@ -81,9 +81,16 @@ EVM/Step.lean  EVM/BigStep.lean  EVM/StepF.lean  EVM/Equiv.lean
 
 ## Scope (v1)
 
-Single-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
+Multi-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
 memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
-EIP-8024. **Excluded:** CALL family, CREATE/CREATE2, SELFDESTRUCT, transaction
+EIP-8024, **plain `CALL`** (with a list-backed call-frame stack, EIP-150
+63/64 gas forwarding, value-stipend, depth/balance pre-check, static-mode
+value-transfer rejection, and `returnData` clearing on the pre-execution
+failure path). The three relational `callReturn*` rules cover the
+success/revert/exception resume paths; `Main.run` / `StateTestRunner.run` /
+`VMRunner.run` all convert a subcall `Except.error` into `resumeException`
+rather than propagating it as a top-level abort. **Excluded:** CALLCODE /
+DELEGATECALL / STATICCALL, CREATE / CREATE2, SELFDESTRUCT, transaction
 processing, block validation, precompiles, RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
@@ -96,11 +103,14 @@ processing, block validation, precompiles, RLP.
   on the `Step` success rules *and* a check in `stepF`.
 - **Dynamic gas.** `Gas.baseCost fork op` charges the static Yellow-Paper fee
   per fork; dynamic costs are modelled via `Gas.sstoreCost`, `Gas.copyWordCost`,
-  `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`, and memory
-  expansion via `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs
-  are the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
+  `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`, the CALL
+  value/new-account surcharge (`Gas.callSurcharge`) plus 63/64 forwarding
+  (`Gas.allButOneSixtyFourth`), and memory expansion via
+  `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
+  EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and the out-of-scope CALL / CREATE / SELFDESTRUCT family.
+  and the out-of-scope CALLCODE / DELEGATECALL / STATICCALL / CREATE /
+  SELFDESTRUCT family.
   `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode

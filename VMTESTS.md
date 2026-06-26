@@ -1,9 +1,17 @@
-# VMTests harness
+# Conformance harnesses
 
-`VMRunner.lean` (executable `vmtests`) runs the legacy ethereum/tests **VMTests**
-suite against the verified evaluator (`stepF` / `run`). VMTests is the suite that
-matches this evaluator's scope: single-frame EVM execution, no inter-contract
-calls, no transaction processing, uniform gas.
+Two harnesses exercise the verified evaluator (`stepF` / `run`):
+
+- **`VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
+  **VMTests** suite, the suite that matches this evaluator's *single-frame*
+  scope (no inter-contract calls, no transaction processing). This is the
+  bulk of the conformance coverage; the rest of this document is about it.
+- **`StateTestRunner.lean`** (executable `statetests`) — runs the
+  BlockchainTests **`stCall*`** suites, which exercise the CALL opcode's
+  per-call-frame stack and the three `callReturn*` resume rules. Storage
+  comparison covers the union of pre/post slot keys (so cleared-to-zero
+  slots are caught). CI runs it as a separate, non-gating job against
+  `.github/statetests-baseline.txt`.
 
 ## How to run
 ```
@@ -78,15 +86,22 @@ summary. The full output and normalized summary are uploaded as artifacts.
   - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
     compare `gas`. Used when the bytecode contains an opcode whose cold/warm
     cost we don't yet model — `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`,
-    `EXTCODECOPY` — or one of the out-of-scope `CALL`/`CREATE`/`SELFDESTRUCT`
-    family.
+    `EXTCODECOPY`. (CALL family / CREATE family / SELFDESTRUCT short-circuit
+    earlier via `skipReasonOf` — see the next bullet.)
 - **`GAS` opcode** is fine under gas-checked mode (the pushed value matches
   the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
   harness only falls back to hugeGas when *some other* opcode is non-gas-
   comparable, so the previous "gas-skip" bucket is currently empty.
-- **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan:
-  CALL / CALLCODE / DELEGATECALL / STATICCALL / CREATE / CREATE2 / SELFDESTRUCT
-  are not implemented by the evaluator.
+- **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan
+  (`VMRunner.skipReasonOf`): CALL / CALLCODE / DELEGATECALL / STATICCALL /
+  CREATE / CREATE2 / SELFDESTRUCT. Plain `CALL` *is* implemented in the
+  evaluator (with EIP-150 forwarding, value stipend, depth/balance
+  pre-check, static-mode value-transfer rejection, and `returnData`
+  clearing on the pre-execution failure path), and is exercised by the
+  separate `statetests` exe against the `stCall*` BlockchainTests; the
+  VMTests pre-scan continues to skip it pending gas-comparison support
+  for the call surcharge. CALLCODE / DELEGATECALL / STATICCALL / CREATE /
+  CREATE2 / SELFDESTRUCT are not implemented at all.
 - **Keccak is now real.** `EvmSemantics.keccak256` is wired (via
   `@[implemented_by]`) to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,

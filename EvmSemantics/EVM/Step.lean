@@ -1022,6 +1022,21 @@ inductive Step : State → State → Prop
   -- mirrors `stepF.system`'s `.CALL` arm step-for-step.
   ----------------------------------------------------------------------------
 
+  /-- CALL with `value ≠ 0` attempted while the active frame disallows state
+      mutation (static mode). Halts the frame with `StaticModeViolation` *before*
+      paying any of the call's gas, mirroring `stepF.system`'s early static
+      check. A zero-value CALL is still permitted in static mode. -/
+  | callStatic (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (arg : Option (UInt256 × Nat))
+        (h_op       : s.decoded = some (.CALL, arg))
+        (h_running  : s.halt = .Running)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_perm     : s.executionEnv.permitStateMutation = false)
+        (h_value    : value.toNat ≠ 0)
+      : Step s (s.haltWith .StaticModeViolation)
+
   /-- CALL (taken): pop the 7 args; charge base (`G_call`), memory expansion for
       the args+return ranges, and the value/new-account surcharge; check the
       depth limit and caller balance; forward 63/64 of the remaining gas plus
@@ -1080,7 +1095,9 @@ inductive Step : State → State → Prop
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
         (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
                        (s3.accountMap s3.executionEnv.codeOwner).balance < value)
-      : Step s (s3.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+      : Step s
+          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
 
   ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).

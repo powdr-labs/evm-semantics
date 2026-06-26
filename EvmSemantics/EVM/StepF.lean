@@ -593,6 +593,12 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
   | .INVALID => .error .InvalidInstruction
   | .CALL => match s.stack with
     | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest =>
+      -- Static-mode check: a value-transferring CALL would mutate balances
+      -- and so is rejected outright in a static frame. Zero-value CALLs are
+      -- still permitted (they cannot mutate state by themselves, and the
+      -- static flag propagates into the callee frame).
+      if ¬ s.executionEnv.permitStateMutation ∧ value.toNat ≠ 0 then static
+      else
       -- `s'` already paid the base (`G_call`) fee. Charge memory expansion for
       -- both the args and return ranges, then the value/new-account surcharge.
       match chargeMem2 s' argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat with
@@ -606,9 +612,12 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.codeOwner
           -- Depth limit or insufficient balance ⇒ the call is not taken: the
-          -- forwarded gas is *not* spent and `0` is pushed.
+          -- forwarded gas is *not* spent and `0` is pushed. The caller's
+          -- `returnData` buffer is cleared (every CALL-family opcode resets
+          -- it, including this pre-execution failure path).
           if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
-            .ok (s3.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+            .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+                   (UInt256.ofNat 0 :: rest))
           else
             -- EIP-150: forward at most 63/64 of the remaining gas; add the
             -- value stipend to what the callee receives.

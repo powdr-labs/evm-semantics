@@ -157,15 +157,18 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   - `Gas.expByteCost fork exponent` — Frontier (10) or post-Spurious-Dragon
     (50) per exponent byte;
   - `Gas.sstoreSentry fork gas` — the EIP-2200 stipend (≤ 2300 → OOG) for
-    Cancun only.
+    Cancun only;
+  - `Gas.callSurcharge valueNZ calleeEmpty` — the CALL value/new-account
+    surcharge (`9000` if value ≠ 0, `+25000` if calling an empty account);
+  - `Gas.allButOneSixtyFourth gas` — EIP-150 forwarding cap (`gas - gas/64`).
   Memory expansion gas is charged separately by `stepF.chargeMem` /
   `chargeMem2`. The only remaining dynamic costs we don't yet model are
   the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
-  pending an `accessedAccounts` set in `Substate`) and the CALL / CREATE /
-  SELFDESTRUCT family (out of scope in v1). `VMRunner.gasComparableOpcode`
-  is the actual gate for which tests can be gas-checked. See `VMTESTS.md`
-  for the breakdown.
+  pending an `accessedAccounts` set in `Substate`) and the out-of-scope
+  CALLCODE / DELEGATECALL / STATICCALL / CREATE / SELFDESTRUCT family.
+  `VMRunner.gasComparableOpcode` is the actual gate for which tests can
+  be gas-checked. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
   halted `State` into the flat success/returned/reverted/exception sum.
 - **`Fork.lean`** — `inductive Fork = Constantinople | Cancun`; the active
@@ -232,6 +235,56 @@ to a halt is the `run` fuel loop in each executable, which is also what skips
 already-halted states — `stepF` called directly on a non-`Running` state just
 returns `.error .InvalidInstruction`.
 
+## Call frames
+
+`CALL` is the only inter-contract opcode currently implemented; it lives in
+`stepF.system`'s `.CALL` arm with a matching `Step.call` / `Step.callFail` /
+`Step.callStatic` triple. Call-frame state is kept on a per-`State`
+`callStack : List Frame` (defined in `State.lean`): each `Frame` snapshots
+the caller's `pc`, `stack`, `gasAvailable`, `activeWords`, `memory`,
+`returnData`, `executionEnv`, the `retOffset`/`retSize` window the caller
+asked for, and the world snapshot (`snapAccountMap`, `snapSubstate`) used to
+roll back on revert / exception.
+
+The `CALL` arm fires in this order:
+
+1. **Static-mode check** — if `¬ permitStateMutation ∧ value ≠ 0`, halt with
+   `.StaticModeViolation` (mirrored by `Step.callStatic`). Zero-value CALLs
+   remain permitted in static frames.
+2. **Memory expansion** — `chargeMem2` for the union of the args range and
+   the return range.
+3. **Surcharge** — `Gas.callSurcharge` (9000 if value ≠ 0; +25000 if calling
+   an empty account).
+4. **Depth/balance pre-check** — if `depth ≥ 1024 ∨ caller.balance < value`,
+   the call is *not taken*: push `0`, clear `returnData`, advance PC, keep
+   the unspent forwarded gas. (`Step.callFail`.)
+5. **63/64 forwarding** — `Gas.allButOneSixtyFourth` caps the gas the callee
+   receives; the value stipend is added for non-zero-value calls.
+6. **Enter callee** — `State.enterCall` snapshots the caller frame onto
+   `callStack`, transfers `value`, installs the callee env, and clears
+   `memory` / `returnData` / `hReturn`.
+
+When the callee halts the *active frame's* `halt` becomes non-`Running` but
+`callStack` is still non-empty — `stepF`'s halt arm calls `State.resumeByHalt`
+to dispatch on the callee's halt kind:
+
+| callee `halt` | rule              | flag | return data        | world         |
+|---------------|-------------------|:----:|--------------------|---------------|
+| `.Success`    | `resumeSuccess`   | `1`  | `child.hReturn`    | keep child's  |
+| `.Returned`   | `resumeSuccess`   | `1`  | `child.hReturn`    | keep child's  |
+| `.Reverted`   | `resumeRevert`    | `0`  | `child.hReturn`    | snapshot      |
+| `.Exception _`| `resumeException` | `0`  | `∅`                | snapshot      |
+
+`State.writeReturn` copies `min(retSize, hReturn.size)` bytes back into the
+caller's memory — and short-circuits when that count is `0`, so a CALL with
+`retSize = 0` and a huge `retOffset` does *not* allocate memory.
+
+An in-frame `Except.error` from `stepF` is treated as a callee-side exception
+when `callStack ≠ []`: the `run` loops in `Main.lean`, `VMRunner.lean`, and
+`StateTestRunner.lean` all convert it to `{ s with halt := .Exception e }`
+and re-enter `stepF` so `resumeException` fires. Only a top-frame error
+(`callStack = []`) propagates as a top-level abort.
+
 ## The three views and the soundness bridge
 
 ```mermaid
@@ -286,9 +339,13 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
    the real `exec.gas` budget and compare the remaining `gas`) when every opcode
    has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
-   `hugeGas = 2^63`, never compare gas). Only the CALL / CREATE family and
-   `SELFDESTRUCT` are skipped outright; KECCAK256 / EXTCODEHASH now run
-   (real Keccak-256 is wired in via `Crypto/Keccak256.lean`).
+   `hugeGas = 2^63`, never compare gas). The CALL family / CREATE family /
+   SELFDESTRUCT are skipped outright by `skipReasonOf`; KECCAK256 /
+   EXTCODEHASH now run (real Keccak-256 is wired in via
+   `Crypto/Keccak256.lean`). Plain `CALL` is implemented in the evaluator
+   but the VMTests harness still skips it here pending gas-comparison
+   support; the separate `statetests` exe (`StateTestRunner.lean`) is the
+   one that exercises `CALL` against the `stCall*` BlockchainTests.
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
    (`pass` / `fail` / `skip` / `incon` / `crash`).
