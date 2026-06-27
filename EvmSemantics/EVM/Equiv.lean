@@ -472,9 +472,70 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   h_perm' rfl h_sc
         · nomatch h
     | [], h => nomatch h
-  -- Out-of-scope ops: stepF returns .error
-  | CREATE | CREATE2 =>
-    nomatch h
+  | CREATE =>
+    match h_stack : s.stack, h with
+    | value :: offset :: size :: rest, h =>
+      by_cases h_perm : ¬ s.executionEnv.permitStateMutation
+      · simp [h_perm] at h
+        unfold static at h; cases h
+      · simp [h_perm] at h
+        have h_perm' : s.executionEnv.permitStateMutation = true := by
+          simp at h_perm; exact h_perm
+        unfold chargeMem at h
+        by_cases h_mem :
+            (s.consumeGas (Gas.baseCost s.fork (.System .CREATE)) h_gas).canExpandMemory
+              offset.toNat size.toNat
+        · simp only [h_mem, dif_pos] at h
+          split at h
+          · rename_i h_fail
+            cases h
+            exact .createFail s value offset size rest _ _ h_dec h_gas h_stack
+                    h_perm' rfl h_mem rfl h_fail
+          · rename_i h_take
+            split at h
+            · rename_i h_fw
+              cases h
+              exact .create s value offset size rest _ _ _ _ h_dec h_gas h_stack
+                      h_perm' rfl h_mem rfl h_take rfl h_fw rfl
+            · nomatch h
+        · simp [h_mem] at h
+    | [], h               => nomatch h
+    | [_], h              => nomatch h
+    | [_, _], h           => nomatch h
+  | CREATE2 =>
+    match h_stack : s.stack, h with
+    | value :: offset :: size :: salt :: rest, h =>
+      by_cases h_perm : ¬ s.executionEnv.permitStateMutation
+      · simp [h_perm] at h
+        unfold static at h; cases h
+      · simp [h_perm] at h
+        have h_perm' : s.executionEnv.permitStateMutation = true := by
+          simp at h_perm; exact h_perm
+        unfold chargeMem at h
+        by_cases h_mem :
+            (s.consumeGas (Gas.baseCost s.fork (.System .CREATE2)) h_gas).canExpandMemory
+              offset.toNat size.toNat
+        · simp only [h_mem, dif_pos] at h
+          split at h
+          · rename_i h_hash
+            split at h
+            · rename_i h_fail
+              cases h
+              exact .create2Fail s value offset size salt rest _ _ _ h_dec h_gas h_stack
+                      h_perm' rfl h_mem rfl h_hash rfl h_fail
+            · rename_i h_take
+              split at h
+              · rename_i h_fw
+                cases h
+                exact .create2 s value offset size salt rest _ _ _ _ _ h_dec h_gas
+                        h_stack h_perm' rfl h_mem rfl h_hash rfl h_take rfl h_fw rfl
+              · nomatch h
+          · nomatch h
+        · simp [h_mem] at h
+    | [], h                  => nomatch h
+    | [_], h                 => nomatch h
+    | [_, _], h              => nomatch h
+    | [_, _, _], h           => nomatch h
 
 theorem dup_sound (s : State) (op : Operation.DupOp)
     (h_dec : s.decodedOp = some (.Dup op))
@@ -904,11 +965,24 @@ theorem resume_sound (s : State) (f : Frame) (rest : List Frame)
     StepReturn s (s.resumeByHalt f rest) := by
   unfold State.resumeByHalt
   split
-  · exact absurd ‹s.halt = .Running› h_nr
-  · exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack
-  · exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack
-  · exact .callReturnRevert s f rest ‹_› h_stack
-  · exact .callReturnException s f rest _ ‹_› h_stack
+  · -- `.Running`: ruled out by `h_nr`
+    exact absurd ‹s.halt = .Running› h_nr
+  · -- CALL-frame Success
+    exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack
+  · -- CALL-frame Returned
+    exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack
+  · -- CALL-frame Reverted
+    exact .callReturnRevert s f rest ‹_› h_stack
+  · -- CALL-frame Exception
+    exact .callReturnException s f rest _ ‹_› h_stack
+  · -- CREATE-frame Success
+    exact .createReturnSuccess s f rest _ (Or.inl ‹_›) h_stack ‹_›
+  · -- CREATE-frame Returned
+    exact .createReturnSuccess s f rest _ (Or.inr ‹_›) h_stack ‹_›
+  · -- CREATE-frame Reverted
+    exact .createReturnRevert s f rest _ ‹_› h_stack ‹_›
+  · -- CREATE-frame Exception
+    exact .createReturnException s f rest _ _ ‹_› h_stack ‹_›
 
 /-- **Soundness of the executable shadow.** Every `.ok` outcome of `stepF`
     corresponds to a derivation of the relational small-step `Step`.

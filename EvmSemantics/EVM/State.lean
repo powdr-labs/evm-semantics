@@ -57,6 +57,15 @@ structure Frame where
   snapAccountMap : EvmSemantics.AccountMap
   /-- Substate snapshot at call time — restored if the child REVERTs/throws. -/
   snapSubstate   : EvmSemantics.Substate
+  /-- `none` for a CALL-family frame; `some newAddr` for a CREATE/CREATE2
+      frame, where `newAddr` is the address whose code we will set to the
+      child's `hReturn` on successful return. The presence of this marker
+      switches `resumeByHalt` to the CREATE-resume path: the caller's
+      pushed value is `newAddr.toUInt256` (success) or `0` (failure)
+      instead of `1`/`0`, and `child.hReturn` is *not* copied into the
+      caller's memory (no `retOffset`/`retSize` semantics — they are unused
+      for CREATE frames). -/
+  createAddr     : Option AccountAddress := none
   deriving Inhabited
 
 /-- Per-execution-frame state — extends `SharedState` with EVM-specific
@@ -164,16 +173,65 @@ def resumeException (child : State) (f : Frame) (rest : List Frame) : State :=
   child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
     f.snapAccountMap f.snapSubstate
 
+/-- `G_codedeposit = 200` — the per-byte cost of installing init-code
+    output as the new account's code at the end of a successful CREATE.
+    Inlined here (not in `Gas.lean`) because `State.lean` is upstream of
+    `Gas.lean` in the import graph. -/
+@[inline] def codeDepositPerByte : Nat := 200
+
+/-- CREATE-frame success resume: the child halted with `.Success` or
+    `.Returned` and its `hReturn` is the candidate deployed code. We
+    charge `G_codedeposit · |hReturn|` from the child's remaining gas,
+    then either deploy the code (and push the new address to the caller)
+    or — if the deposit is unaffordable — fail like an exception
+    (rollback world to snapshot, push `0`, no refund). The caller is *not*
+    handed `hReturn` via memory (CREATE never copies output to caller
+    memory), so we pass `ByteArray.empty` to `resumeWith`. -/
+def resumeCreateSuccess (child : State) (f : Frame) (rest : List Frame)
+    (newAddr : AccountAddress) : State :=
+  let codeLen     := child.hReturn.size
+  let depositCost := codeDepositPerByte * codeLen
+  if depositCost ≤ child.gasAvailable then
+    let σ := child.accountMap.set newAddr
+               { (child.accountMap newAddr) with code := child.hReturn }
+    let pushed := newAddr.toUInt256
+    child.resumeWith f rest pushed ByteArray.empty
+      (child.gasAvailable - depositCost) σ child.substate
+  else
+    -- Out-of-gas for code deposit: act like an exception.
+    child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
+      f.snapAccountMap f.snapSubstate
+
+/-- CREATE-frame revert resume: roll back the world, push `0`, hand back
+    the unspent gas. `child.hReturn` is preserved as `returnData`
+    (the revert-message convention, like CALL/REVERT) but *not* installed
+    as code. -/
+def resumeCreateRevert (child : State) (f : Frame) (rest : List Frame) : State :=
+  child.resumeWith f rest (UInt256.ofNat 0) child.hReturn child.gasAvailable
+    f.snapAccountMap f.snapSubstate
+
+/-- CREATE-frame exception resume: roll back the world, push `0`, refund
+    nothing. -/
+def resumeCreateException (child : State) (f : Frame) (rest : List Frame) : State :=
+  child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
+    f.snapAccountMap f.snapSubstate
+
 /-- Dispatch the resume of caller `f` on the active (child) frame's halt kind.
     The `.Running` arm is unreachable (resume is only invoked on a halted
-    frame) and returns the child unchanged. -/
+    frame) and returns the child unchanged. Routes CALL-family frames
+    (`f.createAddr = none`) through the original three resume helpers and
+    CREATE-family frames (`some addr`) through their CREATE counterparts. -/
 def resumeByHalt (child : State) (f : Frame) (rest : List Frame) : State :=
-  match child.halt with
-  | .Running     => child
-  | .Success     => child.resumeSuccess f rest
-  | .Returned    => child.resumeSuccess f rest
-  | .Reverted    => child.resumeRevert f rest
-  | .Exception _ => child.resumeException f rest
+  match f.createAddr, child.halt with
+  | _,        .Running        => child
+  | none,     .Success        => child.resumeSuccess f rest
+  | none,     .Returned       => child.resumeSuccess f rest
+  | none,     .Reverted       => child.resumeRevert f rest
+  | none,     .Exception _    => child.resumeException f rest
+  | some a,   .Success        => child.resumeCreateSuccess f rest a
+  | some a,   .Returned       => child.resumeCreateSuccess f rest a
+  | some _,   .Reverted       => child.resumeCreateRevert f rest
+  | some _,   .Exception _    => child.resumeCreateException f rest
 
 /-- The callee's execution environment for a plain `CALL` from caller state `sc`
     into address `to`: the callee runs *its own* code and storage (`codeOwner`),
@@ -398,6 +456,92 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
       substate   := substate'
       halt       := .Success
       hReturn    := .empty }
+
+/-! ### CREATE / CREATE2
+
+A CREATE-family opcode opens a *creation* sub-frame whose code is the
+init bytes read from caller memory and whose `codeOwner` is the
+freshly-derived `newAddr`. The frame is marked on the call stack by
+`Frame.createAddr := some newAddr`; on a `.Success`/`.Returned` halt
+the child's `hReturn` is installed as `newAddr`'s code (see
+`resumeCreateSuccess`). -/
+
+/-- The callee's execution environment for a CREATE/CREATE2 init-code
+    run. `codeOwner = newAddr` (the new contract executes its own init
+    in its own storage slot), `source = caller`, `weiValue = value`,
+    `calldata = empty` (init code receives no calldata), `code =
+    initCode`, depth is incremented, and the static flag propagates from
+    the caller. -/
+def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
+    (value : UInt256) (initCode : ByteArray) : EvmSemantics.ExecutionEnv :=
+  { codeOwner            := newAddr
+    sender               := sc.executionEnv.sender
+    source               := sc.executionEnv.codeOwner
+    weiValue             := value
+    calldata             := .empty
+    code                 := initCode
+    gasPrice             := sc.executionEnv.gasPrice
+    header               := sc.executionEnv.header
+    depth                := sc.executionEnv.depth + 1
+    permitStateMutation  := sc.executionEnv.permitStateMutation
+    blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
+    fork                 := sc.executionEnv.fork }
+
+/-- Enter a CREATE/CREATE2 init-code sub-frame. `sc` is the caller state
+    after the static + memory + base-gas deductions; `rest` is the
+    caller stack with the 3/4 CREATE arguments already popped. We:
+
+    1. Bump the caller's nonce by one (the address derivation has
+       already used the pre-bump value).
+    2. Transfer `value` from caller to `newAddr` (the new account may be
+       brand-new with balance `0`; that's fine).
+    3. Snapshot the caller into a `Frame` whose `createAddr := some
+       newAddr` so `resumeByHalt` routes the child's halt through the
+       CREATE-resume helpers.
+    4. Install the callee frame: code = `initCode`, codeOwner =
+       `newAddr`, gas = `childGas`.
+
+    The new account starts with `nonce = 1` (EIP-161 pre-existence rule:
+    a contract that exists has at least nonce 1 to distinguish it from
+    the empty account). -/
+def enterCreate (sc : State) (rest : List UInt256)
+    (newAddr : AccountAddress) (value : UInt256) (initCode : ByteArray)
+    (childGas : Nat) : State :=
+  let frame : Frame :=
+    { pc             := sc.pc + UInt256.ofNat 1
+      stack          := rest
+      gasAvailable   := sc.gasAvailable
+      activeWords    := sc.activeWords
+      memory         := sc.memory
+      returnData     := sc.returnData
+      executionEnv   := sc.executionEnv
+      retOffset      := 0
+      retSize        := 0
+      snapAccountMap := sc.accountMap
+      snapSubstate   := sc.substate
+      createAddr     := some newAddr }
+  let caller := sc.executionEnv.codeOwner
+  let callerAcc := sc.accountMap caller
+  let map₁ : EvmSemantics.AccountMap :=
+    sc.accountMap.set caller { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+  let map₂ := map₁.transfer caller newAddr value
+  -- Bring the new account into existence with nonce 1 (and any pre-existing
+  -- code/storage at this address is preserved — see the collision check in
+  -- `stepF.system .CREATE`).
+  let newAcc := map₂ newAddr
+  let map₃ := map₂.set newAddr { newAcc with nonce := ⟨1⟩ }
+  { sc with
+      accountMap   := map₃
+      gasAvailable := childGas
+      activeWords  := UInt256.ofNat 0
+      memory       := .empty
+      returnData   := .empty
+      hReturn      := .empty
+      executionEnv := sc.calleeEnvForCreate newAddr value initCode
+      pc           := UInt256.ofNat 0
+      stack        := []
+      halt         := .Running
+      callStack    := frame :: sc.callStack }
 
 end State
 

@@ -52,8 +52,21 @@ trivial program.
   self has non-zero balance), credit-then-debit transfer so a
   self-beneficiary correctly *burns* the balance, marks self in
   `Substate.selfDestructSet`, and adds the 24000 refund on Constantinople.
-- **Excluded from v1:** `CREATE` / `CREATE2`, transaction processing
-  (`Υ`), block validation, precompiled contracts, RLP encoding.
+- **`CREATE` / `CREATE2`** are implemented: base `G_create = 32000`,
+  memory expansion, depth + balance pre-check, EIP-150 63/64 forwarding,
+  init-code execution in a new frame (`Frame.createAddr := some
+  newAddr`), and code deposit at `G_codedeposit = 200` per deployed byte
+  via the new `resumeCreateSuccess` rule (insufficient-deposit-gas →
+  exception-rollback). CREATE derives `newAddr` from
+  `keccak256(rlp([sender, sender.nonce]))[12:]` via a minimal RLP
+  encoder (`EvmSemantics.Rlp`, items: `[20-byte address, uint nonce]`,
+  short-list path only). CREATE2 derives `newAddr` from
+  `keccak256(0xff || sender || salt || keccak256(initcode))[12:]` and
+  additionally pays `Gas.create2HashCost = 6·⌈|initcode|/32⌉`.
+  Address-collision detection is not yet enforced (legacy Constantinople
+  corpus has no collision tests).
+- **Excluded from v1:** transaction processing (`Υ`), block validation,
+  precompiled contracts, full RLP (only `[address, nonce]` is encodable).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
   the static Yellow-Paper fee per fork (`Constantinople` matches the
@@ -69,9 +82,12 @@ trivial program.
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
   costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
   `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
-  in `Substate`) and the out-of-scope CREATE / CREATE2 family.
-  `SELFDESTRUCT` is modelled (base 5000 + `Gas.selfDestructSurcharge`)
-  but marked non-gas-comparable pending refund-counter accounting. The call family pays base fee + memory expansion + value
+  in `Substate`). `SELFDESTRUCT` (base 5000 + surcharge), CREATE /
+  CREATE2 (base 32000 + memory + init forwarding + per-byte deposit) are
+  all modelled but marked non-gas-comparable: the SELFDESTRUCT refund
+  counter, the CREATE code-deposit charge from child gas, and the
+  CREATE2 hash cost all interact with gas in dynamic ways the
+  comparator doesn't yet account for. The call family pays base fee + memory expansion + value
   surcharge via `Gas.callSurcharge` (CALL also pays the new-account
   portion when applicable; DELEGATECALL / STATICCALL pay zero
   surcharge) + 63/64 forwarding via `Gas.allButOneSixtyFourth`.

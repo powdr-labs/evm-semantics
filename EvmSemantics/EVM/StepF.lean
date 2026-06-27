@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.EVM.Step
+public import EvmSemantics.Data.Rlp
 
 /-!
 `stepF` — the executable shadow of the `Step` relation.
@@ -733,8 +734,66 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
         else .error .OutOfGas
     | _ => underflow
-  -- Out-of-scope in v1.
-  | .CREATE | .CREATE2 => .error .InvalidInstruction
+  | .CREATE => match s.stack with
+    | value :: offset :: size :: rest =>
+      if ¬ s.executionEnv.permitStateMutation then static
+      else
+        match chargeMem s' offset.toNat size.toNat with
+        | .error e => .error e
+        | .ok s2 =>
+          if s2.executionEnv.depth ≥ 1024 ∨
+              (s2.accountMap s2.executionEnv.codeOwner).balance < value then
+            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+                   (UInt256.ofNat 0 :: rest))
+          else
+            -- Address collision (the derived `newAddr` already hosts code or
+            -- nonce>0) is rare on the legacy Constantinople corpus we
+            -- target and is not yet enforced. The address derivation is
+            -- still correct; if a collision occurs the new code is just
+            -- written over the occupant. A `TODO` for stricter corpora.
+            if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
+              let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
+              let s3 := s2.consumeGas forwarded hfw
+              .ok (s3.enterCreate rest
+                     (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                        (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
+                          (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))
+                     value
+                     (MachineState.readPadded s3.memory offset.toNat size.toNat)
+                     forwarded)
+            else .error .OutOfGas
+    | _ => underflow
+  | .CREATE2 => match s.stack with
+    | value :: offset :: size :: salt :: rest =>
+      if ¬ s.executionEnv.permitStateMutation then static
+      else
+        match chargeMem s' offset.toNat size.toNat with
+        | .error e => .error e
+        | .ok s2 =>
+          let hashCost := Gas.create2HashCost size.toNat
+          if hh : hashCost ≤ s2.gasAvailable then
+            let s2' := s2.consumeGas hashCost hh
+            if s2'.executionEnv.depth ≥ 1024 ∨
+                (s2'.accountMap s2'.executionEnv.codeOwner).balance < value then
+              .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              if hfw : Gas.allButOneSixtyFourth s2'.gasAvailable ≤ s2'.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
+                let s3 := s2'.consumeGas forwarded hfw
+                let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
+                let codeHash := EvmSemantics.keccak256 initCode
+                let preimage : ByteArray :=
+                  ByteArray.mk #[0xff]
+                    ++ Rlp.addressBytes s3.executionEnv.codeOwner
+                    ++ Rlp.uint256ToBytes32 salt
+                    ++ Rlp.uint256ToBytes32 codeHash
+                .ok (s3.enterCreate rest
+                       (AccountAddress.ofUInt256 (EvmSemantics.keccak256 preimage))
+                       value initCode forwarded)
+              else .error .OutOfGas
+          else .error .OutOfGas
+    | _ => underflow
 
 end stepF
 

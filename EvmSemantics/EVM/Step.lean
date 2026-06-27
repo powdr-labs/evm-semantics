@@ -4,6 +4,7 @@ public import EvmSemantics.EVM.State
 public import EvmSemantics.EVM.Decode
 public import EvmSemantics.EVM.Gas
 public import EvmSemantics.Crypto.Keccak256
+public import EvmSemantics.Data.Rlp
 
 /-!
 `Step` — the small-step relation, split across three inductives.
@@ -1153,6 +1154,138 @@ inductive StepRunning : State → State → Prop
             (UInt256.ofNat 0 :: rest))
 
   ----------------------------------------------------------------------------
+  -- CREATE / CREATE2: install a new contract.
+  --
+  -- Both opcodes share a five-branch shape: static-mode rejection, OOG
+  -- on memory expansion (caught by the generic `outOfGas` rule on the
+  -- surrounding `chargeMem`), pre-execution failure (depth ≥ 1024 or
+  -- caller balance < value), address-collision failure, and the taken
+  -- path. CREATE2 also rejects when its initcode-hash cost can't be
+  -- paid (also a generic `outOfGas`).
+  --
+  -- Address derivation differs:
+  --   * CREATE  : keccak256(rlp([sender, sender.nonce]))[12:]
+  --   * CREATE2 : keccak256(0xff || sender || salt || keccak256(init))[12:]
+  -- Otherwise the bookkeeping (nonce bump on collision, transfer +
+  -- enterCreate on take) is identical.
+  ----------------------------------------------------------------------------
+
+  /-- CREATE attempted in a static frame. Halts with `StaticModeViolation`
+      *before* paying gas. -/
+  | createStatic (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (h_op    : s.decodedOp = some .CREATE)
+        (h_stack : s.stack = value :: offset :: size :: rest)
+        (h_perm  : s.executionEnv.permitStateMutation = false)
+      : StepRunning s (s.haltWith .StaticModeViolation)
+
+  /-- CREATE (not taken — depth limit or insufficient balance): base gas
+      and memory-expansion gas are still paid, sender nonce is **not**
+      bumped, no transfer, no frame entry. `0` is pushed. -/
+  | createFail (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (s' s2 : State)
+        (h_op      : s.decodedOp = some .CREATE)
+        (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_fail    : s2.executionEnv.depth ≥ 1024 ∨
+                       (s2.accountMap s2.executionEnv.codeOwner).balance < value)
+      : StepRunning s
+          ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  /-- CREATE (taken): depth + balance check passes. The remaining gas
+      (after base + memory) has 63/64 forwarded to the init-code frame.
+      Address-collision detection is not yet enforced — see the `TODO` in
+      `stepF.system .CREATE`. -/
+  | create (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (s' s2 s3 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .CREATE)
+        (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
+                          (s2.accountMap s2.executionEnv.codeOwner).balance < value))
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
+        (h_fw      : forwarded ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+      : StepRunning s
+          (s3.enterCreate rest
+             (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
+                   (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))
+             value
+             (MachineState.readPadded s3.memory offset.toNat size.toNat)
+             forwarded)
+
+  /-- CREATE2 attempted in a static frame. -/
+  | create2Static (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (h_op    : s.decodedOp = some .CREATE2)
+        (h_stack : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm  : s.executionEnv.permitStateMutation = false)
+      : StepRunning s (s.haltWith .StaticModeViolation)
+
+  /-- CREATE2 (not taken — depth or balance). -/
+  | create2Fail (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (s' s2 s2' : State)
+        (h_op      : s.decodedOp = some .CREATE2)
+        (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE2) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
+        (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
+        (h_fail    : s2'.executionEnv.depth ≥ 1024 ∨
+                       (s2'.accountMap s2'.executionEnv.codeOwner).balance < value)
+      : StepRunning s
+          ({ s2' with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  /-- CREATE2 (taken). Address-collision detection is not yet enforced. -/
+  | create2 (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (s' s2 s2' s3 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .CREATE2)
+        (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE2) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
+        (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
+        (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
+                          (s2'.accountMap s2'.executionEnv.codeOwner).balance < value))
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
+        (h_fw      : forwarded ≤ s2'.gasAvailable)
+        (h_s3      : s3 = s2'.consumeGas forwarded h_fw)
+      : StepRunning s
+          (let codeHash := EvmSemantics.keccak256
+            (MachineState.readPadded s3.memory offset.toNat size.toNat)
+           let preimage : ByteArray :=
+             ByteArray.mk #[0xff]
+               ++ Rlp.addressBytes s3.executionEnv.codeOwner
+               ++ Rlp.uint256ToBytes32 salt
+               ++ Rlp.uint256ToBytes32 codeHash
+           s3.enterCreate rest
+             (AccountAddress.ofUInt256 (EvmSemantics.keccak256 preimage))
+             value
+             (MachineState.readPadded s3.memory offset.toNat size.toNat)
+             forwarded)
+
+  ----------------------------------------------------------------------------
   -- SELFDESTRUCT: pop the beneficiary, transfer all of self's balance to
   -- it (credit-then-debit so self-beneficiary burns the balance), mark
   -- self in `substate.selfDestructSet`, and halt with `.Success`. The
@@ -1375,6 +1508,34 @@ inductive StepReturn : State → State → Prop
         (h_halt  : s.halt = .Exception e)
         (h_stack : s.callStack = f :: rest)
       : StepReturn s (s.resumeException f rest)
+
+  /-- CREATE child STOP/RETURN: install the child's `hReturn` as the new
+      account's code (charging `G_codedeposit · |code|` from the child's
+      remaining gas), push `newAddr` to the caller, and refund the rest. -/
+  | createReturnSuccess (s : State) (f : Frame) (rest : List Frame)
+        (newAddr : AccountAddress)
+        (h_halt  : s.halt = .Success ∨ s.halt = .Returned)
+        (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = some newAddr)
+      : StepReturn s (s.resumeCreateSuccess f rest newAddr)
+
+  /-- CREATE child REVERT: roll the world back, push `0`, keep `hReturn`
+      as `returnData`, refund unspent gas. -/
+  | createReturnRevert (s : State) (f : Frame) (rest : List Frame)
+        (newAddr : AccountAddress)
+        (h_halt  : s.halt = .Reverted)
+        (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = some newAddr)
+      : StepReturn s (s.resumeCreateRevert f rest)
+
+  /-- CREATE child exceptional halt: roll back, push `0`, refund nothing. -/
+  | createReturnException (s : State) (f : Frame) (rest : List Frame)
+        (newAddr : AccountAddress)
+        (e : ExecutionException)
+        (h_halt  : s.halt = .Exception e)
+        (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = some newAddr)
+      : StepReturn s (s.resumeCreateException f rest)
 
 /-- The combined small-step relation. A `Step s s'` derivation is either a
     `StepRunning` transition guarded by the precondition `s.halt = .Running`,

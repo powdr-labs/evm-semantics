@@ -96,8 +96,13 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
   | .Log l                                  => 375 * (l.topics.val + 1)
   | .System op => match op with
     | .RETURN | .REVERT | .INVALID                           => 0
-    -- Out-of-scope dynamic ops; `1` is a placeholder.
-    | .CREATE | .CREATE2                                     => 1
+    -- CREATE / CREATE2 base fee (`G_create = 32000`). Per-byte deposit
+    -- cost (`G_codedeposit = 200 · |deployed_code|`) is charged from the
+    -- child's remaining gas at the end of init (`State.codeDepositPerByte`,
+    -- applied in `State.resumeCreateSuccess`). CREATE2 *additionally* pays
+    -- a keccak hash over the init code for its address derivation
+    -- (`Gas.create2HashCost`), charged at this site.
+    | .CREATE | .CREATE2                                     => 32000
     -- CALL family base access fee. Constantinople (EIP-150): flat 700.
     -- Cancun warm access (EIP-2929): 100 (cold 2600 not yet modelled). The
     -- value/new-account surcharge and 63/64 forwarding are computed in
@@ -202,6 +207,16 @@ def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
     rule because we do not yet model EIP-2929 cold/warm.) -/
 def Gas.selfDestructSurcharge (beneficiaryEmpty selfHasBalance : Bool) : Nat :=
   if beneficiaryEmpty && selfHasBalance then 25000 else 0
+
+/-- CREATE2's extra per-init-code-word keccak cost: `G_keccak256word · ⌈n/32⌉`
+    where `n = |initCode|`. This is the cost of the *address derivation*
+    keccak (the init code is hashed once to fold into the deterministic
+    address), not the optional keccak inside the init code itself. CREATE
+    has no such cost (its address derivation is `keccak(rlp([sender,
+    nonce]))`, where the input is constant-sized; the RLP-and-keccak cost
+    is folded into the `G_create = 32000` base). -/
+def Gas.create2HashCost (initCodeLen : Nat) : Nat :=
+  6 * ((initCodeLen + 31) / 32)
 
 /-- The SELFDESTRUCT refund (`R_selfdestruct = 24000`) added to
     `Substate.refundBalance` on the *first* time an account self-destructs

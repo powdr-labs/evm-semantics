@@ -149,10 +149,7 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
     (regardless of gas mode). `GAS` is intentionally not listed here — it's
     fine under gas-compared mode (the pushed value is then correct); under
     hugeGas mode the parent decides via `usesGas` below. -/
-def skipReasonOf (op : Operation) : Option String :=
-  match op with
-  | .System .CREATE | .System .CREATE2 => some "unsupported"
-  | _ => none
+def skipReasonOf (_op : Operation) : Option String := none
 
 /-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
     schedule exactly (no cold/warm split, no per-word/byte/topic dynamic

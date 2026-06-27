@@ -42,7 +42,7 @@ pass=601 (gas-checked=492) fail=0 skip=0 (unsup=0 keccak=0 gas=0) incon=8 crash=
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
 ```
-pass_full=0 pass_core=65 fail=6 incon=9 crash=0
+pass_full=0 pass_core=71 fail=6 incon=3 crash=0
 ```
 - `pass_core` = storage + nonce + code match (the CALL-semantics signal);
   `pass_full` would additionally require exact balances — none reach this
@@ -67,8 +67,8 @@ pass_full=0 pass_core=65 fail=6 incon=9 crash=0
 - The remaining 109 non-gas-checked passes still run in gas-ignored mode
   (`gasAvailable = 2^63`) because their bytecode contains an opcode whose
   cold/warm pricing is unmodelled (BALANCE / EXTCODESIZE / EXTCODEHASH /
-  EXTCODECOPY), the unmodelled CALL surcharge, or SELFDESTRUCT (refund
-  counter not yet wired into the gas-comparable arithmetic).
+  EXTCODECOPY), the unmodelled CALL surcharge, SELFDESTRUCT (refund
+  counter), or CREATE / CREATE2 (per-byte deposit + CREATE2 hash cost).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -100,21 +100,21 @@ summary. The full output and normalized summary are uploaded as artifacts.
   - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
     compare `gas`. Used when the bytecode contains an opcode whose cold/warm
     cost we don't yet model — `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`,
-    `EXTCODECOPY` — or `SELFDESTRUCT` (whose refund counter is unmodelled).
-    (CREATE family short-circuits earlier via `skipReasonOf` — see the
-    next bullet.)
+    `EXTCODECOPY` — or `SELFDESTRUCT` (refund counter not yet wired in)
+    or `CREATE` / `CREATE2` (the child-frame code-deposit charge and
+    `Gas.create2HashCost` are dynamic in ways the comparator hasn't
+    learned yet).
 - **`GAS` opcode** is fine under gas-checked mode (the pushed value matches
   the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
   harness only falls back to hugeGas when *some other* opcode is non-gas-
   comparable, so the previous "gas-skip" bucket is currently empty.
-- **Tests using unsupported opcodes are skipped** via a bytecode pre-scan
-  (`VMRunner.skipReasonOf`): only CREATE / CREATE2 remain. The four
-  call-family opcodes (CALL / CALLCODE / DELEGATECALL / STATICCALL) and
-  SELFDESTRUCT are implemented in the evaluator. The call family is
-  exercised by the separate `statetests` exe against the `stCall*` /
-  `stCallCodes` BlockchainTests; in VMTests these opcodes still route
-  through the gas-comparable filter because their dynamic surcharges
-  aren't yet gas-comparable.
+- **No opcodes are skipped any more.** `VMRunner.skipReasonOf` returns
+  `none` for every opcode: all of CALL / CALLCODE / DELEGATECALL /
+  STATICCALL / CREATE / CREATE2 / SELFDESTRUCT are implemented in the
+  evaluator. The CALL family is exercised by the separate `statetests`
+  exe against the `stCall*` / `stCallCodes` BlockchainTests; in VMTests
+  these system opcodes (plus SELFDESTRUCT) still drop tests into
+  gas-ignored mode because their dynamic gas pieces aren't gas-comparable yet.
 - **Keccak.** `EvmSemantics.keccak256` is wired (via `@[implemented_by]`)
   to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,
