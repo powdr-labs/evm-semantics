@@ -37,7 +37,7 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 **VMTests (609 tests)**:
 ```
-pass=601 (gas-checked=497) fail=0 skip=0 (unsup=0 keccak=0 gas=0) incon=8 crash=0
+pass=601 fail=0 incon=8 crash=0
 ```
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
@@ -50,31 +50,23 @@ pass_full=0 pass_core=71 fail=6 incon=3 crash=0
   cold/warm pricing). The remaining 6 FAILs are all `*_ABCB_RECURSIVE`
   tests where a four-way recursive CALL chain still ends with a storage
   slot at the deepest contract not getting written.
-- **gas-checked=497** — every test whose bytecode uses only opcodes with
-  an exact gas cost in our schedule runs with the test's real `exec.gas`
-  budget, and the corpus's remaining-`gas` value is compared. The schedule
-  currently covers: every fixed-cost op, SLOAD/SSTORE (pre-EIP-1283), all
-  five `*COPY` opcodes with per-word cost, KECCAK256 (base + per-word),
-  LOG with per-byte cost, and EXP with per-byte exponent cost.
-- **fail=0** — every gas-checked test that passes the storage/return-data
-  comparison also matches the expected remaining-gas value.
+- **fail=0** — every with-`post` test that matches the storage / return-data
+  comparison also matches the expected remaining-`gas` value. The schedule
+  currently covers: every fixed-cost op, SLOAD / SSTORE (pre-EIP-1283),
+  all five `*COPY` opcodes with per-word cost, KECCAK256 (base + per-word),
+  LOG with per-byte cost, EXP with per-byte exponent cost, the CALL /
+  SELFDESTRUCT / CREATE / CREATE2 dynamic pieces, and EIP-150's 63/64 gas
+  forwarding.
 - **Corpus fork note.** The legacy ethereum/tests `Constantinople` corpus
   was generated against pre-EIP-1283 rules (EIP-1283 was scheduled for
   Constantinople but reverted in Petersburg). Specifically the corpus
   uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
   `Constantinople` fork matches this so the comparison is sound; the
   `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
-- The remaining 104 non-gas-checked passes still run in gas-ignored mode
-  (`gasAvailable = 2^63`) because their bytecode contains an opcode whose
-  cold/warm pricing is unmodelled (BALANCE / EXTCODESIZE / EXTCODEHASH /
-  EXTCODECOPY) or the dynamic CALL-family surcharge (CALL / CALLCODE /
-  DELEGATECALL / STATICCALL). SELFDESTRUCT, CREATE, and CREATE2 are now
-  gas-comparable: SELFDESTRUCT uses Frontier rules on the Constantinople
-  fork (cost 0, no `G_newaccount` surcharge — same convention as our
-  Frontier-rate SLOAD=50 and EXP=10), so its costs collapse to 0 and
-  match the corpus exactly; CREATE / CREATE2 are flipped because no
-  VMTests test reaches them at an instruction boundary (they only ever
-  appear inside PUSH immediates).
+- The 104 passes that don't compare gas are tests lacking a `post`
+  block; they exit through the "expected an exception, got an exception"
+  arm before any gas comparison happens. Every test still runs with its
+  declared `exec.gas` budget.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -97,28 +89,17 @@ summary. The full output and normalized summary are uploaded as artifacts.
   corpus revision must always move together.
 
 ## How the harness works
-- **Two gas modes, picked per test by a bytecode pre-scan.**
-  - *Gas-checked* mode: the test's bytecode contains only opcodes whose
-    full gas cost is captured in our schedule (`Gas.baseCost` + the dynamic
-    helpers: memory expansion, `sstoreCost`, `copyWordCost`, `keccakWordCost`,
-    `logDataCost`, `expByteCost`). The test runs with `exec.gas` as its real
-    budget, and the remaining `gas` field is compared against the corpus.
-  - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
-    compare `gas`. Used when the bytecode contains an opcode whose cold/warm
-    cost we don't yet model — `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`,
-    `EXTCODECOPY` — or one of the CALL-family opcodes whose dynamic
-    surcharge interactions across nested frames haven't been audited.
-- **`GAS` opcode** is fine under gas-checked mode (the pushed value matches
-  the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
-  harness only falls back to hugeGas when *some other* opcode is non-gas-
-  comparable, so the previous "gas-skip" bucket is currently empty.
-- **No opcodes are skipped any more.** `VMRunner.skipReasonOf` returns
-  `none` for every opcode: all of CALL / CALLCODE / DELEGATECALL /
-  STATICCALL / CREATE / CREATE2 / SELFDESTRUCT are implemented in the
-  evaluator. The CALL family is exercised by the separate `statetests`
-  exe against the `stCall*` / `stCallCodes` BlockchainTests; in VMTests
-  these system opcodes (plus SELFDESTRUCT) still drop tests into
-  gas-ignored mode because their dynamic gas pieces aren't gas-comparable yet.
+- **Single execution mode.** Every test runs through `stepF` with its
+  declared `exec.gas` budget. For tests with a `post` block the harness
+  compares storage, return-data, balance, nonce, and the remaining `gas`
+  value against the corpus — every opcode in our schedule
+  (`Gas.baseCost` + the dynamic helpers: memory expansion, `sstoreCost`,
+  `copyWordCost`, `keccakWordCost`, `logDataCost`, `expByteCost`,
+  `Gas.create2HashCost`) has to produce the corpus's expected gas.
+- **No opcodes are skipped.** All of CALL / CALLCODE / DELEGATECALL /
+  STATICCALL / CREATE / CREATE2 / SELFDESTRUCT are implemented; the
+  call family is also exercised by the separate `statetests` exe
+  against the `stCall*` / `stCallCodes` BlockchainTests.
 - **Keccak.** `EvmSemantics.keccak256` is wired (via `@[implemented_by]`)
   to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,
@@ -141,9 +122,8 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
 ### INCONCLUSIVE — outside the evaluator's scope
 - **OOG / fuel-exhausted tests** (`*MemExp`, `*OutOfGas*`,
   `*foreverOutOfGas`, `loop-*`, `ackermann33`, `loop_stacklimit_1021`): the
-  EVM stops these via gas; we either don't model that opcode's cost yet
-  (so the test isn't gas-checked) or the loop legitimately runs to the
-  evaluator's `fuel = 2_000_000` cap.
+  EVM stops these via gas, but they run beyond the harness's
+  `fuel = 2_000_000` cap inside our interpreter.
 
 ### StackOverflow not enforced
 `stepF` enforces no 1024-deep stack limit. The relation `Step` has a
@@ -171,7 +151,7 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       currently rules out an oversized push (see "StackOverflow not enforced"
       above).
 
-### Evaluator: model dynamic gas costs (lift more tests into gas-checked mode)
+### Evaluator: model the remaining dynamic gas costs
 Already modelled: memory expansion (Yellow-Paper quadratic),
 `Gas.sstoreCost` (pre-EIP-1283 for `Constantinople` / EIP-2200 for `Cancun`),
 `Gas.copyWordCost` (5 copy ops × per-word 3), `Gas.keccakWordCost`
@@ -179,9 +159,11 @@ Already modelled: memory expansion (Yellow-Paper quadratic),
 `Gas.expByteCost` (EXP per-byteLen — 10 for Frontier-flavoured
 `Constantinople`, 50 for `Cancun`). Remaining gaps:
 
-- [ ] **BALANCE / EXTCODESIZE / EXTCODECOPY / EXTCODEHASH** — EIP-2929
-      cold/warm split (2600 / 100). Needs `accessedAccounts` in `Substate`.
-      These four are the only ops still dropping tests into gas-ignored mode.
+- [ ] **EIP-2929 cold/warm split** for `BALANCE` / `EXTCODESIZE` /
+      `EXTCODECOPY` / `EXTCODEHASH` (cold 2600, warm 100). Needs an
+      `accessedAccounts` set in `Substate`. Our `Cancun` fork currently
+      pretends every access is warm; `Constantinople` uses the
+      pre-EIP-2929 flat 400 / 700.
 - [ ] **SSTORE refunds** (clearing a non-zero slot adds `15000` to the
       refund counter). Not modelled. The legacy Constantinople corpus reports
       `gas` without applying refunds, so this isn't currently a source of

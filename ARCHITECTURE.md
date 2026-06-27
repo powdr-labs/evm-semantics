@@ -179,8 +179,9 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   `Constantinople` fork `Gas.baseCost .SELFDESTRUCT = 0` and
   `Gas.selfDestructSurcharge .Constantinople _ _ = 0`. Modern values
   (5000 + 25000) live on `Cancun`.
-  `VMRunner.gasComparableOpcode` is the actual gate for which tests can
-  be gas-checked. See `VMTESTS.md` for the breakdown.
+  Every VMTests test runs with its declared `exec.gas` budget; the
+  remaining-`gas` value is compared against the corpus whenever a `post`
+  block is present. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
   halted `State` into the flat success/returned/reverted/exception sum.
 - **`Fork.lean`** — `inductive Fork = Constantinople | Cancun`; the active
@@ -471,14 +472,8 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
 
 1. **Parse** a test JSON → build the initial `State` (`buildStateWith` /
    `mkAccount`, hex helpers).
-2. **Pre-scan the bytecode** (`scanCode` + `gasComparableOpcode` /
-   `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
-   the real `exec.gas` budget and compare the remaining `gas`) when every opcode
-   has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
-   `hugeGas = 2^63`, never compare gas). `skipReasonOf` returns `none`
-   for every opcode now — every test runs through `stepF`. KECCAK256 /
-   EXTCODEHASH run
-   (real Keccak-256 is wired in via `Crypto/Keccak256.lean`). The four
+2. **Run** every test through `stepF` with the test's declared
+   `exec.gas` budget — there is no pre-scan or skip filter. The four
    call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
    `STATICCALL`) are implemented in the evaluator; the separate
    `statetests` exe (`StateTestRunner.lean`) exercises them against the

@@ -59,14 +59,21 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .CALLDATASIZE | .CODESIZE | .GASPRICE | .RETURNDATASIZE => 2
     | .CALLDATALOAD                                          => 3
     | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY            => 3
-    -- BALANCE / EXTCODESIZE / EXTCODEHASH / EXTCODECOPY:
-    -- pre-EIP-2929 (Constantinople) used flat 400 / 700 / 700 / 700 — we
-    -- use `1` as a placeholder since none of these are gas-comparable yet.
-    -- Post-EIP-2929 (Cancun) is cold 2600 / warm 100 — we use warm.
-    | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY  =>
+    -- BALANCE = 400 (EIP-150 Tangerine Whistle, unchanged through
+    -- Constantinople; Istanbul EIP-1884 raised to 700 but the legacy
+    -- corpus we target predates that).
+    -- EXTCODEHASH = 400 (EIP-1052, introduced at Constantinople).
+    | .BALANCE | .EXTCODEHASH                                =>
       match fork with
-      | .Constantinople => 1
-      | .Cancun         => 100
+      | .Constantinople => 400
+      | .Cancun         => 100  -- warm-priced placeholder for EIP-2929
+    -- EXTCODESIZE = 700 (EIP-150). EXTCODECOPY = 700 base + per-word
+    -- `Gas.copyWordCost`, the per-word piece is charged dynamically
+    -- in `stepF.EXTCODECOPY`.
+    | .EXTCODESIZE | .EXTCODECOPY                            =>
+      match fork with
+      | .Constantinople => 700
+      | .Cancun         => 100  -- warm-priced placeholder for EIP-2929
   | .Block op => match op with
     | .COINBASE | .TIMESTAMP | .NUMBER | .PREVRANDAO
     | .GASLIMIT | .CHAINID | .BASEFEE | .BLOBBASEFEE         => 2

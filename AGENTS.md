@@ -152,12 +152,13 @@ validation, precompiles, full RLP.
   forwarding (`Gas.allButOneSixtyFourth`), and memory expansion via
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
-  `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and `Gas.create2HashCost` for CREATE2's address-derivation hash.
-  SELFDESTRUCT / CREATE / CREATE2 are gas-comparable on the
-  `Constantinople` fork (SELFDESTRUCT uses Frontier rules to match the
-  legacy corpus); only the CALL family remains non-gas-comparable.
-  `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
+  `EXTCODEHASH` (`100` on Cancun is a warm-priced placeholder pending an
+  `accessedAccounts` set in `Substate`; Constantinople uses the proper
+  EIP-150 / EIP-1052 values 400 / 700) and `Gas.create2HashCost` for
+  CREATE2's address-derivation hash. The VMRunner no longer maintains a
+  gas-comparable filter — every test runs with its declared
+  `exec.gas` budget and (when it has a `post` block) compares the
+  remaining-`gas` value against the corpus.
 
 ## Adding or changing an opcode
 
@@ -169,9 +170,12 @@ Touch these in order, then rebuild + lint + run vmtests:
    For a *dynamic* cost, follow the established pattern: a fork-aware helper
    (`Gas.copyWordCost`, `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`,
    `Gas.sstoreCost`) that gets charged in the handler after the dispatcher's
-   `consumeGas baseCost`. If the new dynamic cost touches state the harness
-   can't reproduce (e.g. EIP-2929 cold/warm), leave it stubbed at the
-   warm-access value and mark it `false` in step 7's `gasComparableOpcode`.
+   `consumeGas baseCost`. Every opcode's gas is now compared against the
+   corpus's expected remaining-`gas` value on any with-`post` test; if
+   your dynamic cost touches state the harness can't reproduce (e.g.
+   EIP-2929 cold/warm), stub it at the value that matches the target
+   corpus — gas-mismatch failures will surface immediately if you pick
+   wrong.
 4. `EVM/Step.lean` — the success constructor (in `StepRunning`; follow
    the `add` anatomy: `h_op : s.decodedOp = some .X`, `h_gas`, `h_stack`
    premises — but adjust for the constructor's kind; halts/stackless
@@ -182,11 +186,9 @@ Touch these in order, then rebuild + lint + run vmtests:
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still
    closes. The helpers produce `StepRunning`; the headline `stepF_sound`
    wraps with `Step.running h_running`.
-7. `VMRunner.lean` — update the conformance pre-scan if the opcode's support or
-   gas status changed: `skipReasonOf` (skip unsupported opcodes) and
-   `gasComparableOpcode`. The latter has a catch-all `| _ => true`, so a new
-   opcode with a *dynamic* cost is silently treated as gas-comparable unless you
-   add it — and gas-checked runs would then compare bogus `gas`.
+7. `VMRunner.lean` — usually nothing. Every test goes through the
+   evaluator with its real `exec.gas` budget; there is no skip filter
+   left to update.
 
 ## CI gates (`.github/workflows/ci.yml`)
 
