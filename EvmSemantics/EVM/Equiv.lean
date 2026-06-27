@@ -492,12 +492,19 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             exact .createFail s value offset size rest _ _ h_dec h_gas h_stack
                     h_perm' rfl h_mem rfl h_fail
           · rename_i h_take
+            -- After depth/balance pass: `match (...).isContract with | true => ... | false => ...`
             split at h
-            · rename_i h_fw
+            · rename_i h_coll
               cases h
-              exact .create s value offset size rest _ _ _ _ h_dec h_gas h_stack
-                      h_perm' rfl h_mem rfl h_take rfl h_fw rfl
-            · nomatch h
+              exact .createCollision s value offset size rest _ _ h_dec h_gas h_stack
+                      h_perm' rfl h_mem rfl h_take h_coll
+            · rename_i h_nocoll
+              split at h
+              · rename_i h_fw
+                cases h
+                exact .create s value offset size rest _ _ _ _ h_dec h_gas h_stack
+                        h_perm' rfl h_mem rfl h_take h_nocoll rfl h_fw rfl
+              · nomatch h
         · simp [h_mem] at h
     | [], h               => nomatch h
     | [_], h              => nomatch h
@@ -525,11 +532,18 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       h_perm' rfl h_mem rfl h_hash rfl h_fail
             · rename_i h_take
               split at h
-              · rename_i h_fw
+              · rename_i h_coll
                 cases h
-                exact .create2 s value offset size salt rest _ _ _ _ _ h_dec h_gas
-                        h_stack h_perm' rfl h_mem rfl h_hash rfl h_take rfl h_fw rfl
-              · nomatch h
+                exact .create2Collision s value offset size salt rest _ _ _ h_dec h_gas
+                        h_stack h_perm' rfl h_mem rfl h_hash rfl h_take h_coll
+              · rename_i h_nocoll
+                split at h
+                · rename_i h_fw
+                  cases h
+                  exact .create2 s value offset size salt rest _ _ _ _ _ h_dec h_gas
+                          h_stack h_perm' rfl h_mem rfl h_hash rfl h_take h_nocoll
+                          rfl h_fw rfl
+                · nomatch h
           · nomatch h
         · simp [h_mem] at h
     | [], h                  => nomatch h

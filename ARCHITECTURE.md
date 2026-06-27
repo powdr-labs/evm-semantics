@@ -359,12 +359,19 @@ account; sets the new account's nonce to `1` (EIP-161 "exists" marker
 so the account isn't `isEmpty`). On `Frame.snapAccountMap` rollback,
 both the nonce bump and the value transfer are undone.
 
-**Address-collision detection is not yet enforced.** If the derived
-`newAddr` already hosts code or nonce > 0, the EVM specifies the
-contract creation fails (caller's nonce IS still bumped, push 0,
-forwarded gas is consumed). We currently just let the init code run on
-top of the occupant. The Constantinople corpus has no collision tests
-in the directories we exercise; a TODO for stricter corpora.
+**Address-collision detection** uses a `Bool`-valued helper
+`Account.isContract` (= `code.size != 0 || nonce.toNat != 0`,
+stricter than `Account.isEmpty` because balance is excluded — per the
+Yellow Paper a pre-funded address with no code and `nonce = 0` is
+still a valid creation target). The CREATE / CREATE2 arms dispatch
+via `match … .isContract with | true => … | false => …`; on
+`true` the caller's nonce is still bumped, `0` is pushed, and no
+transfer or frame entry occurs (forwarded gas is also not spent). The
+discriminator is `Bool` rather than `Prop` so the Equiv-proof's
+`split at h` produces clean `true`/`false` cases instead of going
+through a `Decidable` instance for `ByteArray.size = 0` that the
+elaborator normalises to `ByteArray = ByteArray.empty` — that
+normalisation tangle is what blocked the first attempt.
 
 When the callee halts the *active frame's* `halt` becomes non-`Running` but
 `callStack` is still non-empty — `stepF`'s halt arm calls `State.resumeByHalt`

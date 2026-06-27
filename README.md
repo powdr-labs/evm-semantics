@@ -63,8 +63,11 @@ trivial program.
   short-list path only). CREATE2 derives `newAddr` from
   `keccak256(0xff || sender || salt || keccak256(initcode))[12:]` and
   additionally pays `Gas.create2HashCost = 6·⌈|initcode|/32⌉`.
-  Address-collision detection is not yet enforced (legacy Constantinople
-  corpus has no collision tests).
+  Address-collision detection is enforced via a `Bool`-valued
+  `Account.isContract` helper (stricter than `isEmpty` — excludes
+  balance), with a dedicated `Step.createCollision` /
+  `Step.create2Collision` constructor pair (caller's nonce bumped,
+  push 0, no transfer, no frame).
 - **Excluded from v1:** transaction processing (`Υ`), block validation,
   precompiled contracts, full RLP (only `[address, nonce]` is encodable).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,

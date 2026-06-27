@@ -746,22 +746,33 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            -- Address collision (the derived `newAddr` already hosts code or
-            -- nonce>0) is rare on the legacy Constantinople corpus we
-            -- target and is not yet enforced. The address derivation is
-            -- still correct; if a collision occurs the new code is just
-            -- written over the occupant. A `TODO` for stricter corpora.
-            if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
-              let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
-              let s3 := s2.consumeGas forwarded hfw
-              .ok (s3.enterCreate rest
-                     (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                        (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
-                          (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))
-                     value
-                     (MachineState.readPadded s3.memory offset.toNat size.toNat)
-                     forwarded)
-            else .error .OutOfGas
+            -- Address-collision check: if `newAddr` already hosts code or
+            -- has nonce > 0 the create *fails* with the caller's nonce
+            -- still bumped (push 0, no transfer, no frame, forwarded gas
+            -- not spent). Discriminated via a `Bool` (`Account.isContract`)
+            -- so the Equiv proof can split cleanly on the match.
+            match (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                    (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
+                      (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))).isContract with
+            | true =>
+              let caller    := s2.executionEnv.codeOwner
+              let callerAcc := s2.accountMap caller
+              let σ' := s2.accountMap.set caller
+                          { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+              .ok ({ s2 with accountMap := σ', returnData := .empty
+                   }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+            | false =>
+              if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
+                let s3 := s2.consumeGas forwarded hfw
+                .ok (s3.enterCreate rest
+                       (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                          (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
+                            (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))
+                       value
+                       (MachineState.readPadded s3.memory offset.toNat size.toNat)
+                       forwarded)
+              else .error .OutOfGas
     | _ => underflow
   | .CREATE2 => match s.stack with
     | value :: offset :: size :: salt :: rest =>
@@ -778,20 +789,35 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
                      (UInt256.ofNat 0 :: rest))
             else
-              if hfw : Gas.allButOneSixtyFourth s2'.gasAvailable ≤ s2'.gasAvailable then
-                let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
-                let s3 := s2'.consumeGas forwarded hfw
-                let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
-                let codeHash := EvmSemantics.keccak256 initCode
-                let preimage : ByteArray :=
-                  ByteArray.mk #[0xff]
-                    ++ Rlp.addressBytes s3.executionEnv.codeOwner
-                    ++ Rlp.uint256ToBytes32 salt
-                    ++ Rlp.uint256ToBytes32 codeHash
-                .ok (s3.enterCreate rest
-                       (AccountAddress.ofUInt256 (EvmSemantics.keccak256 preimage))
-                       value initCode forwarded)
-              else .error .OutOfGas
+              match (s2'.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                      (ByteArray.mk #[0xff]
+                        ++ Rlp.addressBytes s2'.executionEnv.codeOwner
+                        ++ Rlp.uint256ToBytes32 salt
+                        ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
+                          (MachineState.readPadded s2'.memory
+                             offset.toNat size.toNat)))))).isContract with
+              | true =>
+                let caller    := s2'.executionEnv.codeOwner
+                let callerAcc := s2'.accountMap caller
+                let σ' := s2'.accountMap.set caller
+                            { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+                .ok ({ s2' with accountMap := σ', returnData := .empty
+                     }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+              | false =>
+                if hfw : Gas.allButOneSixtyFourth s2'.gasAvailable ≤ s2'.gasAvailable then
+                  let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
+                  let s3 := s2'.consumeGas forwarded hfw
+                  let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
+                  let codeHash := EvmSemantics.keccak256 initCode
+                  let preimage : ByteArray :=
+                    ByteArray.mk #[0xff]
+                      ++ Rlp.addressBytes s3.executionEnv.codeOwner
+                      ++ Rlp.uint256ToBytes32 salt
+                      ++ Rlp.uint256ToBytes32 codeHash
+                  .ok (s3.enterCreate rest
+                         (AccountAddress.ofUInt256 (EvmSemantics.keccak256 preimage))
+                         value initCode forwarded)
+                else .error .OutOfGas
           else .error .OutOfGas
     | _ => underflow
 

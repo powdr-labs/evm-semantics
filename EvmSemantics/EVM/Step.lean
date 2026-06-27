@@ -1198,10 +1198,37 @@ inductive StepRunning : State → State → Prop
           ({ s2 with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
-  /-- CREATE (taken): depth + balance check passes. The remaining gas
-      (after base + memory) has 63/64 forwarded to the init-code frame.
-      Address-collision detection is not yet enforced — see the `TODO` in
-      `stepF.system .CREATE`. -/
+  /-- CREATE (address collision): the derived `newAddr` already hosts a
+      contract (code or nonce > 0). The caller's nonce is bumped, `0` is
+      pushed, and no transfer or frame entry happens. The forwarded gas
+      is *not* spent. -/
+  | createCollision (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (s' s2 : State)
+        (h_op      : s.decodedOp = some .CREATE)
+        (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
+                          (s2.accountMap s2.executionEnv.codeOwner).balance < value))
+        (h_coll    : (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                       (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
+                         (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))).isContract
+                     = true)
+      : StepRunning s
+          (let caller    := s2.executionEnv.codeOwner
+           let callerAcc := s2.accountMap caller
+           let σ'        := s2.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+           ({ s2 with accountMap := σ', returnData := .empty
+            }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest)))
+
+  /-- CREATE (taken): depth + balance check passes *and* the derived
+      address is free. The remaining gas (after base + memory) has
+      63/64 forwarded to the init-code frame. -/
   | create (s : State)
         (value offset size : UInt256) (rest : List UInt256)
         (s' s2 s3 : State) (forwarded : Nat)
@@ -1214,6 +1241,10 @@ inductive StepRunning : State → State → Prop
         (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
         (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
                           (s2.accountMap s2.executionEnv.codeOwner).balance < value))
+        (h_nocoll  : (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                       (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
+                         (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))).isContract
+                     = false)
         (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
@@ -1253,7 +1284,37 @@ inductive StepRunning : State → State → Prop
           ({ s2' with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
-  /-- CREATE2 (taken). Address-collision detection is not yet enforced. -/
+  /-- CREATE2 (address collision). -/
+  | create2Collision (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (s' s2 s2' : State)
+        (h_op      : s.decodedOp = some .CREATE2)
+        (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE2) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
+        (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
+        (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
+                          (s2'.accountMap s2'.executionEnv.codeOwner).balance < value))
+        (h_coll    : (s2'.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                       (ByteArray.mk #[0xff]
+                         ++ Rlp.addressBytes s2'.executionEnv.codeOwner
+                         ++ Rlp.uint256ToBytes32 salt
+                         ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
+                           (MachineState.readPadded s2'.memory
+                              offset.toNat size.toNat)))))).isContract = true)
+      : StepRunning s
+          (let caller    := s2'.executionEnv.codeOwner
+           let callerAcc := s2'.accountMap caller
+           let σ'        := s2'.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+           ({ s2' with accountMap := σ', returnData := .empty
+            }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest)))
+
+  /-- CREATE2 (taken): no collision, depth + balance pass. -/
   | create2 (s : State)
         (value offset size salt : UInt256) (rest : List UInt256)
         (s' s2 s2' s3 : State) (forwarded : Nat)
@@ -1268,6 +1329,13 @@ inductive StepRunning : State → State → Prop
         (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
         (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
                           (s2'.accountMap s2'.executionEnv.codeOwner).balance < value))
+        (h_nocoll  : (s2'.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
+                       (ByteArray.mk #[0xff]
+                         ++ Rlp.addressBytes s2'.executionEnv.codeOwner
+                         ++ Rlp.uint256ToBytes32 salt
+                         ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
+                           (MachineState.readPadded s2'.memory
+                              offset.toNat size.toNat)))))).isContract = false)
         (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
         (h_fw      : forwarded ≤ s2'.gasAvailable)
         (h_s3      : s3 = s2'.consumeGas forwarded h_fw)

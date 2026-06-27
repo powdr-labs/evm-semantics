@@ -98,6 +98,17 @@ def empty : Account :=
 def isEmpty (a : Account) : Bool :=
   a.nonce.toNat = 0 && a.balance.toNat = 0 && a.code.size = 0
 
+/-- CREATE/CREATE2 target collision (Yellow Paper `ζ(a, σ) = ⊥`): an
+    account *exists* in the sense that creating a new contract at this
+    address would overwrite a real one. Stricter than `isEmpty` because
+    balance is **not** part of the check — a pre-funded address with no
+    code and `nonce = 0` is still a valid creation target (the YP
+    explicitly allows this so a forwarding address can be turned into a
+    contract). Defined as `Bool` (not `Prop`) so `match` in `stepF`
+    yields clean branches for the Equiv proof. -/
+def isContract (a : Account) : Bool :=
+  a.code.size != 0 || a.nonce.toNat != 0
+
 end Account
 
 instance : Inhabited Account := ⟨Account.empty⟩
