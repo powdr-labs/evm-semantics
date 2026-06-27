@@ -172,10 +172,13 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
   pending an `accessedAccounts` set in `Substate`) and the out-of-scope
-  cold/warm split family. `SELFDESTRUCT` (5000 base + 25000
-  surcharge), CREATE / CREATE2 (32000 base + memory + 200/byte
-  deposit + `Gas.create2HashCost` for CREATE2) are all modelled but
-  marked non-gas-comparable.
+  cold/warm split family and the CALL-family dynamic surcharge. The
+  legacy ethereum/tests corpus uses Frontier rules for SELFDESTRUCT
+  (cost 0, no `G_newaccount` surcharge) — same convention as our
+  Frontier-rate SLOAD = 50 and EXP per-byte = 10 — so on the
+  `Constantinople` fork `Gas.baseCost .SELFDESTRUCT = 0` and
+  `Gas.selfDestructSurcharge .Constantinople _ _ = 0`. Modern values
+  (5000 + 25000) live on `Cancun`.
   `VMRunner.gasComparableOpcode` is the actual gate for which tests can
   be gas-checked. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a

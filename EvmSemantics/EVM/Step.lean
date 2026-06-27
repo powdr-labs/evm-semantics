@@ -1386,13 +1386,13 @@ inductive StepRunning : State → State → Prop
         (h_stack   : s.stack = beneficiary :: rest)
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .SELFDESTRUCT) h_gas)
-        (h_sc      : Gas.selfDestructSurcharge
+        (h_sc      : Gas.selfDestructSurcharge s.fork
                        ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
                        ((s.accountMap s.executionEnv.codeOwner).balance.toNat != 0)
                        ≤ s'.gasAvailable)
       : StepRunning s
           ((s'.consumeGas
-            (Gas.selfDestructSurcharge
+            (Gas.selfDestructSurcharge s.fork
               ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
               ((s.accountMap s.executionEnv.codeOwner).balance.toNat != 0))
             h_sc).selfDestructTo (AccountAddress.ofUInt256 beneficiary))

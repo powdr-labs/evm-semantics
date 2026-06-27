@@ -154,8 +154,9 @@ validation, precompiles, full RLP.
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
   and `Gas.create2HashCost` for CREATE2's address-derivation hash.
-  SELFDESTRUCT / CREATE / CREATE2 are all marked non-gas-comparable
-  pending refund-counter accounting and dynamic code-deposit charging.
+  SELFDESTRUCT / CREATE / CREATE2 are gas-comparable on the
+  `Constantinople` fork (SELFDESTRUCT uses Frontier rules to match the
+  legacy corpus); only the CALL family remains non-gas-comparable.
   `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode

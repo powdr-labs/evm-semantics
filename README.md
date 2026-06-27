@@ -85,12 +85,12 @@ trivial program.
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
   costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
   `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
-  in `Substate`). `SELFDESTRUCT` (base 5000 + surcharge), CREATE /
-  CREATE2 (base 32000 + memory + init forwarding + per-byte deposit) are
-  all modelled but marked non-gas-comparable: the SELFDESTRUCT refund
-  counter, the CREATE code-deposit charge from child gas, and the
-  CREATE2 hash cost all interact with gas in dynamic ways the
-  comparator doesn't yet account for. The call family pays base fee + memory expansion + value
+  in `Substate`) and the dynamic CALL-family surcharge interactions
+  across nested frames (kept non-gas-comparable pending an audit).
+  `SELFDESTRUCT`, `CREATE`, and `CREATE2` are now gas-comparable:
+  SELFDESTRUCT uses Frontier rules on the `Constantinople` fork (cost 0,
+  no `G_newaccount` surcharge — same convention as our Frontier-rate
+  SLOAD=50 and EXP=10), modern values on `Cancun`. The call family pays base fee + memory expansion + value
   surcharge via `Gas.callSurcharge` (CALL also pays the new-account
   portion when applicable; DELEGATECALL / STATICCALL pay zero
   surcharge) + 63/64 forwarding via `Gas.allButOneSixtyFourth`.

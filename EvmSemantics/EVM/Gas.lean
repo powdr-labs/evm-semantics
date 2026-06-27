@@ -112,11 +112,17 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
       match fork with
       | .Constantinople => 700
       | .Cancun         => 100
-    -- SELFDESTRUCT base fee (`G_selfdestruct = 5000`, EIP-150 onwards).
-    -- The new-account surcharge (25000 if the beneficiary is empty *and*
-    -- the self-destructing account has a non-zero balance) is added in
-    -- `stepF.system`/`StepRunning.selfDestruct` via `Gas.selfDestructSurcharge`.
-    | .SELFDESTRUCT                                          => 5000
+    -- SELFDESTRUCT base fee. The legacy ethereum/tests "Constantinople"
+    -- corpus uses Frontier rules (`G_selfdestruct = 0`, no `G_newaccount`
+    -- surcharge) — same pattern as our Frontier-era SLOAD = 50 and
+    -- Frontier-era EXP per-byte = 10 choices for the "Constantinople"
+    -- fork tag. Modern post-EIP-150 schedule (5000) lives on `Cancun`.
+    -- The new-account surcharge — also fork-gated — is added by
+    -- `Gas.selfDestructSurcharge` at the call site.
+    | .SELFDESTRUCT                                          =>
+      match fork with
+      | .Constantinople => 0
+      | .Cancun         => 5000
 
 /-- EIP-2200 SSTORE stipend sentry (Istanbul onward, including Cancun):
     an SSTORE that finds `gasleft ≤ G_callstipend = 2300` at entry must
@@ -200,13 +206,17 @@ def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
   (if valueNonZero && targetEmpty then 25000 else 0)
 
 /-- The new-account surcharge a SELFDESTRUCT pays when its balance transfer
-    brings a previously empty beneficiary into existence. `G_newaccount =
-    25000` applies iff `beneficiaryEmpty ∧ selfHasBalance` — i.e. only when
-    the transfer actually delivers value to a fresh account. (EIP-150 /
-    Spurious-Dragon EIP-161 semantics; Constantinople and Cancun share this
-    rule because we do not yet model EIP-2929 cold/warm.) -/
-def Gas.selfDestructSurcharge (beneficiaryEmpty selfHasBalance : Bool) : Nat :=
-  if beneficiaryEmpty && selfHasBalance then 25000 else 0
+    brings a previously empty beneficiary into existence. Fork-gated to
+    match the legacy ethereum/tests corpus: Frontier (= our
+    `Constantinople` tag) had no `G_newaccount` surcharge yet, so we
+    return 0 there; post-EIP-161 (modern, `Cancun`) returns the
+    `G_newaccount = 25000` Spurious-Dragon value when both
+    `beneficiaryEmpty` and `selfHasBalance` hold. -/
+def Gas.selfDestructSurcharge (fork : Fork)
+    (beneficiaryEmpty selfHasBalance : Bool) : Nat :=
+  match fork with
+  | .Constantinople => 0
+  | .Cancun         => if beneficiaryEmpty && selfHasBalance then 25000 else 0
 
 /-- CREATE2's extra per-init-code-word keccak cost: `G_keccak256word · ⌈n/32⌉`
     where `n = |initCode|`. This is the cost of the *address derivation*

@@ -37,7 +37,7 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 **VMTests (609 tests)**:
 ```
-pass=601 (gas-checked=492) fail=0 skip=0 (unsup=0 keccak=0 gas=0) incon=8 crash=0
+pass=601 (gas-checked=497) fail=0 skip=0 (unsup=0 keccak=0 gas=0) incon=8 crash=0
 ```
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
@@ -50,7 +50,7 @@ pass_full=0 pass_core=71 fail=6 incon=3 crash=0
   cold/warm pricing). The remaining 6 FAILs are all `*_ABCB_RECURSIVE`
   tests where a four-way recursive CALL chain still ends with a storage
   slot at the deepest contract not getting written.
-- **gas-checked=492** — every test whose bytecode uses only opcodes with
+- **gas-checked=497** — every test whose bytecode uses only opcodes with
   an exact gas cost in our schedule runs with the test's real `exec.gas`
   budget, and the corpus's remaining-`gas` value is compared. The schedule
   currently covers: every fixed-cost op, SLOAD/SSTORE (pre-EIP-1283), all
@@ -64,11 +64,17 @@ pass_full=0 pass_core=71 fail=6 incon=3 crash=0
   uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
   `Constantinople` fork matches this so the comparison is sound; the
   `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
-- The remaining 109 non-gas-checked passes still run in gas-ignored mode
+- The remaining 104 non-gas-checked passes still run in gas-ignored mode
   (`gasAvailable = 2^63`) because their bytecode contains an opcode whose
   cold/warm pricing is unmodelled (BALANCE / EXTCODESIZE / EXTCODEHASH /
-  EXTCODECOPY), the unmodelled CALL surcharge, SELFDESTRUCT (refund
-  counter), or CREATE / CREATE2 (per-byte deposit + CREATE2 hash cost).
+  EXTCODECOPY) or the dynamic CALL-family surcharge (CALL / CALLCODE /
+  DELEGATECALL / STATICCALL). SELFDESTRUCT, CREATE, and CREATE2 are now
+  gas-comparable: SELFDESTRUCT uses Frontier rules on the Constantinople
+  fork (cost 0, no `G_newaccount` surcharge — same convention as our
+  Frontier-rate SLOAD=50 and EXP=10), so its costs collapse to 0 and
+  match the corpus exactly; CREATE / CREATE2 are flipped because no
+  VMTests test reaches them at an instruction boundary (they only ever
+  appear inside PUSH immediates).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -100,10 +106,8 @@ summary. The full output and normalized summary are uploaded as artifacts.
   - *Gas-ignored* mode (the fallback): inject `gasAvailable = 2^63`, never
     compare `gas`. Used when the bytecode contains an opcode whose cold/warm
     cost we don't yet model — `BALANCE`, `EXTCODESIZE`, `EXTCODEHASH`,
-    `EXTCODECOPY` — or `SELFDESTRUCT` (refund counter not yet wired in)
-    or `CREATE` / `CREATE2` (the child-frame code-deposit charge and
-    `Gas.create2HashCost` are dynamic in ways the comparator hasn't
-    learned yet).
+    `EXTCODECOPY` — or one of the CALL-family opcodes whose dynamic
+    surcharge interactions across nested frames haven't been audited.
 - **`GAS` opcode** is fine under gas-checked mode (the pushed value matches
   the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
   harness only falls back to hugeGas when *some other* opcode is non-gas-

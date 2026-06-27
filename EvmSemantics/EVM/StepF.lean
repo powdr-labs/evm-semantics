@@ -729,7 +729,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let benAddr := AccountAddress.ofUInt256 beneficiary
         let ben     := s.accountMap benAddr
         let selfBal : Bool := (s.accountMap s.executionEnv.codeOwner).balance.toNat != 0
-        let surcharge := Gas.selfDestructSurcharge ben.isEmpty selfBal
+        let surcharge := Gas.selfDestructSurcharge s.fork ben.isEmpty selfBal
         if hsc : surcharge ≤ s'.gasAvailable then
           .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
         else .error .OutOfGas

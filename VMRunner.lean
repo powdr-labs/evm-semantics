@@ -167,12 +167,22 @@ def gasComparableOpcode (op : Operation) : Bool :=
   -- Dynamic copy/log/exp costs charged in stepF (and proved in Step).
   | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => true
   | .EXP | .Log _ => true
-  -- Out-of-scope / dynamic system ops.
-  | .CREATE | .CREATE2 | .CALL | .CALLCODE
-  | .DELEGATECALL | .STATICCALL => false
-  -- SELFDESTRUCT: base 5000 is fixed, but the 25000 new-account surcharge
-  -- and the 24000 refund are dynamic; keep it gas-non-comparable for now.
-  | .SELFDESTRUCT => false
+  -- CALL family: dynamic value/new-account surcharge + 63/64
+  -- forwarding interact with caller gas in ways the comparator hasn't
+  -- been audited for, so kept non-comparable.
+  | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL => false
+  -- SELFDESTRUCT, CREATE, CREATE2: gas-comparable now.
+  -- - SELFDESTRUCT: on `Constantinople` the legacy corpus uses Frontier
+  --   rules (cost 0, no `G_newaccount` surcharge), so `baseCost` +
+  --   `selfDestructSurcharge` collapse to 0 here and the corpus's
+  --   per-frame `gas` value matches exactly. The 24000 refund stays in
+  --   `Substate.refundBalance` but is NOT applied at frame end (the
+  --   legacy VMTests corpus reports pre-refund gas).
+  -- - CREATE / CREATE2: the VMTests corpus has no test that actually
+  --   reaches these as instruction-boundary opcodes (any `0xf0`/`0xf5`
+  --   byte sits inside a PUSH immediate). Flipping the flag here lets
+  --   those tests get gas-checked too without changing any behaviour.
+  | .SELFDESTRUCT | .CREATE | .CREATE2 => true
   | _ => true
 
 /-- Outcome of a full bytecode scan. `skipReason` overrides everything
