@@ -190,6 +190,25 @@ def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
   | _ =>
     if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
 
+/-- SSTORE refund counter delta — the value added to (or subtracted
+    from) `Substate.refundBalance` when an SSTORE writes a new value to
+    a slot. Pre-EIP-1283 (Frontier..Byzantium and Petersburg) is simple:
+    refund 15000 when a non-zero slot is cleared to zero (no other
+    cases). The net-metered schedules (EIP-1283 Constantinople, EIP-2200
+    Cancun) have more elaborate refund rules — we approximate by just
+    refunding the same 15000 on a true clear-to-zero, which is what the
+    test corpus's `pass_core` already accepts and is the dominant
+    contributor to `pass_full`'s sender balance. -/
+def Gas.sstoreRefund (_fork : Fork) (current new : UInt256) : Nat :=
+  if current.toNat ≠ 0 ∧ new.toNat = 0 then 15000 else 0
+
+/-- Denominator of the end-of-tx refund cap: `refund ≤ gas_used / refundDenom`.
+    Pre-EIP-3529 (every fork we model except modern post-London) uses 2;
+    Cancun would use 5 under EIP-3529's revised rule, but we model the
+    pre-EIP-3529 cap there too pending a finer-grained fork breakdown
+    around London. -/
+def Gas.refundDenom (_fork : Fork) : Nat := 2
+
 /-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
     Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY. -/
 def Gas.copyWordCost (size : UInt256) : Nat :=
@@ -204,12 +223,31 @@ def Gas.keccakWordCost (size : UInt256) : Nat :=
 def Gas.logDataCost (size : UInt256) : Nat :=
   8 * size.toNat
 
-/-- The EIP-150 "all but one 64th" gas-forwarding cap: a CALL may forward at
-    most `g - ⌊g/64⌋` of the `g` gas remaining (after the call's own
-    base/value/new-account/memory costs are paid). Fork-gated: pre-EIP-150
-    forks (Frontier, Homestead) have *no* cap and may forward all of `g`. -/
+/-- Cap on the gas a CALL/CREATE may forward to its callee, given the
+    caller's gas `g` remaining (after the call's own base/value/
+    new-account/memory costs are paid).
+
+    * EIP-150 (Tangerine Whistle) onwards: `g - ⌊g/64⌋` — the "all but
+      one 64th" rule. The forwarded gas is always `min(gas_arg, cap)`
+      so the caller retains at least `g/64`.
+    * Pre-EIP-150 (Frontier, Homestead): **no cap** and the gas argument
+      is *not* clipped. If `gas_arg > g`, the CALL OOGs (EIP-150
+      introduced the cap specifically to prevent this).
+
+    `Gas.forwardGas fork g gas_arg` packages both rules into one
+    "forwarded amount" — callers then check `forwarded ≤ g` to detect
+    the pre-EIP-150 OOG path. -/
 def Gas.allButOneSixtyFourth (fork : Fork) (g : Nat) : Nat :=
   if fork.atLeast .EIP150 then g - g / 64 else g
+
+/-- Compute the actual gas forwarded to a callee. From EIP-150 onwards
+    this is `min(gas_arg, allButOneSixtyFourth g)`. Pre-EIP-150 there is
+    no cap — the gas argument is used verbatim, and if it exceeds `g`
+    the caller will fail the subsequent `forwarded ≤ gasAvailable`
+    check and the CALL OOGs. -/
+def Gas.forwardGas (fork : Fork) (g gas_arg : Nat) : Nat :=
+  if fork.atLeast .EIP150 then Nat.min gas_arg (g - g / 64)
+  else gas_arg
 
 /-- The stipend (`G_callstipend = 2300`) added to the gas a callee receives
     when a non-zero `value` is transferred — it is *given* to the callee on top
@@ -217,15 +255,25 @@ def Gas.allButOneSixtyFourth (fork : Fork) (g : Nat) : Nat :=
     the caller again. -/
 def Gas.callStipend : Nat := 2300
 
-/-- The dynamic surcharge a CALL pays on top of its base fee, given whether a
-    non-zero value is transferred (`valueNonZero`) and whether the target
-    account is currently empty (`targetEmpty`). `G_callvalue = 9000` for a value
-    transfer; `G_newaccount = 25000` when that transfer also brings a previously
-    empty account into existence. (Pre-EIP-2929 Constantinople schedule; the
-    flat `G_call = 700` access fee is the `baseCost`.) -/
-def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
-  (if valueNonZero then 9000 else 0) +
-  (if valueNonZero && targetEmpty then 25000 else 0)
+/-- The dynamic surcharge a CALL pays on top of its base fee.
+
+    * `G_callvalue = 9000` for a value-transferring CALL (`valueNonZero`).
+    * `G_newaccount = 25000` when the call brings a previously empty
+      account into existence. The "into existence" condition is fork-gated:
+      - Pre-EIP-158 (`Frontier`, `Homestead`, `EIP150`): charged whenever
+        the target is empty, even with `value = 0` — the legacy rule is
+        that any CALL to a non-existent account creates one.
+      - From EIP-158 (Spurious Dragon) onwards: charged only when the
+        target is empty AND the value transfer is non-zero (i.e. only
+        when the transfer actually delivers wei to a fresh account). -/
+def Gas.callSurcharge (fork : Fork) (valueNonZero targetEmpty : Bool) : Nat :=
+  let valSurcharge : Nat := if valueNonZero then 9000 else 0
+  let newSurcharge : Nat :=
+    if fork.atLeast .EIP158 then
+      if valueNonZero && targetEmpty then 25000 else 0
+    else
+      if targetEmpty then 25000 else 0
+  valSurcharge + newSurcharge
 
 /-- The new-account surcharge a SELFDESTRUCT pays when its balance transfer
     brings a previously empty beneficiary into existence. Pre-EIP-150

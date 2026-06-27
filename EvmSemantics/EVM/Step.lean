@@ -790,10 +790,14 @@ inductive StepRunning : State → State → Prop
            let current  := acc.storage key
            let original := s.substate.originalStorage addr key
            let cost     := Gas.sstoreCost s.fork original current value
-           let acc' := { acc with storage := acc.storage.set key value }
-           let σ'   := s.accountMap.set addr acc'
+           let acc'     := { acc with storage := acc.storage.set key value }
+           let σ'       := s.accountMap.set addr acc'
+           let refund   := Gas.sstoreRefund s.fork current value
+           let sub'     := { s.substate with
+                               refundBalance := s.substate.refundBalance +
+                                                  UInt256.ofNat refund }
            { ((s.consumeGas (Gas.baseCost s.fork .SSTORE) h_gas).consumeGas cost h_dyn_gas)
-               with accountMap := σ' }
+               with accountMap := σ', substate := sub' }
              |>.replaceStackAndIncrPC rest)
 
   /-- TLOAD: like SLOAD but reads from transient storage. -/
@@ -943,15 +947,15 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
         (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
                             retOff.toNat retLen.toNat h_mem)
-        (h_sc      : Gas.callSurcharge (value.toNat != 0)
+        (h_sc      : Gas.callSurcharge s.fork (value.toNat != 0)
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
                        ≤ s2.gasAvailable)
-        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge s.fork (value.toNat != 0)
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
         (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
                         (s3.accountMap s3.executionEnv.codeOwner).balance < value))
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable))
+                       Gas.forwardGas s3.fork s3.gasAvailable gasArg.toNat)
         (h_fw      : forwarded ≤ s3.gasAvailable)
         (h_s4      : s4 = s3.consumeGas forwarded h_fw)
       : StepRunning s
@@ -963,7 +967,10 @@ inductive StepRunning : State → State → Prop
 
   /-- CALL (not taken): the depth limit is hit or the caller cannot afford the
       value. Base+memory+surcharge gas is still charged; `0` is pushed and the
-      forwarded gas is *not* spent. -/
+      forwarded gas is *not* spent. Per YP §H.2, on a value-NZ failed CALL
+      the caller also gets the `G_callstipend = 2300` back (since
+      `g̃ = C_callgas + G_callstipend · [v ≠ 0]` is given back regardless
+      of whether the pre-condition `T` holds). -/
   | callFail (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
         (rest : List UInt256)
@@ -976,15 +983,17 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
         (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
                             retOff.toNat retLen.toNat h_mem)
-        (h_sc      : Gas.callSurcharge (value.toNat != 0)
+        (h_sc      : Gas.callSurcharge s.fork (value.toNat != 0)
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
                        ≤ s2.gasAvailable)
-        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge s.fork (value.toNat != 0)
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
         (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
                        (s3.accountMap s3.executionEnv.codeOwner).balance < value)
       : StepRunning s
-          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+          ({ (if value.toNat != 0 then
+                { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+              else s3) with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
   /-- CALLCODE (taken): like `call`, but the callee runs in the *caller's*
@@ -1009,12 +1018,12 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
         (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
                             retOff.toNat retLen.toNat h_mem)
-        (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
-        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
+        (h_sc      : Gas.callSurcharge s.fork (value.toNat != 0) false ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc)
         (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
                         (s3.accountMap s3.executionEnv.codeOwner).balance < value))
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable))
+                       Gas.forwardGas s3.fork s3.gasAvailable gasArg.toNat)
         (h_fw      : forwarded ≤ s3.gasAvailable)
         (h_s4      : s4 = s3.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1039,12 +1048,14 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
         (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
                             retOff.toNat retLen.toNat h_mem)
-        (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
-        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
+        (h_sc      : Gas.callSurcharge s.fork (value.toNat != 0) false ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc)
         (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
                        (s3.accountMap s3.executionEnv.codeOwner).balance < value)
       : StepRunning s
-          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+          ({ (if value.toNat != 0 then
+                { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+              else s3) with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
   ----------------------------------------------------------------------------
@@ -1077,7 +1088,7 @@ inductive StepRunning : State → State → Prop
                             retOff.toNat retLen.toNat h_mem)
         (h_take    : ¬ s2.executionEnv.depth ≥ 1024)
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable))
+                       Gas.forwardGas s2.fork s2.gasAvailable gasArg.toNat)
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1125,7 +1136,7 @@ inductive StepRunning : State → State → Prop
                             retOff.toNat retLen.toNat h_mem)
         (h_take    : ¬ s2.executionEnv.depth ≥ 1024)
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable))
+                       Gas.forwardGas s2.fork s2.gasAvailable gasArg.toNat)
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
       : StepRunning s

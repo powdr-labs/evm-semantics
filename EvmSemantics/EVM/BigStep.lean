@@ -86,6 +86,43 @@ theorem of_halted {s : State} (h : s.halt ≠ .Running) (h_cs : s.callStack = []
 
 end Eval
 
+/-! ### Transaction-finalisation layer
+
+`Finalize s gasLimit sender gasPrice s'` is a single-rule relation
+witnessing that `s'` is the result of applying `State.finalizeTx` to
+`s` (i.e. capping the refund counter at `gasUsed / refundDenom`,
+adding the leftover gas back to the sender's balance, and updating the
+state's `gasAvailable` to include the refund).
+
+`EvalTx` then bundles the small-step closure (run until done) with the
+finalisation rule:
+
+* `Eval`-style execution from `s` to a halted `s_done`.
+* `Finalize` `s_done` to `s_final`.
+
+This is the relational counterpart to `runTx` in the state-test
+runner: the small-step `Step`/`Eval` only models per-opcode evaluation
+within a frame, and the transaction-level bookkeeping (refund cap,
+gas-to-sender) is a separate layer above it. -/
+
+/-- Apply transaction-end refund + leftover-gas refund to the sender.
+    Single rule: `s'` must equal `State.finalizeTx s gasLimit sender gasPrice`. -/
+inductive Finalize : State → Nat → AccountAddress → UInt256 → State → Prop
+  | mk (s : State) (gasLimit : Nat) (sender : AccountAddress)
+       (gasPrice : UInt256) :
+    Finalize s gasLimit sender gasPrice (s.finalizeTx gasLimit sender gasPrice)
+
+/-- Transaction-level big-step: execute `s` to a *done* state (halted
+    with an empty call stack), then apply the finalisation rule. -/
+inductive EvalTx : State → Nat → AccountAddress → UInt256 → State → Prop
+  | mk {s s_done s_final : State} {gasLimit : Nat}
+       {sender : AccountAddress} {gasPrice : UInt256}
+       (h_exec     : Steps s s_done)
+       (h_halt     : s_done.halt ≠ .Running)
+       (h_done     : s_done.callStack = [])
+       (h_finalize : Finalize s_done gasLimit sender gasPrice s_final) :
+    EvalTx s gasLimit sender gasPrice s_final
+
 /-! ### A *done* state has no successor
 
 `Step` has two constructors: `running` (which carries `s.halt = .Running` as

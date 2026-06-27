@@ -419,6 +419,41 @@ when `callStack ≠ []`: the `run` loops in `Main.lean`, `VMRunner.lean`, and
 and re-enter `stepF` so `resumeException` fires. Only a top-frame error
 (`callStack = []`) propagates as a top-level abort.
 
+## Transaction finalisation
+
+The per-opcode `Step` relation and `stepF` cover everything *inside* a
+transaction's execution, but a real EVM transaction has post-execution
+bookkeeping that's not driven by any opcode:
+
+1. **SSTORE / SELFDESTRUCT refund** — `Substate.refundBalance` is
+   accumulated during execution (15000 per clear-to-zero SSTORE,
+   24000 per SELFDESTRUCT pre-Cancun) and applied at end-of-tx with
+   a cap of `gasUsed / refundDenom` (= `gasUsed / 2` for every
+   pre-EIP-3529 fork we model).
+2. **Leftover gas → sender** — the sender paid `gasLimit · gasPrice`
+   up front in `StateTestRunner.buildState`; after execution, the
+   unused portion `(gasAvailable + cappedRefund) · gasPrice` is
+   returned to their balance.
+3. **Coinbase fee + block reward** — the block coinbase receives
+   `(gasUsed − cappedRefund) · gasPrice` plus the per-fork block
+   reward (5 ETH Frontier..Spurious-Dragon; 3 ETH Byzantium; 2 ETH
+   Constantinople/Petersburg; 0 from Cancun onwards as PoS).
+
+This is the transaction-finalisation layer. Two parallel formulations:
+
+* **Executable**: `State.finalizeTx (gasLimit) (sender) (gasPrice) : State`
+  performs all three updates in a pure function.
+* **Relational**: `Finalize s gasLimit sender gasPrice s'` (one-rule
+  inductive: `s' = s.finalizeTx gasLimit sender gasPrice`) and
+  `EvalTx s gasLimit sender gasPrice s_final` (bundles a `Steps s
+  s_done` reaching a done state with `Finalize s_done … s_final`).
+
+Both live in `EVM/State.lean` (function) and `EVM/BigStep.lean`
+(relation). The state-test runner calls `finalizeTx` exactly once
+between `run` halting and `cmpPost`; `pass_full` is unreachable
+without it because every test's sender and coinbase balances would
+otherwise be off.
+
 ## The three views and the soundness bridge
 
 ```mermaid

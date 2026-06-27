@@ -96,7 +96,7 @@ def forkOfNetwork (s : String) : Fork :=
 /-- Build the top-level execution `State` for a BlockchainTest test object,
     given its `pre` accounts and the block's transaction JSON. The `fork`
     argument is taken from the test's `"network"` field. -/
-def buildState (preMap : AccountMap) (env tx : Json) (fork : Fork) : State :=
+def buildState (preMap : AccountMap) (blockHeader tx : Json) (fork : Fork) : State :=
   let toAddr   := hexToAddress (strField tx "to")
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
@@ -110,12 +110,16 @@ def buildState (preMap : AccountMap) (env tx : Json) (fork : Fork) : State :=
     { sender with nonce := sender.nonce + UInt256.ofNat 1
                   balance := sender.balance - UInt256.ofNat upfront }
   let accountMap := preMap.transfer txSender toAddr value
+  -- Read the block header from `blocks[0].blockHeader` — the
+  -- BlockchainTest format. Field names are the un-prefixed ones
+  -- (`coinbase`, `timestamp`, …); the VMTests-style `currentCoinbase`
+  -- prefix is a different format we don't use here.
   let header : BlockHeader :=
-    { coinbase      := hexToAddress (strField env "currentCoinbase")
-      timestamp     := hexToUInt256 (strField env "currentTimestamp")
-      number        := hexToUInt256 (strField env "currentNumber")
-      prevRandao    := hexToUInt256 (strField env "currentDifficulty")
-      gasLimit      := hexToUInt256 (strField env "currentGasLimit")
+    { coinbase      := hexToAddress (strField blockHeader "coinbase")
+      timestamp     := hexToUInt256 (strField blockHeader "timestamp")
+      number        := hexToUInt256 (strField blockHeader "number")
+      prevRandao    := hexToUInt256 (strField blockHeader "difficulty")
+      gasLimit      := hexToUInt256 (strField blockHeader "gasLimit")
       baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
       blockHash     := fun _ => ⟨0⟩ }
   let execEnv : ExecutionEnv :=
@@ -231,20 +235,56 @@ def runOne (testObj : Json) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let s0 := buildState preMap (subObj testObj "env") tx fork
+      let s0 := buildState preMap (subObj block "blockHeader") tx fork
+      -- Use the *full* tx gas limit (including intrinsic) so the coinbase
+      -- fee in `finalizeTx` matches the total gas the EVM accounts for.
+      let txGasLimit := hexToNat (strField tx "gasLimit")
+      let sender := txSender
+      let gasPrice := hexToUInt256 (strField tx "gasPrice")
       -- Steps are bounded by gas: every non-halting opcode costs ≥1 gas, and
       -- resume steps are bounded by the number of CALLs (≥700 gas each). So
       -- `2·gasAvailable` (plus slack) can never pre-empt a genuine OutOfGas; it
       -- is purely a backstop against an evaluator bug producing a 0-gas
       -- non-halting step.
+      let coinbase := hexToAddress (strField (subObj block "blockHeader") "coinbase")
+      let pre := objEntries testObj "pre"
+      let post := objEntries testObj "postState"
+      -- A top-level exception (typically OOG) is *not* an "incon" — the
+      -- corpus's postState for an OOG-ing tx still has a well-defined
+      -- shape: every in-tx state change rolls back to the pre-state, but
+      -- the sender pays the *full* `gasLimit · gasPrice` and the coinbase
+      -- receives that fee plus the block reward. We reconstruct that
+      -- post-state from `preMap` (which already has the upfront gas
+      -- debit + nonce bump applied by `buildState`) and add the
+      -- coinbase credit by calling `finalizeTx` with `gasAvailable = 0`.
+      let rollbackThenFinalize : State :=
+        let senderAcc := preMap txSender
+        let preMapBumped := preMap.set txSender
+          { senderAcc with nonce := senderAcc.nonce + UInt256.ofNat 1
+                           balance := senderAcc.balance -
+                                        UInt256.ofNat (txGasLimit * gasPrice.toNat) }
+        ({ s0 with accountMap := preMapBumped, gasAvailable := 0
+                   substate := { Substate.empty with originalAccountMap := preMapBumped }
+         }.finalizeTx txGasLimit sender gasPrice)
+      let _ := coinbase  -- silence linter if not used directly
       match run s0 (2 * s0.gasAvailable + 100000) with
       | .error .OutOfFuel => .incon "fuel exhausted"
-      | .error e => .incon s!"top-level halt {repr e}"
+      | .error _ =>
+        -- Top-level exception (typically OOG): compare against the
+        -- rollback+full-fee state (preMap with sender debited
+        -- `gasLimit*gasPrice` and coinbase credited that + block reward).
+        match cmpPost rollbackThenFinalize pre post false with
+        | [] => match cmpPost rollbackThenFinalize pre post true with
+                | [] => .passFull
+                | _  => .passCore
+        | msgs => .fail ("oog-rollback storage-diff: " ++ String.intercalate "; " (msgs.take 3))
       | .ok sf =>
-        let pre := objEntries testObj "pre"
-        let post := objEntries testObj "postState"
-        match cmpPost sf pre post false with
-        | [] => match cmpPost sf pre post true with
+        -- Apply end-of-transaction finalisation (refund cap +
+        -- leftover-gas-to-sender) — the relational counterpart is
+        -- `EvalTx` in `EVM/BigStep.lean`.
+        let sf' := sf.finalizeTx txGasLimit sender gasPrice
+        match cmpPost sf' pre post false with
+        | [] => match cmpPost sf' pre post true with
                 | [] => .passFull
                 | _  => .passCore
         | msgs => .fail (String.intercalate "; " (msgs.take 3))

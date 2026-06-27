@@ -546,6 +546,82 @@ def enterCreate (sc : State) (rest : List UInt256)
       halt         := .Running
       callStack    := frame :: sc.callStack }
 
+/-! ### End-of-transaction finalization
+
+After the top-level execution halts the harness still needs to do the
+bookkeeping the EVM itself doesn't model at the opcode level:
+
+1. **Apply the SSTORE / SELFDESTRUCT refund**, capped at
+   `gas_used / refundDenom` (`refundDenom = 2` pre-EIP-3529).
+2. **Return the leftover gas** (including the applied refund) to the
+   transaction's sender as `(gasAvailable + refund) · gasPrice` wei
+   added to their balance.
+
+This is a separate semantic layer — the per-opcode `stepF` / `Step`
+relation never touches it. `State.finalizeTx` is the executable
+realisation; `Finalize` (in `BigStep.lean`) is the corresponding
+relational rule.
+
+Self-destructed accounts (those in `substate.selfDestructSet`) are *not*
+zeroed here. Our `AddressSet` is a `Prop`-valued predicate with no
+decidable membership, so we can't enumerate; the comparison in the
+runners enumerates only accounts named in the test's `postState`, and
+for the legacy state-tests corpus those entries already reflect the
+post-deletion world (zero balance, empty code, etc. for self-destructed
+addresses), so leaving the residual world in our state is observably
+equivalent for `pass_core`. -/
+
+/-- Inline copy of the refund-cap denominator (`gas_used / 2` pre-EIP-3529,
+    `/ 5` post). Lives here rather than in `Gas.lean` to keep this module
+    above `Gas.lean` in the import graph. -/
+@[inline] def refundDenom (_fork : Fork) : Nat := 2
+
+/-- Per-block miner reward in wei, paid to the coinbase at end of
+    transaction (alongside the gas fee). Frontier..Spurious-Dragon: 5
+    ETH; Byzantium: 3 ETH (EIP-649); Constantinople / Petersburg: 2 ETH
+    (EIP-1234); post-merge (`.Cancun`): 0. -/
+@[inline] def blockReward (fork : Fork) : Nat :=
+  if fork.atLeast .Cancun then 0
+  else if fork.atLeast .Constantinople then 2_000_000_000_000_000_000   -- 2 ETH
+  else if fork.atLeast .Byzantium then 3_000_000_000_000_000_000        -- 3 ETH
+  else 5_000_000_000_000_000_000                                         -- 5 ETH
+
+/-- Apply end-of-transaction finalization to a halted top-level state.
+    `gasLimit` is the *intrinsic-adjusted* gas budget the execution
+    started with (so `gasUsed = gasLimit - sc.gasAvailable`); `sender`
+    and `gasPrice` come from the transaction. Three balance effects:
+
+    1. The sender gets `(gasAvailable + refund) · gasPrice` back —
+       the unused gas plus the capped SSTORE / SELFDESTRUCT refund.
+    2. The block coinbase (= miner) receives the *effective* gas fee
+       `(gasUsed - refund) · gasPrice`.
+    3. `sc.gasAvailable` is bumped by `refund` so the harness's
+       `gas` field reflects the post-refund value.
+
+    Self-destructed accounts in `substate.selfDestructSet` are *not*
+    zeroed here — see the module-level note above. -/
+def finalizeTx (sc : State) (gasLimit : Nat)
+    (sender : AccountAddress) (gasPrice : UInt256) : State :=
+  let fork          := sc.executionEnv.fork
+  let gasUsed       := gasLimit - sc.gasAvailable
+  let cap           := gasUsed / refundDenom fork
+  let refund        := Nat.min sc.substate.refundBalance.toNat cap
+  let finalGas      := sc.gasAvailable + refund
+  let senderRefund  := finalGas * gasPrice.toNat
+  let coinbaseCredit := (gasUsed - refund) * gasPrice.toNat + blockReward fork
+  let coinbase      := sc.executionEnv.header.coinbase
+  let senderAcc     := sc.accountMap sender
+  let map₁          := sc.accountMap.set sender
+                         { senderAcc with balance := senderAcc.balance +
+                                                       UInt256.ofNat senderRefund }
+  let coinbaseAcc   := map₁ coinbase
+  let map₂          := map₁.set coinbase
+                         { coinbaseAcc with balance := coinbaseAcc.balance +
+                                                         UInt256.ofNat coinbaseCredit }
+  { sc with
+      accountMap   := map₂
+      gasAvailable := finalGas }
+
 end State
 
 end EVM

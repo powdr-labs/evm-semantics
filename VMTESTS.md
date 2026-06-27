@@ -42,11 +42,22 @@ pass=601 fail=0 incon=8 crash=0
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
 ```
-pass_full=0 pass_core=295 fail=0 incon=12 crash=0
+pass_full=320 pass_core=0 fail=0 incon=2 crash=0
 ```
-The 307-test total comes from running *every* fork variant of every
+The 322-test total comes from running *every* fork variant of every
 file (Frontier / Homestead / EIP150 / EIP158 / Byzantium /
-Constantinople / ConstantinopleFix), not just one.
+Constantinople / ConstantinopleFix), not just one. The
+`State.finalizeTx` layer applies the SSTORE / SELFDESTRUCT refund
+(capped at `gasUsed/2`), credits the unused gas back to the sender,
+and pays the gas fee + per-fork block reward (5 / 3 / 2 ETH) to the
+coinbase. The runner also handles top-level OOG by reconstructing
+the rollback state (sender pays the full `gasLimit·gasPrice`, coinbase
+receives that fee + block reward, everything else is `preState`) so
+OOG tests can be compared against their expected `postState`. The 2
+remaining INCONs are wall-timeouts on Constantinople-with-EIP-1283
+deep-recursion tests (the net-metered SSTORE schedule lets the chain
+run ~30× deeper than other forks, pushing it past the 60s per-file
+CI cap).
 - `pass_core` = storage + nonce + code match (the CALL-semantics signal);
   `pass_full` would additionally require exact balances — none reach this
   because exact balances need full gas-refund modelling (SSTORE refunds

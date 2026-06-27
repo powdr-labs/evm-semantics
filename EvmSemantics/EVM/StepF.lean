@@ -378,7 +378,16 @@ def stackMemFlow (s s' : State) :
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
-        .ok ({ (s'.consumeGas cost h) with accountMap := σ' }.replaceStackAndIncrPC rest)
+        -- Accumulate the refund delta into `Substate.refundBalance`.
+        -- Pre-EIP-1283 (and our simplified net-metered approximation):
+        -- 15000 is added on a clear-to-zero, 0 otherwise.
+        let refund   := Gas.sstoreRefund s.fork current value
+        let sub'     := { s.substate with
+                            refundBalance := s.substate.refundBalance +
+                                               UInt256.ofNat refund }
+        .ok ({ (s'.consumeGas cost h) with
+                 accountMap := σ', substate := sub'
+             }.replaceStackAndIncrPC rest)
       else .error .OutOfGas
     | _ => underflow
   | .JUMP => match s.stack with
@@ -609,21 +618,27 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
         let valNZ    : Bool := value.toNat != 0
-        let surcharge := Gas.callSurcharge valNZ callee.isEmpty
+        let surcharge := Gas.callSurcharge s.fork valNZ callee.isEmpty
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.codeOwner
-          -- Depth limit or insufficient balance ⇒ the call is not taken: the
-          -- forwarded gas is *not* spent and `0` is pushed. The caller's
-          -- `returnData` buffer is cleared (every CALL-family opcode resets
-          -- it, including this pre-execution failure path).
+          -- Depth limit or insufficient balance ⇒ the call is not taken:
+          -- the forwarded gas is *not* spent, `0` is pushed, and per the
+          -- YP §H.2 the caller gets the `G_callstipend` (2300) back for a
+          -- value-NZ call (the stipend is part of `g̃` even when T fails).
+          -- The `returnData` buffer is also cleared (every CALL-family
+          -- opcode resets it, including this pre-execution failure path).
           if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
-            .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            let s3' :=
+              if valNZ then
+                { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+              else s3
+            .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
             -- EIP-150: forward at most 63/64 of the remaining gas; add the
             -- value stipend to what the callee receives.
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable)
+            let forwarded := Gas.forwardGas s3.fork s3.gasAvailable gasArg.toNat
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -646,15 +661,21 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let codeAddr  := AccountAddress.ofUInt256 toArg  -- where the code comes from
         let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
-        let surcharge := Gas.callSurcharge valNZ false
+        let surcharge := Gas.callSurcharge s.fork valNZ false
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.codeOwner
+          -- Same YP §H.2 stipend refund as CALL: failed value-NZ
+          -- CALLCODE gives 2300 back to the caller.
           if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
-            .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            let s3' :=
+              if valNZ then
+                { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+              else s3
+            .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable)
+            let forwarded := Gas.forwardGas s3.fork s3.gasAvailable gasArg.toNat
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -683,7 +704,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable)
+          let forwarded := Gas.forwardGas s2.fork s2.gasAvailable gasArg.toNat
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -706,7 +727,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable)
+          let forwarded := Gas.forwardGas s2.fork s2.gasAvailable gasArg.toNat
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
