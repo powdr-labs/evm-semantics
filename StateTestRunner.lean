@@ -79,9 +79,24 @@ def intrinsicGas (data : ByteArray) : Nat := Id.run do
     g := g + (if b == 0 then 4 else 68)
   return g
 
+/-- Map a state-test `"network"` string (the variant suffix on each
+    test's JSON key, also stored in the test object) to the matching
+    `Fork`. Unknown strings fall back to `Petersburg`. -/
+def forkOfNetwork (s : String) : Fork :=
+  match s with
+  | "Frontier"          => .Frontier
+  | "Homestead"         => .Homestead
+  | "EIP150"            => .EIP150
+  | "EIP158"            => .EIP158
+  | "Byzantium"         => .Byzantium
+  | "Constantinople"    => .Constantinople
+  | "ConstantinopleFix" => .Petersburg
+  | _                   => .Petersburg
+
 /-- Build the top-level execution `State` for a BlockchainTest test object,
-    given its `pre` accounts and the block's transaction JSON. -/
-def buildState (preMap : AccountMap) (env tx : Json) : State :=
+    given its `pre` accounts and the block's transaction JSON. The `fork`
+    argument is taken from the test's `"network"` field. -/
+def buildState (preMap : AccountMap) (env tx : Json) (fork : Fork) : State :=
   let toAddr   := hexToAddress (strField tx "to")
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
@@ -115,7 +130,7 @@ def buildState (preMap : AccountMap) (env tx : Json) : State :=
       depth     := 0
       permitStateMutation := true
       blobVersionedHashes := #[]
-      fork                := .Constantinople }
+      fork                := fork }
   { toMachineState :=
       { gasAvailable := gasLimit - intrinsicGas data, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
@@ -148,6 +163,7 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
         match s.callStack with
         | []        => .error e
         | f :: rest => run (({ s with halt := .Exception e }).resumeException f rest) (fuel - 1)
+
 
 inductive Outcome where
   | passCore       -- storage + nonce + code match (balances not checked)
@@ -208,13 +224,14 @@ def runOne (testObj : Json) : Outcome :=
     (objEntries testObj "pre").foldl
       (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
       AccountMap.empty
+  let fork := forkOfNetwork (strField testObj "network")
   let blocks := match subObj testObj "blocks" with | .arr a => a.toList | _ => []
   match blocks with
   | block :: _ =>
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let s0 := buildState preMap (subObj testObj "env") tx
+      let s0 := buildState preMap (subObj testObj "env") tx fork
       -- Steps are bounded by gas: every non-halting opcode costs ≥1 gas, and
       -- resume steps are bounded by the number of CALLs (≥700 gas each). So
       -- `2·gasAvailable` (plus slack) can never pre-empt a genuine OutOfGas; it
@@ -267,7 +284,15 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
     let entries := match j with | .obj m => m.toArray.toList | _ => []
     let mut out := #[]
     for (name, testObj) in entries do
-      if !name.endsWith "_Constantinople" then continue
+      -- Each test JSON contains one variant per fork (`_Frontier`,
+      -- `_Homestead`, `_EIP150`, `_EIP158`, `_Byzantium`,
+      -- `_Constantinople`, `_ConstantinopleFix`, …). Run every variant
+      -- whose `"network"` field maps to one of our supported forks;
+      -- skip variants whose fork we don't model.
+      let network := strField testObj "network"
+      let supported := ["Frontier", "Homestead", "EIP150", "EIP158",
+                        "Byzantium", "Constantinople", "ConstantinopleFix"]
+      if !supported.contains network then continue
       let r := match runOne testObj with
         | .passFull => ("PASS_FULL", name, "")
         | .passCore => ("PASS_CORE", name, "")

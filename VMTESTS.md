@@ -42,14 +42,20 @@ pass=601 fail=0 incon=8 crash=0
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
 ```
-pass_full=0 pass_core=71 fail=6 incon=3 crash=0
+pass_full=0 pass_core=295 fail=0 incon=12 crash=0
 ```
+The 307-test total comes from running *every* fork variant of every
+file (Frontier / Homestead / EIP150 / EIP158 / Byzantium /
+Constantinople / ConstantinopleFix), not just one.
 - `pass_core` = storage + nonce + code match (the CALL-semantics signal);
   `pass_full` would additionally require exact balances — none reach this
-  because exact balances need full gas-refund modelling (SSTORE refunds and
-  cold/warm pricing). The remaining 6 FAILs are all `*_ABCB_RECURSIVE`
-  tests where a four-way recursive CALL chain still ends with a storage
-  slot at the deepest contract not getting written.
+  because exact balances need full gas-refund modelling (SSTORE refunds
+  and cold/warm pricing). The 12 INCONs split into a single
+  `call_OOG_additionalGasCosts2` test that hits OOG at a different point
+  than the corpus across 5 forks, and 7 `ABCB_RECURSIVE` Constantinople
+  variants that wall-timeout (>60s — Constantinople's net-metered SSTORE
+  lets the recursion reach further than other forks, hitting the
+  per-file CI cap).
 - **fail=0** — every with-`post` test that matches the storage / return-data
   comparison also matches the expected remaining-`gas` value. The schedule
   currently covers: every fixed-cost op, SLOAD / SSTORE (pre-EIP-1283),
@@ -57,12 +63,11 @@ pass_full=0 pass_core=71 fail=6 incon=3 crash=0
   LOG with per-byte cost, EXP with per-byte exponent cost, the CALL /
   SELFDESTRUCT / CREATE / CREATE2 dynamic pieces, and EIP-150's 63/64 gas
   forwarding.
-- **Corpus fork note.** The legacy ethereum/tests `Constantinople` corpus
-  was generated against pre-EIP-1283 rules (EIP-1283 was scheduled for
-  Constantinople but reverted in Petersburg). Specifically the corpus
-  uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
-  `Constantinople` fork matches this so the comparison is sound; the
-  `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
+- **Corpus fork note.** The legacy VMTests corpus uses Frontier-era
+  gas across the board (SLOAD = 50, SELFDESTRUCT = 0, no `G_newaccount`
+  surcharge, EXP per-byte = 10). The VMTests runner therefore selects
+  `Fork.Frontier`. The Constantinople in the directory name is a corpus
+  *revision* tag, not a fork tag.
 - The 104 passes that don't compare gas are tests lacking a `post`
   block; they exit through the "expected an exception, got an exception"
   arm before any gas comparison happens. Every test still runs with its
@@ -153,26 +158,25 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator: model the remaining dynamic gas costs
 Already modelled: memory expansion (Yellow-Paper quadratic),
-`Gas.sstoreCost` (pre-EIP-1283 for `Constantinople` / EIP-2200 for `Cancun`),
-`Gas.copyWordCost` (5 copy ops × per-word 3), `Gas.keccakWordCost`
-(KECCAK256 per-word 6), `Gas.logDataCost` (LOG per-byte 8),
-`Gas.expByteCost` (EXP per-byteLen — 10 for Frontier-flavoured
-`Constantinople`, 50 for `Cancun`). Remaining gaps:
+`Gas.sstoreCost` (pre-EIP-1283 schedule for Frontier..Byzantium and
+Petersburg; EIP-1283 net-metered for the original Constantinople;
+EIP-2200 for Cancun), `Gas.copyWordCost` (5 copy ops × per-word 3),
+`Gas.keccakWordCost` (KECCAK256 per-word 6), `Gas.logDataCost` (LOG
+per-byte 8), `Gas.expByteCost` (EXP per-byteLen — 10 pre-Spurious-Dragon,
+50 from EIP-158 onwards), `Gas.allButOneSixtyFourth` (no cap pre-EIP-150,
+63/64 from EIP-150 onwards). Remaining gaps:
 
 - [ ] **EIP-2929 cold/warm split** for `BALANCE` / `EXTCODESIZE` /
       `EXTCODECOPY` / `EXTCODEHASH` (cold 2600, warm 100). Needs an
       `accessedAccounts` set in `Substate`. Our `Cancun` fork currently
-      pretends every access is warm; `Constantinople` uses the
-      pre-EIP-2929 flat 400 / 700.
-- [ ] **SSTORE refunds** (clearing a non-zero slot adds `15000` to the
-      refund counter). Not modelled. The legacy Constantinople corpus reports
-      `gas` without applying refunds, so this isn't currently a source of
-      FAILs; would matter for post-Berlin corpora.
-- [ ] **Modern SSTORE** (EIP-1283 / EIP-2200 / EIP-3529) for newer
-      corpora — the `original` value is already threaded through
-      `Substate.originalStorage`, so adding the modern schedule is a
-      one-liner in `Gas.sstoreCost`. The `Cancun` branch already does
-      EIP-2200; cold/warm surcharge still missing.
+      pretends every access is warm; the pre-Cancun forks use the
+      proper Frontier (20) / EIP-150 (400/700) values.
+- [ ] **SSTORE refund counter is tracked but never applied** at end of
+      transaction. Clearing a non-zero slot adds `15000` to
+      `Substate.refundBalance`, but the runner doesn't subtract
+      `min(refund, gas_used/2)` from the final `gas`. Wiring it in
+      would let `pass_full` become reachable on tests with clearing
+      SSTOREs.
 
 ### Harness improvements
 - [ ] **Log-hash comparison** — the corpus stores `logsHash` (a keccak over

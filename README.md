@@ -47,11 +47,14 @@ trivial program.
   callee-env / `enterCall` skeleton; per-kind axes (`codeOwner` /
   `source` / `weiValue` / `permitStateMutation` / value transfer) live in
   `CallKind.calleeXxx` projections.
-- **`SELFDESTRUCT`** is implemented: base `G_selfdestruct = 5000` +
-  `Gas.selfDestructSurcharge` (25000 if the beneficiary is empty and
-  self has non-zero balance), credit-then-debit transfer so a
+- **`SELFDESTRUCT`** is implemented with fork-aware gas: base 0 on
+  Frontier/Homestead (`G_selfdestruct = 5000` from EIP-150),
+  `Gas.selfDestructSurcharge` (no surcharge pre-EIP-150; EIP-150 charges
+  25000 when beneficiary is empty; EIP-158 refines to "empty *and* self
+  has non-zero balance"), credit-then-debit transfer so a
   self-beneficiary correctly *burns* the balance, marks self in
-  `Substate.selfDestructSet`, and adds the 24000 refund on Constantinople.
+  `Substate.selfDestructSet`, and adds the 24000 refund on every
+  pre-Cancun fork (`Gas.selfDestructRefund`).
 - **`CREATE` / `CREATE2`** are implemented: base `G_create = 32000`,
   memory expansion, depth + balance pre-check, EIP-150 63/64 forwarding,
   init-code execution in a new frame (`Frame.createAddr := some
@@ -72,14 +75,19 @@ trivial program.
   precompiled contracts, full RLP (only `[address, nonce]` is encodable).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
-  the static Yellow-Paper fee per fork (`Constantinople` matches the
-  legacy ethereum/tests corpus — Frontier-era SLOAD = 50, EXP per-byte = 10;
-  `Cancun` uses the modern warm-priced reads and Spurious-Dragon EXP).
+  the static Yellow-Paper fee per fork. Eight forks supported —
+  `Frontier`, `Homestead`, `EIP150` (Tangerine Whistle), `EIP158`
+  (Spurious Dragon), `Byzantium`, `Constantinople` (with EIP-1283),
+  `Petersburg` (= `ConstantinopleFix`, EIP-1283 reverted), `Cancun`.
+  `Fork.atLeast` is the activation ordering used inside the gas helpers
+  for compact `fork ≥ X` checks.
   All major **dynamic costs** are also modelled: memory expansion
   (`chargeMem` / `chargeMem2`, Yellow-Paper quadratic), `Gas.sstoreCost`
-  (pre-EIP-1283 for Constantinople / EIP-2200 for Cancun, with the
-  EIP-2200 stipend sentry via `Gas.sstoreSentry`), `Gas.copyWordCost`,
-  `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`. The relational
+  (pre-EIP-1283 schedule for Frontier..Byzantium and Petersburg,
+  EIP-1283 net-metered on the original Constantinople, EIP-2200 on
+  Cancun, with the EIP-2200 stipend sentry via `Gas.sstoreSentry`),
+  `Gas.copyWordCost`, `Gas.keccakWordCost`, `Gas.logDataCost`,
+  `Gas.expByteCost`. The relational
   `StepRunning.outOfGas` is generalised to accept a `cost : Nat` witness with
   `Gas.baseCost ≤ cost`, so dynamic-cost OOG (memory expansion, sstoreCost,
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
@@ -88,9 +96,9 @@ trivial program.
   in `Substate`) and the dynamic CALL-family surcharge interactions
   across nested frames (kept non-gas-comparable pending an audit).
   `SELFDESTRUCT`, `CREATE`, and `CREATE2` are now gas-comparable:
-  SELFDESTRUCT uses Frontier rules on the `Constantinople` fork (cost 0,
-  no `G_newaccount` surcharge — same convention as our Frontier-rate
-  SLOAD=50 and EXP=10), modern values on `Cancun`. The call family pays base fee + memory expansion + value
+  SELFDESTRUCT uses Frontier rules (cost 0, no `G_newaccount` surcharge)
+  on `Frontier` and `Homestead`; EIP-150 onwards charges 5000 base +
+  25000 new-account surcharge. The call family pays base fee + memory expansion + value
   surcharge via `Gas.callSurcharge` (CALL also pays the new-account
   portion when applicable; DELEGATECALL / STATICCALL pay zero
   surcharge) + 63/64 forwarding via `Gas.allButOneSixtyFourth`.

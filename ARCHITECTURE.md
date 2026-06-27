@@ -150,43 +150,50 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   bytes, and accepts `target` only when it is reached as an instruction
   boundary *and* `code[target] = 0x5b`.
 - **`Gas.lean`** — `Gas.baseCost : Fork → Operation → Nat`, the *static*
-  per-opcode fee parameterised by the hard fork (`Constantinople` /
-  `Cancun`). Alongside, several **dynamic cost** helpers (also fork-aware
-  where it matters):
-  - `Gas.sstoreCost fork original current new` — pre-EIP-1283 (Constantinople)
-    or EIP-2200 net-metered (Cancun);
+  per-opcode fee parameterised by the hard fork. Compact `fork.atLeast
+  .EIP150`-style ordering branches drive the per-fork values:
+  - BALANCE / EXTCODEHASH: 20 → 400 (EIP150+) → 100 (Cancun warm);
+    EXTCODESIZE / EXTCODECOPY: 20 → 700 → 100;
+  - SLOAD: 50 → 200 (EIP150+) → 100 (Cancun);
+  - CALL family: 40 → 700 → 100;
+  - SELFDESTRUCT base: 0 → 5000 (EIP150+).
+  Dynamic-cost helpers (all fork-aware where it matters):
+  - `Gas.sstoreCost fork original current new` — pre-EIP-1283
+    (Frontier..Petersburg), EIP-1283 (Constantinople), EIP-2200 (Cancun);
   - `Gas.copyWordCost size` — `3 · ⌈size/32⌉` for all five copy opcodes;
   - `Gas.keccakWordCost size` — `6 · ⌈size/32⌉` for KECCAK256;
   - `Gas.logDataCost size` — `8 · size` for LOG;
-  - `Gas.expByteCost fork exponent` — Frontier (10) or post-Spurious-Dragon
-    (50) per exponent byte;
-  - `Gas.sstoreSentry fork gas` — the EIP-2200 stipend (≤ 2300 → OOG) for
+  - `Gas.expByteCost fork exponent` — pre-Spurious-Dragon (10) or
+    post-Spurious-Dragon (50) per exponent byte;
+  - `Gas.sstoreSentry fork gas` — the EIP-2200 stipend (≤ 2300 → OOG),
     Cancun only;
   - `Gas.callSurcharge valueNZ calleeEmpty` — the CALL value/new-account
     surcharge (`9000` if value ≠ 0, `+25000` if calling an empty account);
     CALLCODE passes `calleeEmpty = false` since it never creates an
     account (the code is borrowed; the storage stays with the caller);
-  - `Gas.allButOneSixtyFourth gas` — EIP-150 forwarding cap (`gas - gas/64`).
+  - `Gas.selfDestructSurcharge fork beneficiaryEmpty selfHasBalance` —
+    Frontier/Homestead = 0; EIP-150 charges 25000 when beneficiary is
+    empty; EIP-158 + tightens to "empty AND self has balance";
+  - `Gas.allButOneSixtyFourth fork g` — EIP-150 forwarding cap
+    `g - g/64`; pre-EIP-150 forwards all of `g`.
   Memory expansion gas is charged separately by `stepF.chargeMem` /
-  `chargeMem2`. The only remaining dynamic costs we don't yet model are
-  the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
-  `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
-  pending an `accessedAccounts` set in `Substate`) and the out-of-scope
-  cold/warm split family and the CALL-family dynamic surcharge. The
-  legacy ethereum/tests corpus uses Frontier rules for SELFDESTRUCT
-  (cost 0, no `G_newaccount` surcharge) — same convention as our
-  Frontier-rate SLOAD = 50 and EXP per-byte = 10 — so on the
-  `Constantinople` fork `Gas.baseCost .SELFDESTRUCT = 0` and
-  `Gas.selfDestructSurcharge .Constantinople _ _ = 0`. Modern values
-  (5000 + 25000) live on `Cancun`.
-  Every VMTests test runs with its declared `exec.gas` budget; the
+  `chargeMem2`. The only remaining unmodelled dynamic cost is the
+  EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY`
+  / `EXTCODEHASH` — Cancun uses `100` as a warm-priced placeholder
+  pending an `accessedAccounts` set in `Substate`.
+  Every test runs with its declared `exec.gas` budget; the
   remaining-`gas` value is compared against the corpus whenever a `post`
   block is present. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
   halted `State` into the flat success/returned/reverted/exception sum.
-- **`Fork.lean`** — `inductive Fork = Constantinople | Cancun`; the active
-  fork is carried on `ExecutionEnv.fork` and threaded through `Gas.baseCost` /
-  `Gas.sstoreCost` / `Gas.expByteCost`.
+- **`Fork.lean`** — `inductive Fork` with 8 variants (`Frontier`,
+  `Homestead`, `EIP150`, `EIP158`, `Byzantium`, `Constantinople`,
+  `Petersburg`, `Cancun`) plus `Fork.toOrd` / `Fork.atLeast` for the
+  activation-ordering checks the gas helpers use. The active fork is
+  carried on `ExecutionEnv.fork` and threaded through `Gas.baseCost` /
+  `Gas.sstoreCost` / `Gas.expByteCost` / `Gas.allButOneSixtyFourth` /
+  `Gas.selfDestructSurcharge` / `Gas.selfDestructRefund` and through
+  CREATE's new-contract-nonce rule (`State.enterCreate`).
 
 **Crypto** (`EvmSemantics/Crypto/`)
 - **`Keccak256.lean`** — a self-contained implementation of the original
@@ -312,16 +319,19 @@ expansion → depth-limit pre-check → 63/64 forwarding → `enterCallFor`):
 `SELFDESTRUCT` lives in `stepF.system .SELFDESTRUCT` with matching
 `StepRunning.selfDestruct` / `StepRunning.selfDestructStatic`
 constructors. It pops the beneficiary address, rejects under
-`permitStateMutation = false`, charges base `G_selfdestruct = 5000`
-plus the `Gas.selfDestructSurcharge` (25000 iff the beneficiary is
-empty *and* self has non-zero balance), then calls
+`permitStateMutation = false`, charges fork-dependent base + surcharge
+gas (`Gas.baseCost _ .SELFDESTRUCT` is 0 on Frontier/Homestead, 5000
+from EIP-150 onwards; `Gas.selfDestructSurcharge` is 0 pre-EIP-150,
+adds 25000 from EIP-150 when the beneficiary is empty, refined by
+EIP-158 to "empty *and* self has non-zero balance"), then calls
 `State.selfDestructTo`. That helper credits the beneficiary with
 self's balance and zeroes self's balance in *credit-then-debit* order
 (not `AccountMap.transfer`'s set-then-set, which would net-cancel a
 self-beneficiary's update and leave the balance unchanged instead of
 burning it). It also marks `self` in `Substate.selfDestructSet` and
-adds `R_selfdestruct = 24000` to the refund counter on Constantinople
-(`0` on Cancun pending EIP-6780). The frame halts with `.Success`. The
+adds the fork-dependent refund (`Gas.selfDestructRefund` returns 24000
+pre-Cancun, 0 from Cancun onwards per EIP-3529 / EIP-6780). The frame
+halts with `.Success`. The
 account is *not* deleted at this site — pre-Cancun semantics defer
 deletion to end-of-transaction; for our single-tx test corpora the
 post-state comparison only enumerates accounts listed in the test's

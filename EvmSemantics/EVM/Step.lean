@@ -951,7 +951,7 @@ inductive StepRunning : State → State → Prop
         (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
                         (s3.accountMap s3.executionEnv.codeOwner).balance < value))
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable))
         (h_fw      : forwarded ≤ s3.gasAvailable)
         (h_s4      : s4 = s3.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1014,7 +1014,7 @@ inductive StepRunning : State → State → Prop
         (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
                         (s3.accountMap s3.executionEnv.codeOwner).balance < value))
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable))
         (h_fw      : forwarded ≤ s3.gasAvailable)
         (h_s4      : s4 = s3.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1077,7 +1077,7 @@ inductive StepRunning : State → State → Prop
                             retOff.toNat retLen.toNat h_mem)
         (h_take    : ¬ s2.executionEnv.depth ≥ 1024)
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable))
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable))
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1125,7 +1125,7 @@ inductive StepRunning : State → State → Prop
                             retOff.toNat retLen.toNat h_mem)
         (h_take    : ¬ s2.executionEnv.depth ≥ 1024)
         (h_fwd     : forwarded =
-                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable))
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable))
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1245,7 +1245,7 @@ inductive StepRunning : State → State → Prop
                        (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
                          (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))).isContract
                      = false)
-        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.fork s2.gasAvailable)
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
       : StepRunning s
@@ -1336,7 +1336,7 @@ inductive StepRunning : State → State → Prop
                          ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
                            (MachineState.readPadded s2'.memory
                               offset.toNat size.toNat)))))).isContract = false)
-        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.fork s2'.gasAvailable)
         (h_fw      : forwarded ≤ s2'.gasAvailable)
         (h_s3      : s3 = s2'.consumeGas forwarded h_fw)
       : StepRunning s

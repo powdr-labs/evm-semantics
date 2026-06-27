@@ -103,7 +103,7 @@ State/{Account,BlockHeader,ExecutionEnv,Substate}.lean  -- world + per-frame env
 Machine/{MachineState,SharedState}.lean     -- μ (gas, memory, returnData); world+machine bundle
 EVM/Operation.lean                          -- Operation ADT (+ EIP-8024 DUPN/SWAPN/EXCHANGE)
 EVM/Decode.lean                             -- byte -> Operation + immediate
-EVM/Fork.lean                               -- inductive Fork = Constantinople | Cancun
+EVM/Fork.lean                               -- 8 forks (Frontier ↦ Cancun) + Fork.atLeast helper
 EVM/Gas.lean                                -- Gas.baseCost (per fork) + dynamic cost helpers
 Crypto/Keccak256.lean                       -- self-contained Keccak-f[1600] + opaque keccak256 + @[implemented_by]
 EVM/Exception.lean  EVM/State.lean  EVM/Halted.lean
@@ -153,8 +153,8 @@ validation, precompiles, full RLP.
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (`100` on Cancun is a warm-priced placeholder pending an
-  `accessedAccounts` set in `Substate`; Constantinople uses the proper
-  EIP-150 / EIP-1052 values 400 / 700) and `Gas.create2HashCost` for
+  `accessedAccounts` set in `Substate`; the earlier forks use the proper
+  Frontier (20) / EIP-150 (400/700) values) and `Gas.create2HashCost` for
   CREATE2's address-derivation hash. The VMRunner no longer maintains a
   gas-comparable filter — every test runs with its declared
   `exec.gas` budget and (when it has a `post` block) compares the

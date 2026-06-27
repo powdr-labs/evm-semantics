@@ -442,10 +442,8 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   -- observable behaviour matches. (Refactoring `AddressSet` to a `RBTree`
   -- or `Finset` would let us compute "first time" precisely; out of scope
   -- for this opcode.)
-  let refundDelta : Nat :=
-    match sc.executionEnv.fork with
-    | .Constantinople => 24000
-    | .Cancun         => 0
+  -- Refund constant matches `Gas.selfDestructRefund`: 24000 pre-Cancun, 0 from Cancun.
+  let refundDelta : Nat := if sc.executionEnv.fork.atLeast .Cancun then 0 else 24000
   let substate' : Substate :=
     { sc.substate with
         selfDestructSet := sc.substate.selfDestructSet.insert self
@@ -522,14 +520,19 @@ def enterCreate (sc : State) (rest : List UInt256)
       createAddr     := some newAddr }
   let caller := sc.executionEnv.codeOwner
   let callerAcc := sc.accountMap caller
+  -- Caller's nonce is bumped on CREATE in every fork we model.
   let map₁ : EvmSemantics.AccountMap :=
     sc.accountMap.set caller { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
   let map₂ := map₁.transfer caller newAddr value
-  -- Bring the new account into existence with nonce 1 (and any pre-existing
-  -- code/storage at this address is preserved — see the collision check in
-  -- `stepF.system .CREATE`).
+  -- The *new contract's* initial nonce: Frontier and Homestead leave it
+  -- at 0; EIP-161 (Spurious Dragon = `.EIP158`) bumped it to 1 so that
+  -- a freshly-created contract is distinguishable from a never-touched
+  -- account.
   let newAcc := map₂ newAddr
-  let map₃ := map₂.set newAddr { newAcc with nonce := ⟨1⟩ }
+  let map₃ :=
+    if sc.executionEnv.fork.atLeast .EIP158 then
+      map₂.set newAddr { newAcc with nonce := ⟨1⟩ }
+    else map₂
   { sc with
       accountMap   := map₃
       gasAvailable := childGas

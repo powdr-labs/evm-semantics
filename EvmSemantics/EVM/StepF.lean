@@ -623,7 +623,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           else
             -- EIP-150: forward at most 63/64 of the remaining gas; add the
             -- value stipend to what the callee receives.
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable)
+            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable)
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -654,7 +654,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable)
+            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.fork s3.gasAvailable)
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -683,7 +683,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable)
+          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable)
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -706,7 +706,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable)
+          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.fork s2.gasAvailable)
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -762,8 +762,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               .ok ({ s2 with accountMap := σ', returnData := .empty
                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             | false =>
-              if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
-                let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
+              if hfw : Gas.allButOneSixtyFourth s2.fork s2.gasAvailable ≤ s2.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s2.fork s2.gasAvailable
                 let s3 := s2.consumeGas forwarded hfw
                 .ok (s3.enterCreate rest
                        (AccountAddress.ofUInt256 (EvmSemantics.keccak256
@@ -804,8 +804,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                 .ok ({ s2' with accountMap := σ', returnData := .empty
                      }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
               | false =>
-                if hfw : Gas.allButOneSixtyFourth s2'.gasAvailable ≤ s2'.gasAvailable then
-                  let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
+                if hfw : Gas.allButOneSixtyFourth s2'.fork s2'.gasAvailable ≤ s2'.gasAvailable then
+                  let forwarded := Gas.allButOneSixtyFourth s2'.fork s2'.gasAvailable
                   let s3 := s2'.consumeGas forwarded hfw
                   let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
                   let codeHash := EvmSemantics.keccak256 initCode

@@ -100,7 +100,10 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       depth     := 0
       permitStateMutation := true
       blobVersionedHashes := #[]
-      fork                := .Constantinople }
+      -- Legacy VMTests was generated against pre-EIP-150 (Frontier-era)
+      -- gas: SLOAD = 50, SELFDESTRUCT = 0, EXP per-byte = 10, no
+      -- new-account surcharge. `.Frontier` selects exactly those values.
+      fork                := .Frontier }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
