@@ -199,7 +199,7 @@ namespace Storage
     sub-`2^64`-byte input — never reachable from a gas-bounded
     execution). -/
 def root (s : Storage) : Option UInt256 := do
-  let entries := s.cache.toList.filter (fun (_, v) => v.toNat ≠ 0)
+  let entries := s.toList.filter (fun (_, v) => v.toNat ≠ 0)
   let pairs ← entries.mapM (fun (k, v) => do
     let keyHash := EvmSemantics.keccak256 (Rlp.uint256ToBytes32 k)
     let vEnc ← Rlp.encodeInt v.toNat
@@ -220,7 +220,7 @@ def emptyCodeHash : UInt256 :=
     value for an account in the world-state MPT. -/
 def encodeForTrie (a : Account) : Option ByteArray := do
   let sroot ←
-    if a.storage.cache.isEmpty then
+    if a.storage.isEmpty then
       (Rlp.encodeBytes ByteArray.empty).map EvmSemantics.keccak256
     else
       Storage.root a.storage
@@ -241,7 +241,7 @@ namespace AccountMap
     that are EIP-161 *empty* (zero nonce, zero balance, no code,
     no storage) are omitted. -/
 def stateRoot (σ : AccountMap) : Option UInt256 := do
-  let entries := σ.cache.toList
+  let entries := σ.toList
   let pairs ← entries.mapM (fun (addr, a) => do
     let keyHash := EvmSemantics.keccak256 (Rlp.addressBytes addr)
     let aEnc ← Account.encodeForTrie a
