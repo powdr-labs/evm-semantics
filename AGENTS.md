@@ -77,14 +77,15 @@ Three views of the same semantics, with `Step` as the source of truth:
   some .X` (the op-only projection of `s.decoded`); most also carry
   `h_gas : Gas.baseCost s.fork op ≤ s.gasAvailable` (`gasAvailable : Nat`)
   and an `h_stack` shape, but the exact premises vary —
-  `StepRunning.stop` has no `h_gas`/`h_stack` (whereas
-  `return_`/`revert` carry `h_gas`,
-  `h_stack`, and `h_mem`), and stackless reads (`address`, `coinbase`,
-  `pc`, …) have no `h_stack`. **Exception:** `StepRunning.pushN` is the
-  one success rule that uses the full `s.decoded` premise, because it
-  consumes the PUSH immediate. Read the actual constructor; `consumeGas`
-  takes the gas-sufficiency proof explicitly so the saturating Nat
-  subtraction is provably safe.
+  `StepRunning.stop` has no `h_gas`/`h_stack`, and stackless reads
+  (`address`, `coinbase`, `pc`, …) have no `h_stack`. **Exception:**
+  `StepRunning.pushN` is the one success rule that uses the full
+  `s.decoded` premise, because it consumes the PUSH immediate. The
+  gas premise on each rule is a **bundled** `Nat`-valued total
+  (`Gas.<op>Total s ...` for opcodes with dynamic costs, plain
+  `Gas.baseCost s.fork op` for opcodes that have only the static fee),
+  and the post-state is a flat `{ s with ... }` record update that uses
+  the same total as `gasAvailable := s.gasAvailable - Gas.<op>Total ...`.
 - **`Eval : State → ExecutionResult → Prop`** (`EVM/BigStep.lean`) — big-step,
   the reflexive-transitive closure `Steps` ending in a halted state, projected
   by `State.toResult` to `success | returned _ | reverted _ | exception _`.
@@ -169,13 +170,17 @@ Touch these in order, then rebuild + lint + run vmtests:
 3. `EVM/Gas.lean` — `Gas.baseCost`. Charge the real static base fee per fork.
    For a *dynamic* cost, follow the established pattern: a fork-aware helper
    (`Gas.copyWordCost`, `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`,
-   `Gas.sstoreCost`) that gets charged in the handler after the dispatcher's
-   `consumeGas baseCost`. Every opcode's gas is now compared against the
-   corpus's expected remaining-`gas` value on any with-`post` test; if
-   your dynamic cost touches state the harness can't reproduce (e.g.
-   EIP-2929 cold/warm), stub it at the value that matches the target
-   corpus — gas-mismatch failures will surface immediately if you pick
-   wrong.
+   `Gas.sstoreCost`) that gets charged in `stepF` via `consumeGas` after
+   `chargeMem`. Then define a `Gas.<op>Total` (or `Gas.<op>Committed` for the
+   CALL/CREATE families) that bundles `baseCost + memExpansionDelta + dyn`
+   into a single `Nat`-valued total — this is what the `StepRunning` rule
+   uses on both sides (pre-condition `Gas.<op>Total ≤ s.gasAvailable` and
+   post-state `gasAvailable := s.gasAvailable - Gas.<op>Total`). Every
+   opcode's gas is now compared against the corpus's expected
+   remaining-`gas` value on any with-`post` test; if your dynamic cost
+   touches state the harness can't reproduce (e.g. EIP-2929 cold/warm),
+   stub it at the value that matches the target corpus — gas-mismatch
+   failures will surface immediately if you pick wrong.
 4. `EVM/Step.lean` — the success constructor (in `StepRunning`; follow
    the `add` anatomy: `h_op : s.decodedOp = some .X`, `h_gas`, `h_stack`
    premises — but adjust for the constructor's kind; halts/stackless

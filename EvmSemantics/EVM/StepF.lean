@@ -23,14 +23,21 @@ appropriate helper.
 
 Each helper takes both the original state `s` (for reads from `s.stack`,
 `s.memory`, etc.) and the gas-consumed state `s'` (used to construct the
-successor). Out-of-scope opcodes (CALL family, CREATE family,
-SELFDESTRUCT) are mapped to `InvalidInstruction`.
+successor). The CALL family, CREATE/CREATE2, SELFDESTRUCT, and LOG are
+all implemented — `stepF` mirrors the entire `StepRunning` rule set.
 
 The LOG branch uses an auxiliary `popN` helper (defined in section 9
 below) to pop the variable number of topics. `popN_correct` proves it
 preserves the list invariant `topics.length = k ∧ stk = topics ++ rest`,
 which `log_sound` uses to recover the witness list expected by
 `StepRunning.log`.
+
+`stepF` charges dynamic gas in **chained** form
+(`((g - base) - memDelta) - kwc`), via `consumeGas` and `consumeMemExp`.
+The bundled `Gas.<op>Total` totals used by `StepRunning` (single
+`Nat`-valued sum: base + memory expansion + per-word / per-byte
+dynamic) equal the chain by `Nat.sub_add_eq`; the soundness proof in
+`Equiv.lean` bridges between the two forms.
 -/
 
 @[expose] public section

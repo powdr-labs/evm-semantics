@@ -146,20 +146,6 @@ def mcopy (μ : MachineState) (dst src sz : UInt256) : MachineState :=
 /-- MSIZE: number of *bytes* currently considered active (= 32·activeWords). -/
 def msize (μ : MachineState) : UInt256 := UInt256.ofNat (32 * μ.activeWords.toNat)
 
-/-- GAS opcode result: remaining gas, packed into a 256-bit stack word. -/
-def gas (μ : MachineState) : UInt256 := UInt256.ofNat μ.gasAvailable
-
-/-- RETURNDATASIZE: length of the return-data buffer. -/
-def returnDataSize (μ : MachineState) : UInt256 := UInt256.ofNat μ.returnData.size
-
-/-- Replace the return-data buffer. -/
-def setReturnData (μ : MachineState) (bs : ByteArray) : MachineState :=
-  { μ with returnData := bs }
-
-/-- Replace the `hReturn` (RETURN/REVERT output) buffer. -/
-def setHReturn (μ : MachineState) (bs : ByteArray) : MachineState :=
-  { μ with hReturn := bs }
-
 -- The `let rec`-generated workers inside `writeBytes` and `wordBytes`
 -- are private inner loops, not user-facing API; silence `docBlame`.
 attribute [nolint docBlame]

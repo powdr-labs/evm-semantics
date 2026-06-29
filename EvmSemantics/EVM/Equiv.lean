@@ -29,6 +29,24 @@ Soundness is proven in two layers:
    dispatches each `Operation` constructor to the corresponding
    helper lemma.
 
+**Bridging chained vs bundled gas.** `stepF` charges gas in chained form
+(via `consumeGas` and `consumeMemExp`/`consumeMemExp2`), while
+`StepRunning` uses a single bundled `Gas.<op>Total` total in both its
+pre-condition and post-state. For each `chargeMem`-style helper, the
+proof:
+
+1. Builds the bundled `h_total : Gas.<op>Total s … ≤ s.gasAvailable`
+   from the chained `h_gas`/`h_mem`/`h_dyn` hypotheses with
+   `simp` + `omega` (using `set` to consolidate the recurring atoms
+   `base` and `memDelta` and avoid the `s.fork` / `s.executionEnv.fork`
+   abbrev mismatch confusing omega).
+2. Proves a `post_eq` lemma showing the chained `stepF` post-state
+   equals the bundled constructor post-state. The two states agree on
+   every field except `gasAvailable`, where chained
+   `((g - base) - memDelta) - kwc` and bundled `g - (base + memDelta +
+   kwc)` are equal by `Nat.sub_add_eq` (closed by `grind`).
+3. Rewrites with `post_eq` and applies the matching constructor.
+
 We also export `Eval.halted_inv` (a halted state's only `Eval`
 derivation is `Eval.halted`), which doesn't depend on `stepF`.
 -/

@@ -40,16 +40,14 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=601 fail=0 incon=8 crash=0
 ```
 
-**StateTests `stCallCodes` (80 tests, run by `statetests`)**:
+**StateTests `stCallCodes` (80 JSON files, 328 per-fork test cases)**:
 ```
-pass_full=0 pass_core=71 fail=6 incon=3 crash=0
+pass(full=328 core+=0) fail=0 incon=0 crash=0
 ```
-- `pass_core` = storage + nonce + code match (the CALL-semantics signal);
-  `pass_full` would additionally require exact balances — none reach this
-  because exact balances need full gas-refund modelling (SSTORE refunds and
-  cold/warm pricing). The remaining 6 FAILs are all `*_ABCB_RECURSIVE`
-  tests where a four-way recursive CALL chain still ends with a storage
-  slot at the deepest contract not getting written.
+- `pass_full` = storage + nonce + code + balance match. All 328 per-fork
+  test entries pass on the full comparison (previously the `*_ABCB_RECURSIVE`
+  tests failed at a storage write deep in a four-way recursive CALL chain
+  — that's now resolved).
 - **fail=0** — every with-`post` test that matches the storage / return-data
   comparison also matches the expected remaining-`gas` value. The schedule
   currently covers: every fixed-cost op, SLOAD / SSTORE (pre-EIP-1283),
