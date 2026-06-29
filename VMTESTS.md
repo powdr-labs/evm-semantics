@@ -2,11 +2,11 @@
 
 Two harnesses exercise the verified evaluator (`stepF` / `run`):
 
-- **`VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
+- **`tests/VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
   **VMTests** suite, the suite that matches this evaluator's *single-frame*
   scope (no inter-contract calls, no transaction processing). This is the
   bulk of the conformance coverage; the rest of this document is about it.
-- **`StateTestRunner.lean`** (executable `statetests`) — runs the
+- **`tests/StateTestRunner.lean`** (executable `statetests`) — runs the
   BlockchainTests **`stCall*` / `stCallCodes`** suites, which exercise the
   CALL and CALLCODE opcodes' per-call-frame stack and the three
   `callReturn*` resume rules. Storage comparison covers the union of

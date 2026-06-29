@@ -184,7 +184,7 @@ Touch these in order, then rebuild + lint + run vmtests:
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still
    closes. The helpers produce `StepRunning`; the headline `stepF_sound`
    wraps with `Step.running h_running`.
-7. `VMRunner.lean` — update the conformance pre-scan if the opcode's support or
+7. `tests/VMRunner.lean` — update the conformance pre-scan if the opcode's support or
    gas status changed: `skipReasonOf` (skip unsupported opcodes) and
    `gasComparableOpcode`. The latter has a catch-all `| _ => true`, so a new
    opcode with a *dynamic* cost is silently treated as gas-comparable unless you

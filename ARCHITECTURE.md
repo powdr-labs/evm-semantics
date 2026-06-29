@@ -67,7 +67,7 @@ graph TD
 
     subgraph Executables
         Main["Main.lean<br/>demo: run = fuel loop over stepF"]
-        VMRunner["VMRunner.lean (exe vmtests)<br/>JSON harness + fuel loop"]
+        VMRunner["tests/VMRunner.lean (exe vmtests)<br/>JSON harness + fuel loop"]
     end
 
     UInt256 --> Account & BlockHeader & ExecEnv & Substate & MachineState
@@ -204,8 +204,8 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
 **Executables**
 - **`Main.lean`** — `initState` + a `partial def run` fuel loop over `stepF`;
   the demo runs `PUSH1 5; PUSH1 3; ADD; STOP`.
-- **`VMRunner.lean`** (exe `vmtests`) — the conformance harness; see below.
-- **`KeccakTest.lean`** (exe `keccak_test`) — differential check that our
+- **`tests/VMRunner.lean`** (exe `vmtests`) — the conformance harness; see below.
+- **`tests/KeccakTest.lean`** (exe `keccak_test`) — differential check that our
   `Keccak256` agrees with well-known Ethereum hash vectors (empty input,
   `"abc"`, the ERC-20 `transfer(address,uint256)` selector).
 
@@ -403,8 +403,8 @@ caller's memory — and short-circuits when that count is `0`, so a CALL with
 `retSize = 0` and a huge `retOffset` does *not* allocate memory.
 
 An in-frame `Except.error` from `stepF` is treated as a callee-side exception
-when `callStack ≠ []`: the `run` loops in `Main.lean`, `VMRunner.lean`, and
-`StateTestRunner.lean` all convert it to `{ s with halt := .Exception e }`
+when `callStack ≠ []`: the `run` loops in `Main.lean`, `tests/VMRunner.lean`, and
+`tests/StateTestRunner.lean` all convert it to `{ s with halt := .Exception e }`
 and re-enter `stepF` so `resumeException` fires. Only a top-frame error
 (`callStack = []`) propagates as a top-level abort.
 
@@ -419,7 +419,7 @@ flowchart LR
     end
     subgraph "Executable (Except)"
         StepF["stepF s : Except _ State<br/>EVM/StepF.lean"]
-        Run["run = fuel loop<br/>Main.lean · VMRunner.lean"]
+        Run["run = fuel loop<br/>Main.lean · tests/VMRunner.lean"]
         StepF --> Run
     end
     StepF -.->|"stepF_sound:<br/>stepF s = ok s' → Step s s'<br/>EVM/Equiv.lean (no sorry)"| Step
@@ -464,7 +464,7 @@ flowchart LR
   halt/decode/gas/operation and dispatches to them. Also exports
   `Eval.halted_inv`.
 
-## The conformance harness (`VMRunner.lean`)
+## The conformance harness (`tests/VMRunner.lean`)
 
 The `vmtests` executable runs the legacy ethereum/tests **VMTests** corpus
 against `stepF` via its `run` fuel loop (cap `2_000_000`):
@@ -481,7 +481,7 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    (real Keccak-256 is wired in via `Crypto/Keccak256.lean`). The four
    call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
    `STATICCALL`) are implemented in the evaluator; the separate
-   `statetests` exe (`StateTestRunner.lean`) exercises them against the
+   `statetests` exe (`tests/StateTestRunner.lean`) exercises them against the
    `stCall*` / `stCallCodes` BlockchainTests.
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
