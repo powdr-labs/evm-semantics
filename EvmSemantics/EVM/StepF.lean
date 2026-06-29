@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.EVM.Step
+public import EvmSemantics.Data.Rlp
 
 /-!
 `stepF` — the executable shadow of the `Step` relation.
@@ -728,13 +729,97 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let benAddr := AccountAddress.ofUInt256 beneficiary
         let ben     := s.accountMap benAddr
         let selfBal : Bool := (s.accountMap s.executionEnv.address).balance.toNat != 0
-        let surcharge := Gas.selfDestructSurcharge ben.isEmpty selfBal
+        let surcharge := Gas.selfDestructSurcharge s.fork ben.isEmpty selfBal
         if hsc : surcharge ≤ s'.gasAvailable then
           .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
         else .error .OutOfGas
     | _ => underflow
-  -- Not yet implemented.
-  | .CREATE | .CREATE2 => .error .InvalidInstruction
+  | .CREATE => match s.stack with
+    | value :: offset :: size :: rest =>
+      if ¬ s.executionEnv.permitStateMutation then static
+      else
+        match chargeMem s' offset.toNat size.toNat with
+        | .error e => .error e
+        | .ok s2 =>
+          if s2.executionEnv.depth ≥ 1024 ∨
+              (s2.accountMap s2.executionEnv.address).balance < value then
+            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+                   (UInt256.ofNat 0 :: rest))
+          else
+            -- Derive `newAddr` via `createAddress`. The encoder is
+            -- `Option`-typed: it returns `none` only when the payload
+            -- would exceed `2^64` bytes, which is unreachable here
+            -- ([20-byte address, ≤32-byte nonce] tops out at ~55
+            -- bytes). We map a `none` to `InvalidInstruction` for
+            -- completeness, but a gas-bounded execution never reaches it.
+            match createAddress s2.executionEnv.address
+                    (s2.accountMap s2.executionEnv.address).nonce.toNat with
+            | none => .error .InvalidInstruction
+            | some newAddr =>
+              -- EIP-150 forwards 63/64 of the post-cost gas to the
+              -- child; that amount is taken from the caller *regardless
+              -- of whether creation succeeds or collides*, since on
+              -- collision the child returns zero gas. Hence we consume
+              -- `forwarded` before splitting on the collision check.
+              if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
+                let s3 := s2.consumeGas forwarded hfw
+                -- Address-collision check: if `newAddr` already hosts code
+                -- or has nonce > 0 the create *fails* with the caller's
+                -- nonce still bumped (push 0, no transfer, no frame).
+                -- Discriminated via a `Bool` (`Account.isContract`) so
+                -- the Equiv proof can split cleanly on the match.
+                match (s3.accountMap newAddr).isContract with
+                | true =>
+                  let caller    := s3.executionEnv.address
+                  let callerAcc := s3.accountMap caller
+                  let σ' := s3.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+                  .ok ({ s3 with accountMap := σ', returnData := .empty
+                       }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                | false =>
+                  .ok (s3.enterCreate rest newAddr value
+                         (MachineState.readPadded s3.memory offset.toNat size.toNat)
+                         forwarded)
+              else .error .OutOfGas
+    | _ => underflow
+  | .CREATE2 => match s.stack with
+    | value :: offset :: size :: salt :: rest =>
+      if ¬ s.executionEnv.permitStateMutation then static
+      else
+        match chargeMem s' offset.toNat size.toNat with
+        | .error e => .error e
+        | .ok s2 =>
+          let hashCost := Gas.create2HashCost size.toNat
+          if hh : hashCost ≤ s2.gasAvailable then
+            let s2' := s2.consumeGas hashCost hh
+            if s2'.executionEnv.depth ≥ 1024 ∨
+                (s2'.accountMap s2'.executionEnv.address).balance < value then
+              .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              -- See CREATE above: forward gas is consumed even on collision.
+              if hfw : Gas.allButOneSixtyFourth s2'.gasAvailable ≤ s2'.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
+                let s3 := s2'.consumeGas forwarded hfw
+                match (s3.accountMap (create2Address s3.executionEnv.address salt
+                         (MachineState.readPadded s3.memory
+                            offset.toNat size.toNat))).isContract with
+                | true =>
+                  let caller    := s3.executionEnv.address
+                  let callerAcc := s3.accountMap caller
+                  let σ' := s3.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+                  .ok ({ s3 with accountMap := σ', returnData := .empty
+                       }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                | false =>
+                  let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
+                  .ok (s3.enterCreate rest
+                         (create2Address s3.executionEnv.address salt initCode)
+                         value initCode forwarded)
+              else .error .OutOfGas
+          else .error .OutOfGas
+    | _ => underflow
 
 end stepF
 

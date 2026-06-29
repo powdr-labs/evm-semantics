@@ -172,9 +172,13 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   the EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (these are stubbed at `1` / `100` with a `TODO` comment
   pending an `accessedAccounts` set in `Substate`) and the out-of-scope
-  CREATE / CREATE2 family. `SELFDESTRUCT` charges base 5000 plus the
-  25000 new-account surcharge (`Gas.selfDestructSurcharge`) but is
-  marked non-gas-comparable pending refund modelling.
+  cold/warm split family and the CALL-family dynamic surcharge. The
+  legacy ethereum/tests corpus uses Frontier rules for SELFDESTRUCT
+  (cost 0, no `G_newaccount` surcharge) — same convention as our
+  Frontier-rate SLOAD = 50 and EXP per-byte = 10 — so on the
+  `Constantinople` fork `Gas.baseCost .SELFDESTRUCT = 0` and
+  `Gas.selfDestructSurcharge .Constantinople _ _ = 0`. Modern values
+  (5000 + 25000) live on `Cancun`.
   `VMRunner.gasComparableOpcode` is the actual gate for which tests can
   be gas-checked. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
@@ -323,9 +327,60 @@ post-state comparison only enumerates accounts listed in the test's
 `post`, so leaving the self-destructed account's storage/code in place
 is observably equivalent to immediate deletion.
 
+## CREATE / CREATE2
+
+`CREATE` and `CREATE2` open an *init-code* sub-frame whose `codeOwner`
+is the freshly-derived `newAddr` and whose `code` is the init bytes
+read from caller memory. The frame is marked on the call stack by a
+new field `Frame.createAddr : Option AccountAddress` (`none` for CALL
+frames, `some addr` for CREATE frames), and `State.resumeByHalt`
+routes the child halt through one of three new CREATE-specific resume
+helpers — `resumeCreateSuccess` (deploy `hReturn` as `addr`'s code,
+charging `G_codedeposit = 200 · |code|` from the child's remaining gas;
+if unaffordable, treat as exception and roll back),
+`resumeCreateRevert` (rollback, push `0`, keep `hReturn` as
+returnData), and `resumeCreateException` (rollback, push `0`, refund
+nothing). The pushed value on success is `addr.toUInt256`, not the
+CALL-family `1`/`0` flag.
+
+Address derivation:
+
+* **CREATE:** `keccak256(rlp([sender, sender.nonce]))[12:]`. The RLP
+  encoder lives in `EvmSemantics/Data/Rlp.lean` and only handles the
+  `[20-byte address, uint nonce]` shape (short-string + short-list
+  paths only; the `>55 byte` length-of-length prefixes are not
+  reachable here since the encoded list is ≤ 30 bytes).
+* **CREATE2:** `keccak256(0xff || sender(20) || salt(32) ||
+  keccak256(initcode)(32))[12:]`. CREATE2 additionally pays
+  `Gas.create2HashCost size = 6 · ⌈size/32⌉` for the init-code keccak.
+
+The pre-frame pipeline (memory expansion → depth/balance pre-check →
+63/64 forwarding → `State.enterCreate`) bumps the caller's nonce by 1
+*before* installing the child frame (the address derivation has
+already used the pre-bump nonce); transfers `value` to the new
+account; sets the new account's nonce to `1` (EIP-161 "exists" marker
+so the account isn't `isEmpty`). On `Frame.snapAccountMap` rollback,
+both the nonce bump and the value transfer are undone.
+
+**Address-collision detection** uses a `Bool`-valued helper
+`Account.isContract` (= `code.size != 0 || nonce.toNat != 0`,
+stricter than `Account.isEmpty` because balance is excluded — per the
+Yellow Paper a pre-funded address with no code and `nonce = 0` is
+still a valid creation target). The CREATE / CREATE2 arms dispatch
+via `match … .isContract with | true => … | false => …`; on
+`true` the caller's nonce is still bumped, `0` is pushed, and no
+transfer or frame entry occurs (forwarded gas is also not spent). The
+discriminator is `Bool` rather than `Prop` so the Equiv-proof's
+`split at h` produces clean `true`/`false` cases instead of going
+through a `Decidable` instance for `ByteArray.size = 0` that the
+elaborator normalises to `ByteArray = ByteArray.empty` — that
+normalisation tangle is what blocked the first attempt.
+
 When the callee halts the *active frame's* `halt` becomes non-`Running` but
 `callStack` is still non-empty — `stepF`'s halt arm calls `State.resumeByHalt`
 to dispatch on the callee's halt kind:
+
+CALL-family frames (`Frame.createAddr = none`):
 
 | callee `halt` | rule              | flag | return data        | world         |
 |---------------|-------------------|:----:|--------------------|---------------|
@@ -333,6 +388,15 @@ to dispatch on the callee's halt kind:
 | `.Returned`   | `resumeSuccess`   | `1`  | `child.hReturn`    | keep child's  |
 | `.Reverted`   | `resumeRevert`    | `0`  | `child.hReturn`    | snapshot      |
 | `.Exception _`| `resumeException` | `0`  | `∅`                | snapshot      |
+
+CREATE-family frames (`Frame.createAddr = some addr`):
+
+| callee `halt` | rule                     | pushed     | return data     | world after                                                       |
+|---------------|--------------------------|:----------:|-----------------|-------------------------------------------------------------------|
+| `.Success`    | `resumeCreateSuccess`    | `addr`     | `∅`             | child + `addr.code := hReturn` (if `200·|code| ≤ child gas`)      |
+| `.Returned`   | `resumeCreateSuccess`    | `addr`     | `∅`             | child + `addr.code := hReturn` (if affordable; else: rollback)    |
+| `.Reverted`   | `resumeCreateRevert`     | `0`        | `child.hReturn` | snapshot                                                          |
+| `.Exception _`| `resumeCreateException`  | `0`        | `∅`             | snapshot                                                          |
 
 `State.writeReturn` copies `min(retSize, hReturn.size)` bytes back into the
 caller's memory — and short-circuits when that count is `0`, so a CALL with
@@ -411,8 +475,9 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
    the real `exec.gas` budget and compare the remaining `gas`) when every opcode
    has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
-   `hugeGas = 2^63`, never compare gas). CREATE / CREATE2 are skipped
-   outright by `skipReasonOf`; KECCAK256 / EXTCODEHASH run
+   `hugeGas = 2^63`, never compare gas). `skipReasonOf` returns `none`
+   for every opcode now — every test runs through `stepF`. KECCAK256 /
+   EXTCODEHASH run
    (real Keccak-256 is wired in via `Crypto/Keccak256.lean`). The four
    call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
    `STATICCALL`) are implemented in the evaluator; the separate

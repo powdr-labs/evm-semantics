@@ -57,6 +57,15 @@ structure Frame where
   snapAccountMap : EvmSemantics.AccountMap
   /-- Substate snapshot at call time — restored if the child REVERTs/throws. -/
   snapSubstate   : EvmSemantics.Substate
+  /-- `none` for a CALL-family frame; `some newAddr` for a CREATE/CREATE2
+      frame, where `newAddr` is the address whose code we will set to the
+      child's `hReturn` on successful return. The presence of this marker
+      switches `resumeByHalt` to the CREATE-resume path: the caller's
+      pushed value is `newAddr.toUInt256` (success) or `0` (failure)
+      instead of `1`/`0`, and `child.hReturn` is *not* copied into the
+      caller's memory (no `retOffset`/`retSize` semantics — they are unused
+      for CREATE frames). -/
+  createAddr     : Option AccountAddress := none
   deriving Inhabited
 
 /-- Per-execution-frame state — extends `SharedState` with EVM-specific
@@ -164,16 +173,88 @@ def resumeException (child : State) (f : Frame) (rest : List Frame) : State :=
   child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
     f.snapAccountMap f.snapSubstate
 
+/-- `G_codedeposit = 200` — the per-byte cost of installing init-code
+    output as the new account's code at the end of a successful CREATE.
+    Inlined here (not in `Gas.lean`) because `State.lean` is upstream of
+    `Gas.lean` in the import graph. -/
+@[inline] def codeDepositPerByte : Nat := 200
+
+/-- EIP-170 (Spurious Dragon, both modelled forks): a contract's
+    deployed code is rejected if it exceeds this many bytes. The
+    init code itself can be larger (subject to EIP-3860's cap on
+    Cancun); only the *returned* runtime code is capped here. -/
+@[inline] def maxCodeSize : Nat := 24576
+
+/-- EIP-3541 (Cancun): does the candidate deployed code start with the
+    reserved `0xEF` byte? Such code is rejected at deploy time; the
+    rule does not apply on `Constantinople`. -/
+def isReservedCodePrefix (fork : Fork) (code : ByteArray) : Bool :=
+  match fork with
+  | .Cancun         => code.size ≥ 1 && code[0]! == 0xEF
+  | .Constantinople => false
+
+/-- CREATE-frame success resume: the child halted with `.Success` or
+    `.Returned` and its `hReturn` is the candidate deployed code.
+
+    Three reject conditions all route through the same rollback path
+    (push `0`, no refund, snapshot world restored):
+
+    * **OOG**: the per-byte `G_codedeposit · |hReturn|` deposit cost
+      doesn't fit in `child.gasAvailable`.
+    * **EIP-170**: `|hReturn|` exceeds `maxCodeSize`.
+    * **EIP-3541** (Cancun): `hReturn` begins with `0xEF`.
+
+    Otherwise we deploy the code, push the new address, and refund
+    the remaining gas. The caller is *not* handed `hReturn` via
+    memory (CREATE never copies output to caller memory), so we pass
+    `ByteArray.empty` to `resumeWith`. -/
+def resumeCreateSuccess (child : State) (f : Frame) (rest : List Frame)
+    (newAddr : AccountAddress) : State :=
+  let codeLen     := child.hReturn.size
+  let depositCost := codeDepositPerByte * codeLen
+  let oversized   := codeLen > maxCodeSize
+  let badPrefix   := isReservedCodePrefix child.executionEnv.fork child.hReturn
+  if depositCost ≤ child.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then
+    let σ := child.accountMap.set newAddr
+               { (child.accountMap newAddr) with code := child.hReturn }
+    let pushed := newAddr.toUInt256
+    child.resumeWith f rest pushed ByteArray.empty
+      (child.gasAvailable - depositCost) σ child.substate
+  else
+    -- Reject deployment (OOG, EIP-170, or EIP-3541): act like an exception.
+    child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
+      f.snapAccountMap f.snapSubstate
+
+/-- CREATE-frame revert resume: roll back the world, push `0`, hand back
+    the unspent gas. `child.hReturn` is preserved as `returnData`
+    (the revert-message convention, like CALL/REVERT) but *not* installed
+    as code. -/
+def resumeCreateRevert (child : State) (f : Frame) (rest : List Frame) : State :=
+  child.resumeWith f rest (UInt256.ofNat 0) child.hReturn child.gasAvailable
+    f.snapAccountMap f.snapSubstate
+
+/-- CREATE-frame exception resume: roll back the world, push `0`, refund
+    nothing. -/
+def resumeCreateException (child : State) (f : Frame) (rest : List Frame) : State :=
+  child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
+    f.snapAccountMap f.snapSubstate
+
 /-- Dispatch the resume of caller `f` on the active (child) frame's halt kind.
     The `.Running` arm is unreachable (resume is only invoked on a halted
-    frame) and returns the child unchanged. -/
+    frame) and returns the child unchanged. Routes CALL-family frames
+    (`f.createAddr = none`) through the original three resume helpers and
+    CREATE-family frames (`some addr`) through their CREATE counterparts. -/
 def resumeByHalt (child : State) (f : Frame) (rest : List Frame) : State :=
-  match child.halt with
-  | .Running     => child
-  | .Success     => child.resumeSuccess f rest
-  | .Returned    => child.resumeSuccess f rest
-  | .Reverted    => child.resumeRevert f rest
-  | .Exception _ => child.resumeException f rest
+  match f.createAddr, child.halt with
+  | _,        .Running        => child
+  | none,     .Success        => child.resumeSuccess f rest
+  | none,     .Returned       => child.resumeSuccess f rest
+  | none,     .Reverted       => child.resumeRevert f rest
+  | none,     .Exception _    => child.resumeException f rest
+  | some a,   .Success        => child.resumeCreateSuccess f rest a
+  | some a,   .Returned       => child.resumeCreateSuccess f rest a
+  | some _,   .Reverted       => child.resumeCreateRevert f rest
+  | some _,   .Exception _    => child.resumeCreateException f rest
 
 /-- The callee's execution environment for a plain `CALL` from caller state `sc`
     into address `to`: the callee runs *its own* code and storage (`address`),
@@ -399,6 +480,97 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
       substate   := substate'
       halt       := .Success
       hReturn    := .empty }
+
+/-! ### CREATE / CREATE2
+
+A CREATE-family opcode opens a *creation* sub-frame whose code is the
+init bytes read from caller memory and whose `address` is the
+freshly-derived `newAddr`. The frame is marked on the call stack by
+`Frame.createAddr := some newAddr`; on a `.Success`/`.Returned` halt
+the child's `hReturn` is installed as `newAddr`'s code (see
+`resumeCreateSuccess`). -/
+
+/-- The callee's execution environment for a CREATE/CREATE2 init-code
+    run. `address = newAddr` (the new contract executes its own init
+    in its own storage slot), `caller = parent.address`, `weiValue =
+    value`, `calldata = empty` (init code receives no calldata), `code
+    = initCode`, depth is incremented, and the static flag propagates
+    from the caller. -/
+def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
+    (value : UInt256) (initCode : ByteArray) : EvmSemantics.ExecutionEnv :=
+  { address              := newAddr
+    origin               := sc.executionEnv.origin
+    caller               := sc.executionEnv.address
+    weiValue             := value
+    calldata             := .empty
+    code                 := initCode
+    gasPrice             := sc.executionEnv.gasPrice
+    header               := sc.executionEnv.header
+    depth                := sc.executionEnv.depth + 1
+    permitStateMutation  := sc.executionEnv.permitStateMutation
+    blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
+    fork                 := sc.executionEnv.fork }
+
+/-- Enter a CREATE/CREATE2 init-code sub-frame. `sc` is the caller state
+    after the static + memory + base-gas deductions; `rest` is the
+    caller stack with the 3/4 CREATE arguments already popped. We:
+
+    1. Bump the caller's nonce by one (the address derivation has
+       already used the pre-bump value).
+    2. Transfer `value` from caller to `newAddr` (the new account may be
+       brand-new with balance `0`; that's fine).
+    3. Snapshot the caller into a `Frame` whose `createAddr := some
+       newAddr` so `resumeByHalt` routes the child's halt through the
+       CREATE-resume helpers.
+    4. Install the callee frame: code = `initCode`, address =
+       `newAddr`, gas = `childGas`.
+
+    The new account starts with `nonce = 1` (EIP-161 pre-existence rule:
+    a contract that exists has at least nonce 1 to distinguish it from
+    the empty account). -/
+def enterCreate (sc : State) (rest : List UInt256)
+    (newAddr : AccountAddress) (value : UInt256) (initCode : ByteArray)
+    (childGas : Nat) : State :=
+  let caller := sc.executionEnv.address
+  let callerAcc := sc.accountMap caller
+  -- Bump the creator nonce first. The bump must persist even if init
+  -- code reverts / faults / fails the code-deposit gas check, so the
+  -- frame's `snapAccountMap` snapshots the *post-bump* world (`map₁`).
+  -- Only the value transfer and the new-account nonce are layered on
+  -- top for the child's world and rolled back on a child failure.
+  let map₁ : EvmSemantics.AccountMap :=
+    sc.accountMap.set caller { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+  let frame : Frame :=
+    { pc             := sc.pc + UInt256.ofNat 1
+      stack          := rest
+      gasAvailable   := sc.gasAvailable
+      activeWords    := sc.activeWords
+      memory         := sc.memory
+      returnData     := sc.returnData
+      executionEnv   := sc.executionEnv
+      retOffset      := 0
+      retSize        := 0
+      snapAccountMap := map₁
+      snapSubstate   := sc.substate
+      createAddr     := some newAddr }
+  let map₂ := map₁.transfer caller newAddr value
+  -- Bring the new account into existence with nonce 1 (and any pre-existing
+  -- code/storage at this address is preserved — see the collision check in
+  -- `stepF.system .CREATE`).
+  let newAcc := map₂ newAddr
+  let map₃ := map₂.set newAddr { newAcc with nonce := ⟨1⟩ }
+  { sc with
+      accountMap   := map₃
+      gasAvailable := childGas
+      activeWords  := UInt256.ofNat 0
+      memory       := .empty
+      returnData   := .empty
+      hReturn      := .empty
+      executionEnv := sc.calleeEnvForCreate newAddr value initCode
+      pc           := UInt256.ofNat 0
+      stack        := []
+      halt         := .Running
+      callStack    := frame :: sc.callStack }
 
 end State
 

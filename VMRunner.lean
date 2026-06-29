@@ -132,14 +132,24 @@ def buildState (testObj : Json) : State := buildStateWith testObj hugeGas
     evaluator itself), so no harness compensation is needed here. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
   if fuel = 0 then .error .OutOfFuel else
-    -- A nested CALL leaves the active frame halted while `callStack` is
-    -- non-empty; `stepF` then resumes the caller. So we loop until the whole
-    -- execution is *done* (halted with an empty call stack), not merely until
-    -- the active frame halts.
+    -- A nested CALL/CREATE leaves the active frame halted while
+    -- `callStack` is non-empty; `stepF` then resumes the caller. So we
+    -- loop until the whole execution is *done* (halted with an empty
+    -- call stack), not merely until the active frame halts.
     if s.isDone then .ok s else
       match stepF s with
       | .ok s'   => run s' (fuel - 1)
-      | .error e => .error e
+      | .error e =>
+        -- A `stepF` error inside a sub-frame (callStack non-empty) is
+        -- the executable mirror of `StepReturn.{call,create}ReturnException`:
+        -- mark the active frame as `.Exception e`, then resume the
+        -- caller through `resumeByHalt` (which dispatches to
+        -- `resumeException` for CALL frames or `resumeCreateException`
+        -- for CREATE frames). Only a fault at the top frame aborts.
+        match s.callStack with
+        | []        => .error e
+        | f :: rest =>
+          run (({ s with halt := .Exception e }).resumeByHalt f rest) (fuel - 1)
 
 ----------------------------------------------------------------------------
 -- Opcode pre-scan
@@ -149,10 +159,7 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
     (regardless of gas mode). `GAS` is intentionally not listed here — it's
     fine under gas-compared mode (the pushed value is then correct); under
     hugeGas mode the parent decides via `usesGas` below. -/
-def skipReasonOf (op : Operation) : Option String :=
-  match op with
-  | .System .CREATE | .System .CREATE2 => some "unsupported"
-  | _ => none
+def skipReasonOf (_op : Operation) : Option String := none
 
 /-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
     schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
@@ -170,12 +177,22 @@ def gasComparableOpcode (op : Operation) : Bool :=
   -- Dynamic copy/log/exp costs charged in stepF (and proved in Step).
   | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => true
   | .EXP | .Log _ => true
-  -- Out-of-scope / dynamic system ops.
-  | .CREATE | .CREATE2 | .CALL | .CALLCODE
-  | .DELEGATECALL | .STATICCALL => false
-  -- SELFDESTRUCT: base 5000 is fixed, but the 25000 new-account surcharge
-  -- and the 24000 refund are dynamic; keep it gas-non-comparable for now.
-  | .SELFDESTRUCT => false
+  -- CALL family: dynamic value/new-account surcharge + 63/64
+  -- forwarding interact with caller gas in ways the comparator hasn't
+  -- been audited for, so kept non-comparable.
+  | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL => false
+  -- SELFDESTRUCT, CREATE, CREATE2: gas-comparable now.
+  -- - SELFDESTRUCT: on `Constantinople` the legacy corpus uses Frontier
+  --   rules (cost 0, no `G_newaccount` surcharge), so `baseCost` +
+  --   `selfDestructSurcharge` collapse to 0 here and the corpus's
+  --   per-frame `gas` value matches exactly. The 24000 refund stays in
+  --   `Substate.refundBalance` but is NOT applied at frame end (the
+  --   legacy VMTests corpus reports pre-refund gas).
+  -- - CREATE / CREATE2: the VMTests corpus has no test that actually
+  --   reaches these as instruction-boundary opcodes (any `0xf0`/`0xf5`
+  --   byte sits inside a PUSH immediate). Flipping the flag here lets
+  --   those tests get gas-checked too without changing any behaviour.
+  | .SELFDESTRUCT | .CREATE | .CREATE2 => true
   | _ => true
 
 /-- Outcome of a full bytecode scan. `skipReason` overrides everything

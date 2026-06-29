@@ -128,10 +128,15 @@ relational `callReturn*` rules cover the success/revert/exception resume
 paths and are shared by all four opcodes; `Main.run` /
 `StateTestRunner.run` / `VMRunner.run` all convert a subcall
 `Except.error` into `resumeException` rather than propagating it as a
-top-level abort. `SELFDESTRUCT` is also implemented (base 5000 +
-new-account surcharge, balance burn on self-beneficiary, scheduled
-deletion via `Substate.selfDestructSet`). **Not yet implemented:** CREATE
-/ CREATE2, transaction processing, block validation, precompiles, RLP.
+top-level abort. `SELFDESTRUCT`, `CREATE`, and `CREATE2` are also
+implemented: SELFDESTRUCT does balance burn-on-self + scheduled deletion
+via `Substate.selfDestructSet`; CREATE/CREATE2 enter an init-code frame
+marked by `Frame.createAddr := some newAddr`, with a dedicated
+`resumeCreateSuccess` rule that installs `hReturn` as the new code
+(charged at `G_codedeposit = 200` per byte). Address derivation uses a
+minimal RLP encoder (`EvmSemantics.Rlp`) for CREATE and a raw keccak
+preimage for CREATE2. **Not yet implemented:** transaction processing,
+block validation, precompiles, full RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
@@ -148,9 +153,12 @@ deletion via `Substate.selfDestructSet`). **Not yet implemented:** CREATE
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and the out-of-scope CREATE / CREATE2 family. SELFDESTRUCT is
-  modelled (base 5000, `Gas.selfDestructSurcharge`) but marked
-  non-gas-comparable pending refund-counter accounting.
+  and EIP-3860's Cancun init-code word cost / size cap on CREATE / CREATE2
+  (the spec-fixed `Gas.create2HashCost` *is* modelled — it's the
+  address-derivation hash, charged in both `stepF` and the `Step` relation).
+  SELFDESTRUCT / CREATE / CREATE2 are gas-comparable on the
+  `Constantinople` fork (SELFDESTRUCT uses Frontier rules to match the
+  legacy corpus); only the CALL family remains non-gas-comparable.
   `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode

@@ -4,6 +4,7 @@ public import EvmSemantics.EVM.State
 public import EvmSemantics.EVM.Decode
 public import EvmSemantics.EVM.Gas
 public import EvmSemantics.Crypto.Keccak256
+public import EvmSemantics.Data.Rlp
 
 /-!
 `Step` — the small-step relation, split across three inductives.
@@ -76,6 +77,49 @@ def UInt256.isTrue (a : UInt256) : Prop := a.toNat ≠ 0
 
 instance (a : UInt256) : Decidable (UInt256.isTrue a) :=
   inferInstanceAs (Decidable (a.toNat ≠ 0))
+
+----------------------------------------------------------------------------
+-- Contract-address derivation (CREATE / CREATE2).
+--
+-- Both opcodes derive the new contract's `AccountAddress` by hashing
+-- a structured preimage with keccak256 and taking the low 20 bytes
+-- (via `AccountAddress.ofUInt256`, which discards the top 12 bytes
+-- via `% 2^160`). CREATE's preimage is RLP-encoded so the derivation
+-- can fail at the `encodeAddrNonce` step (returning `none` only when
+-- the encoded payload would exceed 2^64 bytes — unreachable from
+-- gas-bounded EVM execution). CREATE2's preimage is a raw byte
+-- concatenation, so its derivation is total.
+----------------------------------------------------------------------------
+
+/-- The address of a contract created by `CREATE` from `sender` whose
+    pre-bump nonce is `nonce`:
+    `AccountAddress.ofUInt256 (keccak256 (rlp [sender, nonce]))`.
+    Returns `none` only if `Rlp.encodeAddrNonce` does — in practice
+    never, since the encoded payload is `≤ 30` bytes (20-byte address
+    + ≤8-byte nonce + RLP overhead). -/
+def createAddress (sender : AccountAddress) (nonce : Nat) :
+    Option AccountAddress :=
+  (Rlp.encodeAddrNonce sender nonce).map (fun rlpBytes =>
+    AccountAddress.ofUInt256 (keccak256 rlpBytes))
+
+/-- The address of a contract created by `CREATE2` from `sender`,
+    `salt`, and the *pre-hashed* init-code hash (the keccak256 of the
+    init bytes the EVM read from memory):
+    `AccountAddress.ofUInt256 (keccak256 (0xff || sender || salt || initCodeHash))`. -/
+def create2AddressFromHash (sender : AccountAddress) (salt : UInt256)
+    (initCodeHash : UInt256) : AccountAddress :=
+  AccountAddress.ofUInt256 (keccak256
+    (ByteArray.mk #[0xff]
+      ++ Rlp.addressBytes sender
+      ++ Rlp.uint256ToBytes32 salt
+      ++ Rlp.uint256ToBytes32 initCodeHash))
+
+/-- The address of a contract created by `CREATE2` from `sender`,
+    `salt`, and the raw `initCode` bytes — hashes `initCode` and
+    forwards to `create2AddressFromHash`. -/
+def create2Address (sender : AccountAddress) (salt : UInt256)
+    (initCode : ByteArray) : AccountAddress :=
+  create2AddressFromHash sender salt (keccak256 initCode)
 
 namespace EVM
 
@@ -1153,6 +1197,205 @@ inductive StepRunning : State → State → Prop
             (UInt256.ofNat 0 :: rest))
 
   ----------------------------------------------------------------------------
+  -- CREATE / CREATE2: install a new contract.
+  --
+  -- Both opcodes share a five-branch shape: static-mode rejection, OOG
+  -- on memory expansion (caught by the generic `outOfGas` rule on the
+  -- surrounding `chargeMem`), pre-execution failure (depth ≥ 1024 or
+  -- caller balance < value), address-collision failure, and the taken
+  -- path. CREATE2 also rejects when its initcode-hash cost can't be
+  -- paid (also a generic `outOfGas`).
+  --
+  -- Address derivation differs:
+  --   * CREATE  : keccak256(rlp([sender, sender.nonce]))[12:]
+  --   * CREATE2 : keccak256(0xff || sender || salt || keccak256(init))[12:]
+  -- Otherwise the bookkeeping (nonce bump on collision, transfer +
+  -- enterCreate on take) is identical.
+  ----------------------------------------------------------------------------
+
+  /-- CREATE attempted in a static frame. Halts with `StaticModeViolation`
+      *before* paying gas. -/
+  | createStatic (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (h_op    : s.decodedOp = some .CREATE)
+        (h_stack : s.stack = value :: offset :: size :: rest)
+        (h_perm  : s.executionEnv.permitStateMutation = false)
+      : StepRunning s (s.haltWith .StaticModeViolation)
+
+  /-- CREATE (not taken — depth limit or insufficient balance): base gas
+      and memory-expansion gas are still paid, sender nonce is **not**
+      bumped, no transfer, no frame entry. `0` is pushed. -/
+  | createFail (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (s' s2 : State)
+        (h_op      : s.decodedOp = some .CREATE)
+        (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_fail    : s2.executionEnv.depth ≥ 1024 ∨
+                       (s2.accountMap s2.executionEnv.address).balance < value)
+      : StepRunning s
+          ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  /-- CREATE (address collision): the derived `newAddr` already hosts a
+      contract (code or nonce > 0). The caller's nonce is bumped, `0` is
+      pushed, and no transfer or frame entry happens.
+
+      EIP-150 still takes the forwarded amount on collision (the child
+      "returns zero gas"), so this rule consumes `forwarded` from `s2`
+      into `s3` before bumping the nonce — mirroring the no-collision
+      `create` rule.
+
+      `EvmSemantics.createAddress` returns `Option` only because of its
+      general signature (the underlying RLP encoder is `Option`-typed);
+      the `none` case is unreachable for EVM-bounded nonces. The
+      explicit `newAddr` / `h_addr` pair binds the derived address. -/
+  | createCollision (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (s' s2 s3 : State) (forwarded : Nat) (newAddr : AccountAddress)
+        (h_op      : s.decodedOp = some .CREATE)
+        (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
+                          (s2.accountMap s2.executionEnv.address).balance < value))
+        (h_addr    : EvmSemantics.createAddress s2.executionEnv.address
+                       (s2.accountMap s2.executionEnv.address).nonce.toNat
+                       = some newAddr)
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
+        (h_fw      : forwarded ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+        (h_coll    : (s3.accountMap newAddr).isContract = true)
+      : StepRunning s
+          (let caller    := s3.executionEnv.address
+           let callerAcc := s3.accountMap caller
+           let σ'        := s3.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+           ({ s3 with accountMap := σ', returnData := .empty
+            }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest)))
+
+  /-- CREATE (taken): depth + balance check passes *and* the derived
+      address is free. The remaining gas (after base + memory) has
+      63/64 forwarded to the init-code frame. See `createCollision`
+      for the `newAddr` / `h_addr` convention. -/
+  | create (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (s' s2 s3 : State) (forwarded : Nat) (newAddr : AccountAddress)
+        (h_op      : s.decodedOp = some .CREATE)
+        (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
+                          (s2.accountMap s2.executionEnv.address).balance < value))
+        (h_addr    : EvmSemantics.createAddress s2.executionEnv.address
+                       (s2.accountMap s2.executionEnv.address).nonce.toNat
+                       = some newAddr)
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
+        (h_fw      : forwarded ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+        (h_nocoll  : (s3.accountMap newAddr).isContract = false)
+      : StepRunning s
+          (s3.enterCreate rest newAddr value
+             (MachineState.readPadded s3.memory offset.toNat size.toNat)
+             forwarded)
+
+  /-- CREATE2 attempted in a static frame. -/
+  | create2Static (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (h_op    : s.decodedOp = some .CREATE2)
+        (h_stack : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm  : s.executionEnv.permitStateMutation = false)
+      : StepRunning s (s.haltWith .StaticModeViolation)
+
+  /-- CREATE2 (not taken — depth or balance). -/
+  | create2Fail (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (s' s2 s2' : State)
+        (h_op      : s.decodedOp = some .CREATE2)
+        (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE2) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
+        (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
+        (h_fail    : s2'.executionEnv.depth ≥ 1024 ∨
+                       (s2'.accountMap s2'.executionEnv.address).balance < value)
+      : StepRunning s
+          ({ s2' with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  /-- CREATE2 (address collision). Mirrors `createCollision`: EIP-150
+      takes the forwarded amount even though no child runs. -/
+  | create2Collision (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (s' s2 s2' s3 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .CREATE2)
+        (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE2) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
+        (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
+        (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
+                          (s2'.accountMap s2'.executionEnv.address).balance < value))
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
+        (h_fw      : forwarded ≤ s2'.gasAvailable)
+        (h_s3      : s3 = s2'.consumeGas forwarded h_fw)
+        (h_coll    : (s3.accountMap (EvmSemantics.create2Address s3.executionEnv.address salt
+                       (MachineState.readPadded s3.memory
+                          offset.toNat size.toNat))).isContract = true)
+      : StepRunning s
+          (let caller    := s3.executionEnv.address
+           let callerAcc := s3.accountMap caller
+           let σ'        := s3.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+           ({ s3 with accountMap := σ', returnData := .empty
+            }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest)))
+
+  /-- CREATE2 (taken): no collision, depth + balance pass. -/
+  | create2 (s : State)
+        (value offset size salt : UInt256) (rest : List UInt256)
+        (s' s2 s2' s3 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .CREATE2)
+        (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CREATE2) h_gas)
+        (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
+        (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
+        (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
+        (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
+        (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
+                          (s2'.accountMap s2'.executionEnv.address).balance < value))
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
+        (h_fw      : forwarded ≤ s2'.gasAvailable)
+        (h_s3      : s3 = s2'.consumeGas forwarded h_fw)
+        (h_nocoll  : (s3.accountMap (EvmSemantics.create2Address s3.executionEnv.address salt
+                       (MachineState.readPadded s3.memory
+                          offset.toNat size.toNat))).isContract = false)
+      : StepRunning s
+          (s3.enterCreate rest
+             (EvmSemantics.create2Address s3.executionEnv.address salt
+               (MachineState.readPadded s3.memory offset.toNat size.toNat))
+             value
+             (MachineState.readPadded s3.memory offset.toNat size.toNat)
+             forwarded)
+
+  ----------------------------------------------------------------------------
   -- SELFDESTRUCT: pop the beneficiary, transfer all of self's balance to
   -- it (credit-then-debit so self-beneficiary burns the balance), mark
   -- self in `substate.selfDestructSet`, and halt with `.Success`. The
@@ -1185,13 +1428,13 @@ inductive StepRunning : State → State → Prop
         (h_stack   : s.stack = beneficiary :: rest)
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .SELFDESTRUCT) h_gas)
-        (h_sc      : Gas.selfDestructSurcharge
+        (h_sc      : Gas.selfDestructSurcharge s.fork
                        ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
                        ((s.accountMap s.executionEnv.address).balance.toNat != 0)
                        ≤ s'.gasAvailable)
       : StepRunning s
           ((s'.consumeGas
-            (Gas.selfDestructSurcharge
+            (Gas.selfDestructSurcharge s.fork
               ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
               ((s.accountMap s.executionEnv.address).balance.toNat != 0))
             h_sc).selfDestructTo (AccountAddress.ofUInt256 beneficiary))
@@ -1355,10 +1598,16 @@ inductive StepRunning : State → State → Prop
 inductive StepReturn : State → State → Prop
 
   /-- Child STOP/RETURN: resume the caller with success flag `1`, keeping the
-      child's world mutations and refunding its unspent gas. -/
+      child's world mutations and refunding its unspent gas.
+
+      The `h_kind : f.createAddr = none` premise discriminates this from
+      `createReturnSuccess`: with `f.createAddr = some _` the frame is a
+      CREATE child and must resume through the CREATE-family rule, not
+      this one (which pushes `1` and ignores `hReturn`). -/
   | callReturnSuccess (s : State) (f : Frame) (rest : List Frame)
         (h_halt  : s.halt = .Success ∨ s.halt = .Returned)
         (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = none)
       : StepReturn s (s.resumeSuccess f rest)
 
   /-- Child REVERT: resume the caller with failure flag `0`, roll the world
@@ -1366,6 +1615,7 @@ inductive StepReturn : State → State → Prop
   | callReturnRevert (s : State) (f : Frame) (rest : List Frame)
         (h_halt  : s.halt = .Reverted)
         (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = none)
       : StepReturn s (s.resumeRevert f rest)
 
   /-- Child exceptional halt: resume the caller with failure flag `0`, roll the
@@ -1374,7 +1624,36 @@ inductive StepReturn : State → State → Prop
         (e : ExecutionException)
         (h_halt  : s.halt = .Exception e)
         (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = none)
       : StepReturn s (s.resumeException f rest)
+
+  /-- CREATE child STOP/RETURN: install the child's `hReturn` as the new
+      account's code (charging `G_codedeposit · |code|` from the child's
+      remaining gas), push `newAddr` to the caller, and refund the rest. -/
+  | createReturnSuccess (s : State) (f : Frame) (rest : List Frame)
+        (newAddr : AccountAddress)
+        (h_halt  : s.halt = .Success ∨ s.halt = .Returned)
+        (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = some newAddr)
+      : StepReturn s (s.resumeCreateSuccess f rest newAddr)
+
+  /-- CREATE child REVERT: roll the world back, push `0`, keep `hReturn`
+      as `returnData`, refund unspent gas. -/
+  | createReturnRevert (s : State) (f : Frame) (rest : List Frame)
+        (newAddr : AccountAddress)
+        (h_halt  : s.halt = .Reverted)
+        (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = some newAddr)
+      : StepReturn s (s.resumeCreateRevert f rest)
+
+  /-- CREATE child exceptional halt: roll back, push `0`, refund nothing. -/
+  | createReturnException (s : State) (f : Frame) (rest : List Frame)
+        (newAddr : AccountAddress)
+        (e : ExecutionException)
+        (h_halt  : s.halt = .Exception e)
+        (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = some newAddr)
+      : StepReturn s (s.resumeCreateException f rest)
 
 /-- The combined small-step relation. A `Step s s'` derivation is either a
     `StepRunning` transition guarded by the precondition `s.halt = .Running`,
