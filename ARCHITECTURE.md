@@ -138,9 +138,13 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
 - **`Exception.lean`** — `ExecutionException` (stack underflow/overflow, OOG,
   invalid jump, static-mode violation, …).
 - **`State.lean`** — `EVM.State` extends `SharedState` with `pc`, `stack :
-  List UInt256`, `execLength`, and `halt : HaltKind` (`Running | Success |
-  Returned | Reverted | Exception e`). Helpers: `replaceStackAndIncrPC`,
-  `incrPC`, `haltWith`.
+  List UInt256`, `execLength`, `halt : HaltKind` (`Running | Success |
+  Returned | Reverted | Exception e`), and the call-frame stack. The
+  spec-side rules use a flat `{ s with ... }` record-update post-state
+  (every field the opcode touches is named directly), so `State` itself
+  carries no `consumeGas` / `replaceStackAndIncrPC` helpers — those live
+  in `StepF.lean`, where the executable shadow charges gas in chained
+  form.
 - **`Decode.lean`** — `opcodeOf : UInt8 → Option Operation` and `decodeAt :
   ByteArray → pc → Option (Operation × Option (UInt256 × Nat))` returning the
   operation plus any PUSH immediate (value + width). Reading past code end
@@ -179,8 +183,9 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   `Constantinople` fork `Gas.baseCost .SELFDESTRUCT = 0` and
   `Gas.selfDestructSurcharge .Constantinople _ _ = 0`. Modern values
   (5000 + 25000) live on `Cancun`.
-  `VMRunner.gasComparableOpcode` is the actual gate for which tests can
-  be gas-checked. See `VMTESTS.md` for the breakdown.
+  Every VMTests test runs with its declared `exec.gas` budget; the
+  remaining-`gas` value is compared against the corpus whenever a `post`
+  block is present. See `VMTESTS.md` for the breakdown.
 - **`Halted.lean`** — `ExecutionResult` and `State.toResult`, projecting a
   halted `State` into the flat success/returned/reverted/exception sum.
 - **`Fork.lean`** — `inductive Fork = Constantinople | Cancun`; the active
@@ -329,7 +334,7 @@ is observably equivalent to immediate deletion.
 
 ## CREATE / CREATE2
 
-`CREATE` and `CREATE2` open an *init-code* sub-frame whose `codeOwner`
+`CREATE` and `CREATE2` open an *init-code* sub-frame whose `address`
 is the freshly-derived `newAddr` and whose `code` is the init bytes
 read from caller memory. The frame is marked on the call stack by a
 new field `Frame.createAddr : Option AccountAddress` (`none` for CALL
@@ -435,15 +440,25 @@ flowchart LR
   - `StepRunning` carries the per-opcode logic. Each success
     constructor names its premises explicitly. The typical shape is
     `h_op : s.decodedOp = some .X` (where `s.decodedOp : Option
-    Operation` is the op-only projection of `s.decoded`), `h_gas`
-    (`Gas.baseCost s.fork op ≤ s.gasAvailable`, a `Nat` `≤`), and an
-    `h_stack` shape, but it varies: `stop` carries no `h_gas`/`h_stack`
-    (while `RETURN`/`REVERT` keep `h_gas`/`h_stack`/`h_mem`) and
-    stackless reads omit `h_stack`. `pushN` is the one success rule that
-    uses the full `s.decoded`, because it consumes the PUSH immediate.
+    Operation` is the op-only projection of `s.decoded`), `h_gas` (a
+    `Nat` `≤` against the bundled `Gas.<op>Total s ...` total —
+    `Gas.<op>Total` packs the static base, memory-expansion delta, and
+    any per-word / per-byte dynamic cost into a single `Nat` so the
+    same identifier appears on both sides of the rule), and an
+    `h_stack` shape — but it varies: `stop` carries no `h_gas`/`h_stack`
+    and stackless reads omit `h_stack`. `pushN` is the one success rule
+    that uses the full `s.decoded`, because it consumes the PUSH
+    immediate. The post-state is a flat `{ s with ... }` record update;
+    no chained `consumeGas`/`replaceStackAndIncrPC` calls on the
+    relational side.
   - `StepReturn` has the three `callReturn*` resume rules.
-  - `consumeGas` takes the gas-sufficiency proof as an argument so the
-    saturating subtraction is provably safe. `keccak256` is declared
+  - In `StepF.lean`, the executable shadow charges dynamic gas in
+    chained form via `consumeGas` (which takes the gas-sufficiency
+    proof as an argument so the saturating subtraction is provably
+    safe). The bundled `Gas.<op>Total` of the relational rule equals
+    the chained `stepF` form by `Nat.sub_add_eq`; the soundness proof
+    in `Equiv.lean` bridges between them with `simp` + `grind`.
+    `keccak256` is declared
     `opaque` in `Crypto/Keccak256.lean` (so the relational rules are
     independent of any particular hash); the executable evaluator runs
     the real Keccak-256 thanks to a sibling
@@ -471,14 +486,8 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
 
 1. **Parse** a test JSON → build the initial `State` (`buildStateWith` /
    `mkAccount`, hex helpers).
-2. **Pre-scan the bytecode** (`scanCode` + `gasComparableOpcode` /
-   `skipReasonOf`) to pick a gas mode and decide skips: *gas-checked* (run with
-   the real `exec.gas` budget and compare the remaining `gas`) when every opcode
-   has a faithful gas cost in our schedule; otherwise *gas-ignored* (inject
-   `hugeGas = 2^63`, never compare gas). `skipReasonOf` returns `none`
-   for every opcode now — every test runs through `stepF`. KECCAK256 /
-   EXTCODEHASH run
-   (real Keccak-256 is wired in via `Crypto/Keccak256.lean`). The four
+2. **Run** every test through `stepF` with the test's declared
+   `exec.gas` budget — there is no pre-scan or skip filter. The four
    call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
    `STATICCALL`) are implemented in the evaluator; the separate
    `statetests` exe (`StateTestRunner.lean`) exercises them against the

@@ -100,18 +100,6 @@ def isHalted (s : State) : Bool := ! s.isRunning
     active frame). -/
 def isDone (s : State) : Bool := s.isHalted && s.callStack.isEmpty
 
-/-- Push a new stack and advance the pc by `pcΔ` (default 1). -/
-def replaceStackAndIncrPC (s : State) (stk : List UInt256) (pcΔ : Nat := 1) : State :=
-  { s with stack := stk, pc := s.pc + UInt256.ofNat pcΔ }
-
-/-- Advance the pc by `pcΔ` (default 1) without touching the stack. -/
-def incrPC (s : State) (pcΔ : Nat := 1) : State :=
-  { s with pc := s.pc + UInt256.ofNat pcΔ }
-
-/-- Transition into the exception-halt state for `e`. -/
-def haltWith (s : State) (e : ExecutionException) : State :=
-  { s with halt := .Exception e }
-
 /-- Copy up to `retSize` bytes of a child's output `out` into the caller's
     `mem` at `retOffset`. Only the bytes that exist in `out` are copied (no
     zero-fill beyond `out`), matching the EVM's `min(retSize, |out|)` rule.
