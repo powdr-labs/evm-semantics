@@ -238,13 +238,17 @@ def Gas.sstoreRefund (fork : Fork) (original current new : UInt256) : Int :=
       else if fork.atLeast .Istanbul then 19200
       else 19800  -- EIP-1283
     if o = c then
-      if n = 0 then sclear else 0
+      -- Clean-write branch: a clear-to-zero earns the Sclear refund.
+      if o ≠ 0 ∧ n = 0 then sclear else 0
     else
-      -- Dirty branch.
+      -- Dirty-write branch. Sclear delta is gated on `o ≠ 0` (the
+      -- end-of-tx persistent net-effect can't earn or cancel an Sclear
+      -- unless the slot started non-zero).
       let r₀ : Int :=
-        if c ≠ 0 ∧ n = 0 then sclear
-        else if o ≠ 0 ∧ c = 0 then -sclear
+        if o ≠ 0 ∧ c ≠ 0 ∧ n = 0 then sclear
+        else if o ≠ 0 ∧ c = 0 then -sclear  -- cancel an earlier Sclear
         else 0
+      -- "Returning to original" refund (Sset/Sreset minus Hwarm).
       let r₁ : Int :=
         if o ≠ 0 ∧ o = n then sresetMinusH
         else if o = 0 ∧ o = n then ssetMinusH

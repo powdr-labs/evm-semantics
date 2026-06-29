@@ -88,16 +88,25 @@ def mkAccount (accJson : Json) : Account :=
     storage  := storage
     tstorage := Storage.empty }
 
-/-- Intrinsic transaction gas: 21000 + per-byte calldata costs.
+/-- Intrinsic transaction gas: 21000 + per-byte calldata costs (+ 32000
+    `G_txcreate` for a contract-creation transaction).
     Pre-EIP-2028 (Frontier..Petersburg): 68 per non-zero byte, 4 per
     zero byte. EIP-2028 (Istanbul+) reduced the non-zero rate from 68
     to 16. -/
-def intrinsicGas (fork : Fork) (data : ByteArray) : Nat := Id.run do
-  let mut g := 21000
+def intrinsicGas (fork : Fork) (data : ByteArray) (isCreate : Bool := false) : Nat :=
+  Id.run do
+  let mut g := 21000 + (if isCreate then 32000 else 0)
   let nzCost : Nat := if fork.atLeast .Istanbul then 16 else 68
   for b in data do
     g := g + (if b == 0 then 4 else nzCost)
   return g
+
+/-- Yellow Paper CREATE address derivation: `keccak256(rlp([sender,
+    nonce]))[12:]`. This is the formula for both top-level
+    contract-creation transactions and the in-EVM `CREATE` opcode. -/
+def createAddrOf (sender : AccountAddress) (nonce : Nat) : AccountAddress :=
+  AccountAddress.ofUInt256 (EvmSemantics.keccak256
+    (Rlp.encodeAddrNonce sender nonce))
 
 /-- Map a state-test `"network"` string (the variant suffix on each
     test's JSON key, also stored in the test object) to the matching
@@ -122,24 +131,48 @@ def forkOfNetwork (s : String) : Fork :=
   | "Cancun"            => .Cancun
   | _                   => .Cancun
 
+/-- True iff the tx is a *contract-creation* transaction — `"to"` is
+    absent / empty / the empty hex string. In that case the tx data
+    is the init code and the recipient is a fresh address derived
+    from `(sender, sender.nonce)`. -/
+def isCreateTx (tx : Json) : Bool :=
+  let toStr := strField tx "to"
+  toStr.length = 0 ∨ toStr == "0x"
+
 /-- Build the top-level execution `State` for a BlockchainTest test object,
     given its `pre` accounts and the block's transaction JSON. The `fork`
-    argument is taken from the test's `"network"` field. -/
+    argument is taken from the test's `"network"` field. Handles both
+    a regular call-transaction (`"to"` set) and a contract-creation
+    transaction (`"to"` empty). -/
 def buildState (sender : AccountAddress) (preMap : AccountMap)
     (blockHeader tx : Json) (fork : Fork) : State :=
-  let toAddr   := hexToAddress (strField tx "to")
+  let create   := isCreateTx tx
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
   let gasLimit := hexToNat     (strField tx "gasLimit")
   let gasPrice := hexToUInt256 (strField tx "gasPrice")
-  -- Apply the transaction-level effects up front: bump the sender nonce, debit
-  -- the up-front gas charge, and transfer `value` to the callee.
+  -- Apply the transaction-level effects up front: bump the sender nonce
+  -- and debit the up-front gas charge. (Value transfer is done below,
+  -- separately for the call vs create cases.)
   let senderAcc := preMap sender
   let upfront := gasLimit * gasPrice.toNat
+  let senderPreNonce := senderAcc.nonce.toNat
   let preMap := preMap.set sender
     { senderAcc with nonce := senderAcc.nonce + UInt256.ofNat 1
                      balance := senderAcc.balance - UInt256.ofNat upfront }
-  let accountMap := preMap.transfer sender toAddr value
+  -- Compute the destination address. For a CREATE-tx, derive the new
+  -- contract's address from the *pre-bump* sender nonce per YP §7.
+  let toAddr   :=
+    if create then createAddrOf sender senderPreNonce
+    else hexToAddress (strField tx "to")
+  -- Effect the value transfer. For a CREATE-tx we additionally bump
+  -- the new account's nonce to 1 (EIP-158 / EIP-161).
+  let accountMap :=
+    if create then
+      let am := preMap.transfer sender toAddr value
+      let newAcc := am toAddr
+      if fork.atLeast .EIP158 then am.set toAddr { newAcc with nonce := ⟨1⟩ } else am
+    else preMap.transfer sender toAddr value
   -- Read the block header from `blocks[0].blockHeader` — the
   -- BlockchainTest format. Field names are the un-prefixed ones
   -- (`coinbase`, `timestamp`, …); the VMTests-style `currentCoinbase`
@@ -152,13 +185,16 @@ def buildState (sender : AccountAddress) (preMap : AccountMap)
       gasLimit      := hexToUInt256 (strField blockHeader "gasLimit")
       baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
       blockHash     := fun _ => ⟨0⟩ }
+  -- For a CREATE-tx, the tx data is the init code (executed as the new
+  -- contract's bytecode), and the calldata is empty. For a regular
+  -- call-tx, the data is the calldata and the code comes from `toAddr`.
   let execEnv : ExecutionEnv :=
     { codeOwner := toAddr
       sender    := sender
       source    := sender
       weiValue  := value
-      calldata  := data
-      code      := (accountMap toAddr).code
+      calldata  := if create then ByteArray.empty else data
+      code      := if create then data else (accountMap toAddr).code
       gasPrice  := gasPrice
       header    := header
       depth     := 0
@@ -182,7 +218,8 @@ def buildState (sender : AccountAddress) (preMap : AccountMap)
     preWarm.foldl (fun A a => A.addAccessedAccount a)
       { Substate.empty with originalAccountMap := accountMap }
   { toMachineState :=
-      { gasAvailable := gasLimit - intrinsicGas fork data, activeWords := ⟨0⟩
+      { gasAvailable := gasLimit - intrinsicGas fork data create
+        activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
     executionEnv := execEnv
@@ -330,10 +367,41 @@ def runOne (testObj : Json) : Outcome :=
         | [] => .passFull
         | msgs => .fail ("oog-rollback diff: " ++ String.intercalate "; " (msgs.take 3))
       | .ok sf =>
+        -- For a CREATE-tx, the top-level frame's `hReturn` *is* the
+        -- contract's deployed code. We deploy it at the new address
+        -- before finalising, charging `G_codedeposit = 200 · |code|`
+        -- from whatever the init code left behind. If the deposit
+        -- doesn't fit (or the init code REVERTed / threw), the world
+        -- rolls back to the pre-state for accountMap (sender keeps
+        -- `value`; intrinsic gas is still paid).
+        let create := isCreateTx tx
+        let newAddr := s0.executionEnv.codeOwner
+        let codeLen := sf.hReturn.size
+        let depositCost := State.codeDepositPerByte * codeLen
+        let initSuccess :=
+          match sf.halt with
+          | .Success | .Returned => true
+          | _                    => false
+        let sfDeployed :=
+          if create then
+            if initSuccess ∧ depositCost ≤ sf.gasAvailable then
+              { sf with
+                  accountMap   := sf.accountMap.set newAddr
+                                    { (sf.accountMap newAddr) with code := sf.hReturn }
+                  gasAvailable := sf.gasAvailable - depositCost }
+            else
+              -- Deposit OOG or init reverted/exception: roll back to preMap.
+              -- preMap here is the *post-buildState* preMap (sender nonce
+              -- bumped, gas debited) — but the in-EVM value transfer is
+              -- undone by reverting to it.
+              { sf with
+                  accountMap   := preMap
+                  gasAvailable := if initSuccess then 0 else sf.gasAvailable }
+          else sf
         -- Apply end-of-transaction finalisation (refund cap +
         -- leftover-gas-to-sender) — the relational counterpart is
         -- `EvalTx` in `EVM/BigStep.lean`.
-        let sf' := sf.finalizeTx txGasLimit sender gasPrice
+        let sf' := sfDeployed.finalizeTx txGasLimit sender gasPrice
         let expRoot :=
           hexToUInt256 (strField (subObj block "blockHeader") "stateRoot")
         let gotRoot := AccountMap.stateRoot sf'.accountMap
