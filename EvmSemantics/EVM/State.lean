@@ -275,7 +275,9 @@ def enterCall (sc : State) (rest : List UInt256)
       snapAccountMap := sc.accountMap
       snapSubstate   := sc.substate }
   { sc with
-      accountMap   := sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+      accountMap   := if value.toNat ≠ 0 then
+                        sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+                      else sc.accountMap
       gasAvailable := childGas
       activeWords  := UInt256.ofNat 0
       memory       := .empty
@@ -392,8 +394,12 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
       retSize      := retSize
       snapAccountMap := sc.accountMap
       snapSubstate   := sc.substate }
+  -- Only actually move balance / touch the target when the kind
+  -- transfers value *and* `value > 0`. A zero-value `.Call` is a
+  -- no-op on the world state and (post-EIP-158) does not even
+  -- create the empty target — see EIP-158 §3.
   let newMap : EvmSemantics.AccountMap :=
-    if kind.transfersValue
+    if kind.transfersValue ∧ value.toNat ≠ 0
       then sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
       else sc.accountMap
   { sc with
@@ -442,11 +448,13 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   -- observable behaviour matches. (Refactoring `AddressSet` to a `RBTree`
   -- or `Finset` would let us compute "first time" precisely; out of scope
   -- for this opcode.)
-  -- Refund constant matches `Gas.selfDestructRefund`: 24000 pre-Cancun, 0 from Cancun.
-  let refundDelta : Nat := if sc.executionEnv.fork.atLeast .Cancun then 0 else 24000
+  -- Refund constant matches `Gas.selfDestructRefund`: 24000 before
+  -- London (EIP-3529 removed it), 0 from London onwards.
+  let refundDelta : Nat := if sc.executionEnv.fork.atLeast .London then 0 else 24000
   let substate' : Substate :=
     { sc.substate with
         selfDestructSet := sc.substate.selfDestructSet.insert self
+        selfDestructList := self :: sc.substate.selfDestructList
         refundBalance   := sc.substate.refundBalance +
                              UInt256.ofNat refundDelta }
   { sc with
@@ -581,10 +589,11 @@ equivalent for `pass_core`. -/
     ETH; Byzantium: 3 ETH (EIP-649); Constantinople / Petersburg: 2 ETH
     (EIP-1234); post-merge (`.Cancun`): 0. -/
 @[inline] def blockReward (fork : Fork) : Nat :=
-  if fork.atLeast .Cancun then 0
-  else if fork.atLeast .Constantinople then 2_000_000_000_000_000_000   -- 2 ETH
-  else if fork.atLeast .Byzantium then 3_000_000_000_000_000_000        -- 3 ETH
-  else 5_000_000_000_000_000_000                                         -- 5 ETH
+  -- PoS: 0 ETH (Paris onwards); Constantinople: 2 ETH; Byzantium: 3 ETH; pre-Byzantium: 5 ETH.
+  if fork.atLeast .Paris then 0
+  else if fork.atLeast .Constantinople then 2_000_000_000_000_000_000
+  else if fork.atLeast .Byzantium then 3_000_000_000_000_000_000
+  else 5_000_000_000_000_000_000
 
 /-- Apply end-of-transaction finalization to a halted top-level state.
     `gasLimit` is the *intrinsic-adjusted* gas budget the execution
@@ -598,8 +607,9 @@ equivalent for `pass_core`. -/
     3. `sc.gasAvailable` is bumped by `refund` so the harness's
        `gas` field reflects the post-refund value.
 
-    Self-destructed accounts in `substate.selfDestructSet` are *not*
-    zeroed here — see the module-level note above. -/
+    Accounts in `substate.selfDestructList` are wiped to
+    `Account.empty` at the very end (after the refund/coinbase
+    credits), so the world-state MPT filter (`EIP-161`) drops them. -/
 def finalizeTx (sc : State) (gasLimit : Nat)
     (sender : AccountAddress) (gasPrice : UInt256) : State :=
   let fork          := sc.executionEnv.fork
@@ -618,8 +628,14 @@ def finalizeTx (sc : State) (gasLimit : Nat)
   let map₂          := map₁.set coinbase
                          { coinbaseAcc with balance := coinbaseAcc.balance +
                                                          UInt256.ofNat coinbaseCredit }
+  -- YP §6: self-destructed accounts cease to exist after `finalizeTx`.
+  -- Truly remove them from the cache so the world-state MPT excludes
+  -- them — *unless* the self-destruct beneficiary's credit means the
+  -- address has been re-funded (the beneficiary can equal the self).
+  let map₃          :=
+    sc.substate.selfDestructList.foldl (fun σ a => σ.erase a) map₂
   { sc with
-      accountMap   := map₂
+      accountMap   := map₃
       gasAvailable := finalGas }
 
 end State

@@ -32,7 +32,15 @@ inductive Fork where
   | Byzantium     -- REVERT, RETURNDATA*, STATICCALL, etc.
   | Constantinople -- EIP-145 (SHL/SHR/SAR), EIP-1014 (CREATE2), EIP-1052 (EXTCODEHASH), EIP-1283 (net-metered SSTORE).
   | Petersburg    -- = ConstantinopleFix; reverts EIP-1283.
-  | Cancun        -- Modern fork (EIP-2200 SSTORE, etc.).
+  | Istanbul      -- EIP-1344 (CHAINID), EIP-1884 (re-pricing + SELFBALANCE), EIP-2028 (calldata 16), EIP-2200 (net-metered SSTORE).
+  | MuirGlacier   -- Difficulty-bomb delay only — semantically identical to Istanbul for the EVM.
+  | Berlin        -- EIP-2929 (cold/warm access lists), EIP-2718 (typed tx envelope).
+  | London        -- EIP-1559 (base fee), EIP-3198 (BASEFEE op), EIP-3529 (reduced refunds, no SELFDESTRUCT refund), EIP-3541 (reject 0xEF code).
+  | ArrowGlacier  -- Difficulty-bomb delay only.
+  | GrayGlacier   -- Difficulty-bomb delay only.
+  | Paris         -- The Merge: EIP-3675 (PoS finality), EIP-4399 (PREVRANDAO replaces DIFFICULTY); block reward = 0.
+  | Shanghai      -- EIP-3651 (warm coinbase), EIP-3855 (PUSH0), EIP-3860 (init code limit), EIP-4895 (withdrawals).
+  | Cancun        -- EIP-1153 (transient storage), EIP-4844 (blob tx + BLOBHASH), EIP-5656 (MCOPY), EIP-6780 (SELFDESTRUCT-same-tx), EIP-7516 (BLOBBASEFEE).
   deriving DecidableEq, Repr, Inhabited
 
 namespace Fork
@@ -48,7 +56,15 @@ def toOrd : Fork → Nat
   | .Byzantium       => 4
   | .Constantinople  => 5
   | .Petersburg      => 6
-  | .Cancun          => 7
+  | .Istanbul        => 7
+  | .MuirGlacier     => 8
+  | .Berlin          => 9
+  | .London          => 10
+  | .ArrowGlacier    => 11
+  | .GrayGlacier     => 12
+  | .Paris           => 13
+  | .Shanghai        => 14
+  | .Cancun          => 15
 
 /-- `a.atLeast b` iff `a` is at or after `b` on the activation timeline.
     Lets `Gas.baseCost`-style helpers say `fork.atLeast .EIP150` instead

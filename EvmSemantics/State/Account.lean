@@ -191,6 +191,12 @@ namespace AccountMap
   toFun := σ.toFun
   cache := σ.cache.insert a acc
 
+/-- Runtime impl of `.erase`: drop the cache entry for `a`. The spec
+    view rewrites `toFun` to return `Account.empty` at `a`. -/
+@[inline] def eraseImpl (σ : AccountMap) (a : AccountAddress) : AccountMap where
+  toFun := σ.toFun
+  cache := σ.cache.erase a
+
 /-- The empty world: every address maps to `Account.empty`. -/
 @[implemented_by emptyImpl]
 def empty : AccountMap where
@@ -206,6 +212,13 @@ def get (σ : AccountMap) (a : AccountAddress) : Account := σ.toFun a
 @[implemented_by setImpl]
 def set (σ : AccountMap) (a : AccountAddress) (acc : Account) : AccountMap where
   toFun := fun a' => if a' = a then acc else σ.toFun a'
+  cache := σ.cache
+
+/-- Erase `a`'s binding. Spec view: rewrites `toFun` to return
+    `Account.empty` at `a` (matching the "missing = empty" convention). -/
+@[implemented_by eraseImpl]
+def erase (σ : AccountMap) (a : AccountAddress) : AccountMap where
+  toFun := fun a' => if a' = a then Account.empty else σ.toFun a'
   cache := σ.cache
 
 /-- `σ a` (the syntax every existing call site uses) goes through

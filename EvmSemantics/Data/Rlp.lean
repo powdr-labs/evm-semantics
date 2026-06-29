@@ -54,16 +54,29 @@ partial def addressBytes (addr : AccountAddress) : ByteArray := Id.run do
   for i in [0:20] do bs := bs.push le[19 - i]!
   return ByteArray.mk bs
 
-/-- RLP-encode a byte string. Single-byte values `< 0x80` are emitted
-    bare; otherwise we prepend the short-form length prefix `0x80 + n`.
-    The caller guarantees `bs.size ≤ 55` (true for both an address and
-    any practical nonce). -/
+/-- RLP-encode a byte string. Handles all length cases:
+    * single-byte values `< 0x80` are emitted bare;
+    * lengths `0..55` use the short prefix `0x80 + n`;
+    * lengths `56+` use the long prefix `0xb7 + |lenBytes|` followed by
+      the big-endian length and then the bytes. -/
 def encodeBytes (bs : ByteArray) : ByteArray :=
-  if bs.size = 1 then
-    if bs[0]! < 0x80 then bs
-    else ByteArray.mk #[UInt8.ofNat (0x80 + 1)] ++ bs
-  else
+  if bs.size = 1 && bs[0]! < 0x80 then bs
+  else if bs.size ≤ 55 then
     ByteArray.mk #[UInt8.ofNat (0x80 + bs.size)] ++ bs
+  else
+    let lenBytes := intToBytes bs.size
+    ByteArray.mk #[UInt8.ofNat (0xb7 + lenBytes.size)] ++ lenBytes ++ bs
+
+/-- RLP-encode a list whose items are already individually RLP-encoded.
+    Short payloads (`≤ 55` total) use the `0xc0 + len` prefix; longer
+    payloads use the `0xf7 + |lenBytes|` long-list prefix. -/
+def encodeList (items : List ByteArray) : ByteArray :=
+  let payload := items.foldl (· ++ ·) ByteArray.empty
+  if payload.size ≤ 55 then
+    ByteArray.mk #[UInt8.ofNat (0xc0 + payload.size)] ++ payload
+  else
+    let lenBytes := intToBytes payload.size
+    ByteArray.mk #[UInt8.ofNat (0xf7 + lenBytes.size)] ++ lenBytes ++ payload
 
 /-- RLP-encode a `Nat` as a stripped big-endian integer. `0` becomes
     `#[0x80]` (the empty-string encoding), `n < 0x80` becomes the
@@ -87,12 +100,9 @@ partial def uint256ToBytes32 (v : UInt256) : ByteArray := Id.run do
   for i in [0:32] do bs := bs.push le[31 - i]!
   return ByteArray.mk bs
 
-/-- RLP-encode the two-element list `[address, nonce]`. The payload is
-    at most `21 + 9 = 30` bytes — well under the 56-byte short-list
-    cap — so we always use the `0xc0 + payload.size` prefix. -/
+/-- RLP-encode the two-element list `[address, nonce]`. -/
 def encodeAddrNonce (addr : AccountAddress) (nonce : Nat) : ByteArray :=
-  let payload := encodeAddress addr ++ encodeInt nonce
-  ByteArray.mk #[UInt8.ofNat (0xc0 + payload.size)] ++ payload
+  encodeList [encodeAddress addr, encodeInt nonce]
 
 end Rlp
 end EvmSemantics

@@ -78,8 +78,17 @@ end StorageKeySet
 structure Substate where
   /-- `Aₛ` — addresses scheduled to be deleted at the end of the transaction. -/
   selfDestructSet     : AddressSet
+  /-- An iterable mirror of [[selfDestructSet]] used by `finalizeTx`
+      to actually delete those accounts. The Prop-valued set above
+      stays the proof-facing view; the list is the runtime-only
+      enumeration. Duplicates are tolerated (the deletion pass uses
+      it as a set). -/
+  selfDestructList    : List AccountAddress := []
   /-- `Aₜ` — addresses that have been "touched" (read or written). -/
   touchedAccounts     : AddressSet
+  /-- Iterable mirror of [[touchedAccounts]] for EIP-161 end-of-tx
+      cleanup. Same role as [[selfDestructList]]. -/
+  touchedList         : List AccountAddress := []
   /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
   refundBalance       : UInt256
   /-- `Aₐ` — accounts already accessed in this transaction (warm). -/
@@ -99,7 +108,9 @@ namespace Substate
     refunds, no accesses, no logs, all slots originally 0. -/
 def empty : Substate :=
   { selfDestructSet     := AddressSet.empty
+    selfDestructList    := []
     touchedAccounts     := AddressSet.empty
+    touchedList         := []
     refundBalance       := ⟨0⟩
     accessedAccounts    := AddressSet.empty
     accessedStorageKeys := StorageKeySet.empty

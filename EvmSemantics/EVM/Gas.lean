@@ -64,18 +64,19 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .CALLDATALOAD                                          => 3
     | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY            => 3
     -- BALANCE / EXTCODEHASH: 20 in Frontier/Homestead, raised to 400 by
-    -- EIP-150 (Tangerine Whistle); EXTCODEHASH was introduced at
-    -- Constantinople so the pre-Constantinople values are unreachable in
-    -- a well-formed test. Cancun: warm-priced placeholder.
+    -- EIP-150 (Tangerine Whistle), 700 by EIP-1884 (Istanbul), warm-100
+    -- by EIP-2929 (Berlin; access-list cold price not yet modelled).
     | .BALANCE | .EXTCODEHASH                                =>
-      if fork.atLeast .Cancun     then 100
+      if fork.atLeast .Berlin     then 100
+      else if fork.atLeast .Istanbul then 700
       else if fork.atLeast .EIP150 then 400
       else                              20
     -- EXTCODESIZE / EXTCODECOPY: 20 Frontier/Homestead, raised to 700 by
-    -- EIP-150. EXTCODECOPY also pays per-word `Gas.copyWordCost`,
-    -- charged dynamically in `stepF.EXTCODECOPY`.
+    -- EIP-150, warm-100 by EIP-2929 (Berlin). EXTCODECOPY also pays
+    -- per-word `Gas.copyWordCost`, charged dynamically in
+    -- `stepF.EXTCODECOPY`.
     | .EXTCODESIZE | .EXTCODECOPY                            =>
-      if fork.atLeast .Cancun     then 100
+      if fork.atLeast .Berlin     then 100
       else if fork.atLeast .EIP150 then 700
       else                              20
   | .Block op => match op with
@@ -91,9 +92,12 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .JUMP                                                  => 8
     | .JUMPI                                                 => 10
     -- SLOAD: 50 Frontier/Homestead, raised to 200 by EIP-150
-    -- (Tangerine Whistle), warm 100 in Cancun.
+    -- (Tangerine Whistle), 800 by EIP-1884 (Istanbul), then reduced
+    -- to warm-100 by EIP-2929 (Berlin; we use the warm price since
+    -- the access list isn't tracked yet).
     | .SLOAD                                                 =>
-      if fork.atLeast .Cancun     then 100
+      if fork.atLeast .Berlin     then 100
+      else if fork.atLeast .Istanbul then 800
       else if fork.atLeast .EIP150 then 200
       else                              50
     -- SSTORE: dynamic — see `Gas.sstoreCost`. Static portion is 0.
@@ -113,11 +117,13 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     -- address-derivation keccak.
     | .CREATE | .CREATE2                                     => 32000
     -- CALL family base access fee: 40 in Frontier/Homestead, raised to
-    -- 700 by EIP-150 (Tangerine Whistle), warm 100 in Cancun. The
+    -- 700 by EIP-150 (Tangerine Whistle), reduced to warm-100 by
+    -- EIP-2929 (Berlin). We don't yet track the access list so we use
+    -- the warm price everywhere from Berlin onwards. The
     -- value/new-account surcharge and gas forwarding are computed in
     -- `stepF.system` / `StepRunning.call`, not here.
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        =>
-      if fork.atLeast .Cancun     then 100
+      if fork.atLeast .Berlin     then 100
       else if fork.atLeast .EIP150 then 700
       else                              40
     -- SELFDESTRUCT base fee: 0 in Frontier/Homestead, raised to 5000 by
@@ -135,9 +141,10 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     Cancun have a sentry: Constantinople has none (EIP-1283 was
     pre-EIP-2200), Cancun has the EIP-2200 sentry. -/
 def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
-  match fork with
-  | .Cancun => decide (gas ≤ 2300)
-  | _       => false
+  -- EIP-2200 activated the stipend sentry at Istanbul; it remains in
+  -- effect through Cancun (the original Constantinople EIP-1283 did
+  -- *not* have one — that was the point of EIP-2200's revision).
+  if fork.atLeast .Istanbul then decide (gas ≤ 2300) else false
 
 /-- Dynamic gas cost of an SSTORE under `fork`, given the slot's
     `original` value (at frame start), `current` value (just before this
@@ -172,42 +179,44 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     Refunds are tracked separately in `Substate.refundBalance` and not
     yet wired into the harness's gas comparison. -/
 def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
-  match fork with
   -- Original Constantinople activated EIP-1283 net-metered SSTORE.
-  | .Constantinople =>
+  if fork = .Constantinople then
     if current.toNat = new.toNat then 200
     else if current.toNat = original.toNat then
       if original.toNat = 0 then 20000 else 5000
     else 200
-  -- Cancun uses EIP-2200 (refined EIP-1283 with sentry). EIP-2929
-  -- cold/warm surcharge not yet modelled.
-  | .Cancun =>
+  -- Istanbul onwards uses EIP-2200 net-metered with 800 no-op (the
+  -- SLOAD-cost). EIP-2929 cold/warm (Berlin+) adds 2100 to the first
+  -- access of the tx; we don't yet track that and use the warm price
+  -- everywhere. EIP-3529 (London+) doesn't change `sstoreCost`, only
+  -- refund constants.
+  else if fork.atLeast .Istanbul then
     if current.toNat = new.toNat then 100
     else if current.toNat = original.toNat then
       if original.toNat = 0 then 20000 else 2900
     else 100
-  -- Frontier through Petersburg use the pre-EIP-1283 schedule.
-  | _ =>
+  -- Frontier through Petersburg (and our `Petersburg` = ConstFix) use
+  -- the pre-EIP-1283 schedule.
+  else
     if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
 
-/-- SSTORE refund counter delta — the value added to (or subtracted
-    from) `Substate.refundBalance` when an SSTORE writes a new value to
-    a slot. Pre-EIP-1283 (Frontier..Byzantium and Petersburg) is simple:
-    refund 15000 when a non-zero slot is cleared to zero (no other
-    cases). The net-metered schedules (EIP-1283 Constantinople, EIP-2200
-    Cancun) have more elaborate refund rules — we approximate by just
-    refunding the same 15000 on a true clear-to-zero, which is what the
-    test corpus's `pass_core` already accepts and is the dominant
-    contributor to `pass_full`'s sender balance. -/
+/-- SSTORE refund counter delta — the value added to
+    `Substate.refundBalance` when an SSTORE writes a new value to a slot.
+    Pre-EIP-1283 (Frontier..Byzantium and Petersburg) is simple: 15000
+    when a non-zero slot is cleared to zero. The net-metered schedules
+    (EIP-1283 Constantinople, EIP-2200 Istanbul onwards) have more
+    elaborate refund rules but we approximate by just the clear-to-zero
+    refund — most refund failures come from the SELFDESTRUCT side, not
+    the SSTORE branch alone. -/
 def Gas.sstoreRefund (_fork : Fork) (current new : UInt256) : Nat :=
   if current.toNat ≠ 0 ∧ new.toNat = 0 then 15000 else 0
 
 /-- Denominator of the end-of-tx refund cap: `refund ≤ gas_used / refundDenom`.
-    Pre-EIP-3529 (every fork we model except modern post-London) uses 2;
-    Cancun would use 5 under EIP-3529's revised rule, but we model the
-    pre-EIP-3529 cap there too pending a finer-grained fork breakdown
-    around London. -/
-def Gas.refundDenom (_fork : Fork) : Nat := 2
+    Pre-EIP-3529 (everything before London) uses 2; London onwards uses
+    5 per EIP-3529 (the EIP also removed the SELFDESTRUCT refund, which
+    is gated separately in `Gas.selfDestructRefund`). -/
+def Gas.refundDenom (fork : Fork) : Nat :=
+  if fork.atLeast .London then 5 else 2
 
 /-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
     Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY. -/
@@ -310,7 +319,8 @@ def Gas.create2HashCost (initCodeLen : Nat) : Nat :=
     repurposed the opcode entirely. For our supported forks Frontier
     through Petersburg the classic 24000 refund applies; Cancun has 0. -/
 def Gas.selfDestructRefund (fork : Fork) : Nat :=
-  if fork.atLeast .Cancun then 0 else 24000
+  -- London (EIP-3529) removed the SELFDESTRUCT refund entirely.
+  if fork.atLeast .London then 0 else 24000
 
 /-- Per-byte EXP cost. The per-byte multiplier is `10` at Frontier
     through Tangerine Whistle and `50` post-Spurious-Dragon (EIP-160).

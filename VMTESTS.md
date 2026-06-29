@@ -49,15 +49,28 @@ file (Frontier / Homestead / EIP150 / EIP158 / Byzantium /
 Constantinople / ConstantinopleFix), not just one. The
 `State.finalizeTx` layer applies the SSTORE / SELFDESTRUCT refund
 (capped at `gasUsed/2`), credits the unused gas back to the sender,
-and pays the gas fee + per-fork block reward (5 / 3 / 2 ETH) to the
-coinbase. The runner also handles top-level OOG by reconstructing
-the rollback state (sender pays the full `gasLimit·gasPrice`, coinbase
-receives that fee + block reward, everything else is `preState`) so
-OOG tests can be compared against their expected `postState`. The
-previously-INCON Constantinople-with-EIP-1283 deep-recursion tests
-now pass: `AccountMap` and `Storage` are backed by `Std.HashMap` via
-`@[implemented_by]` at runtime, replacing the O(N²) function-update
-chain that pushed those tests past the 60s CI cap.
+pays the gas fee + per-fork block reward (5 / 3 / 2 ETH) to the
+coinbase, and **erases self-destructed accounts** from the world
+state so the trie excludes them. The runner also handles top-level
+OOG by reconstructing the rollback state and compares against the
+corpus's `stateRoot` field (computed via the MPT in
+`EvmSemantics.Data.Mpt`).
+
+**Full LegacyTests/Constantinople/BlockchainTests/GeneralStateTests
+(30,694 fork-variant runs, all 50 sub-directories)**:
+```
+pass_full=10175 pass_core=0 fail=20519 incon=0 crash=0
+```
+~33% pass against the broader corpus. Most remaining failures fall
+into a handful of categories: missing precompile contracts (`0x01`
+ECRECOVER, `0x02` SHA256, `0x03` RIPEMD160, `0x04` IDENTITY, `0x05`
+MODEXP, `0x06..0x08` BN256, `0x09` BLAKE2F), the EIP-1283 net-metered
+SSTORE schedule on Constantinople, and the EIP-2929 cold/warm
+pricing that Cancun would need. The previously-INCON Constantinople-
+with-EIP-1283 deep-recursion tests pass: `AccountMap` and `Storage`
+are backed by `Std.HashMap` via `@[implemented_by]` at runtime,
+replacing the O(N²) function-update chain that pushed those tests
+past the 60s CI cap.
 - `pass_full` = storage + nonce + code + balance match. Reaches the
   full count because the `State.finalizeTx` refund pipeline + fork-aware
   call surcharges line up with the corpus's accounting.

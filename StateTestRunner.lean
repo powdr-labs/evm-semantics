@@ -57,9 +57,27 @@ def storageEntries (accJson : Json) : List (String × String) :=
 -- State construction.
 ----------------------------------------------------------------------------
 
-/-- The fixed ethereum/tests transaction sender (we have no ECDSA recovery; the
-    transactions carry only `v/r/s`). All stCall* `pre` states fund this EOA. -/
-def txSender : AccountAddress := hexToAddress "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+/-- Default sender if we can't infer one from `pre`. Most legacy
+    ethereum/tests use this address. -/
+def defaultTxSender : AccountAddress :=
+  hexToAddress "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+
+/-- Recover the transaction sender by scanning the `pre` accounts for
+    a code-less account whose nonce matches `tx.nonce`. The legacy
+    ethereum/tests don't carry an explicit sender field, and we don't
+    do ECDSA recovery, so this nonce/EOA match is the best we can do.
+
+    Falls back to [[defaultTxSender]] when no unique candidate exists. -/
+def recoverSender (preEntries : List (String × Json)) (tx : Json) : AccountAddress :=
+  let txNonce := hexToUInt256 (strField tx "nonce")
+  let candidates := preEntries.filterMap (fun (addrStr, accJson) =>
+    let code := hexToBytes (strField accJson "code")
+    let nonce := hexToUInt256 (strField accJson "nonce")
+    if code.size = 0 ∧ nonce.toNat = txNonce.toNat then
+      some (hexToAddress addrStr) else none)
+  match candidates with
+  | [a] => a
+  | _   => defaultTxSender
 
 def mkAccount (accJson : Json) : Account :=
   let storage := (storageEntries accJson).foldl
@@ -70,13 +88,15 @@ def mkAccount (accJson : Json) : Account :=
     storage  := storage
     tstorage := Storage.empty }
 
-/-- Intrinsic transaction gas: 21000 + 16 per non-zero calldata byte + 4 per
-    zero byte (pre-EIP-2028 the non-zero rate was 68; Constantinople uses 68).
-    The legacy corpus predates EIP-2028, so we use 68/4. -/
-def intrinsicGas (data : ByteArray) : Nat := Id.run do
+/-- Intrinsic transaction gas: 21000 + per-byte calldata costs.
+    Pre-EIP-2028 (Frontier..Petersburg): 68 per non-zero byte, 4 per
+    zero byte. EIP-2028 (Istanbul+) reduced the non-zero rate from 68
+    to 16. -/
+def intrinsicGas (fork : Fork) (data : ByteArray) : Nat := Id.run do
   let mut g := 21000
+  let nzCost : Nat := if fork.atLeast .Istanbul then 16 else 68
   for b in data do
-    g := g + (if b == 0 then 4 else 68)
+    g := g + (if b == 0 then 4 else nzCost)
   return g
 
 /-- Map a state-test `"network"` string (the variant suffix on each
@@ -91,12 +111,22 @@ def forkOfNetwork (s : String) : Fork :=
   | "Byzantium"         => .Byzantium
   | "Constantinople"    => .Constantinople
   | "ConstantinopleFix" => .Petersburg
-  | _                   => .Petersburg
+  | "Istanbul"          => .Istanbul
+  | "MuirGlacier"       => .MuirGlacier
+  | "Berlin"            => .Berlin
+  | "London"            => .London
+  | "ArrowGlacier"      => .ArrowGlacier
+  | "GrayGlacier"       => .GrayGlacier
+  | "Merge" | "Paris"   => .Paris
+  | "Shanghai"          => .Shanghai
+  | "Cancun"            => .Cancun
+  | _                   => .Cancun
 
 /-- Build the top-level execution `State` for a BlockchainTest test object,
     given its `pre` accounts and the block's transaction JSON. The `fork`
     argument is taken from the test's `"network"` field. -/
-def buildState (preMap : AccountMap) (blockHeader tx : Json) (fork : Fork) : State :=
+def buildState (sender : AccountAddress) (preMap : AccountMap)
+    (blockHeader tx : Json) (fork : Fork) : State :=
   let toAddr   := hexToAddress (strField tx "to")
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
@@ -104,12 +134,12 @@ def buildState (preMap : AccountMap) (blockHeader tx : Json) (fork : Fork) : Sta
   let gasPrice := hexToUInt256 (strField tx "gasPrice")
   -- Apply the transaction-level effects up front: bump the sender nonce, debit
   -- the up-front gas charge, and transfer `value` to the callee.
-  let sender := preMap txSender
+  let senderAcc := preMap sender
   let upfront := gasLimit * gasPrice.toNat
-  let preMap := preMap.set txSender
-    { sender with nonce := sender.nonce + UInt256.ofNat 1
-                  balance := sender.balance - UInt256.ofNat upfront }
-  let accountMap := preMap.transfer txSender toAddr value
+  let preMap := preMap.set sender
+    { senderAcc with nonce := senderAcc.nonce + UInt256.ofNat 1
+                     balance := senderAcc.balance - UInt256.ofNat upfront }
+  let accountMap := preMap.transfer sender toAddr value
   -- Read the block header from `blocks[0].blockHeader` — the
   -- BlockchainTest format. Field names are the un-prefixed ones
   -- (`coinbase`, `timestamp`, …); the VMTests-style `currentCoinbase`
@@ -124,8 +154,8 @@ def buildState (preMap : AccountMap) (blockHeader tx : Json) (fork : Fork) : Sta
       blockHash     := fun _ => ⟨0⟩ }
   let execEnv : ExecutionEnv :=
     { codeOwner := toAddr
-      sender    := txSender
-      source    := txSender
+      sender    := sender
+      source    := sender
       weiValue  := value
       calldata  := data
       code      := (accountMap toAddr).code
@@ -136,7 +166,7 @@ def buildState (preMap : AccountMap) (blockHeader tx : Json) (fork : Fork) : Sta
       blobVersionedHashes := #[]
       fork                := fork }
   { toMachineState :=
-      { gasAvailable := gasLimit - intrinsicGas data, activeWords := ⟨0⟩
+      { gasAvailable := gasLimit - intrinsicGas fork data, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
     substate     := { Substate.empty with originalAccountMap := accountMap }
@@ -235,11 +265,11 @@ def runOne (testObj : Json) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let s0 := buildState preMap (subObj block "blockHeader") tx fork
+      let sender := recoverSender (objEntries testObj "pre") tx
+      let s0 := buildState sender preMap (subObj block "blockHeader") tx fork
       -- Use the *full* tx gas limit (including intrinsic) so the coinbase
       -- fee in `finalizeTx` matches the total gas the EVM accounts for.
       let txGasLimit := hexToNat (strField tx "gasLimit")
-      let sender := txSender
       let gasPrice := hexToUInt256 (strField tx "gasPrice")
       -- Steps are bounded by gas: every non-halting opcode costs ≥1 gas, and
       -- resume steps are bounded by the number of CALLs (≥700 gas each). So
@@ -258,8 +288,8 @@ def runOne (testObj : Json) : Outcome :=
       -- debit + nonce bump applied by `buildState`) and add the
       -- coinbase credit by calling `finalizeTx` with `gasAvailable = 0`.
       let rollbackThenFinalize : State :=
-        let senderAcc := preMap txSender
-        let preMapBumped := preMap.set txSender
+        let senderAcc := preMap sender
+        let preMapBumped := preMap.set sender
           { senderAcc with nonce := senderAcc.nonce + UInt256.ofNat 1
                            balance := senderAcc.balance -
                                         UInt256.ofNat (txGasLimit * gasPrice.toNat) }
@@ -273,20 +303,30 @@ def runOne (testObj : Json) : Outcome :=
         -- Top-level exception (typically OOG): compare against the
         -- rollback+full-fee state (preMap with sender debited
         -- `gasLimit*gasPrice` and coinbase credited that + block reward).
-        match cmpPost rollbackThenFinalize pre post false with
-        | [] => match cmpPost rollbackThenFinalize pre post true with
-                | [] => .passFull
-                | _  => .passCore
-        | msgs => .fail ("oog-rollback storage-diff: " ++ String.intercalate "; " (msgs.take 3))
+        let expRoot :=
+          hexToUInt256 (strField (subObj block "blockHeader") "stateRoot")
+        let gotRoot := AccountMap.stateRoot rollbackThenFinalize.accountMap
+        let rootMsg :=
+          if expRoot.toNat = 0 then []
+          else if gotRoot.toNat = expRoot.toNat then []
+          else [s!"stateRoot {gotRoot}≠{expRoot}"]
+        match cmpPost rollbackThenFinalize pre post true ++ rootMsg with
+        | [] => .passFull
+        | msgs => .fail ("oog-rollback diff: " ++ String.intercalate "; " (msgs.take 3))
       | .ok sf =>
         -- Apply end-of-transaction finalisation (refund cap +
         -- leftover-gas-to-sender) — the relational counterpart is
         -- `EvalTx` in `EVM/BigStep.lean`.
         let sf' := sf.finalizeTx txGasLimit sender gasPrice
-        match cmpPost sf' pre post false with
-        | [] => match cmpPost sf' pre post true with
-                | [] => .passFull
-                | _  => .passCore
+        let expRoot :=
+          hexToUInt256 (strField (subObj block "blockHeader") "stateRoot")
+        let gotRoot := AccountMap.stateRoot sf'.accountMap
+        let rootMsg :=
+          if expRoot.toNat = 0 then []
+          else if gotRoot.toNat = expRoot.toNat then []
+          else [s!"stateRoot {gotRoot}≠{expRoot}"]
+        match cmpPost sf' pre post true ++ rootMsg with
+        | [] => .passFull
         | msgs => .fail (String.intercalate "; " (msgs.take 3))
     | [] => .incon "no transactions"
   | [] => .incon "no blocks"
@@ -331,7 +371,10 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
       -- skip variants whose fork we don't model.
       let network := strField testObj "network"
       let supported := ["Frontier", "Homestead", "EIP150", "EIP158",
-                        "Byzantium", "Constantinople", "ConstantinopleFix"]
+                        "Byzantium", "Constantinople", "ConstantinopleFix",
+                        "Istanbul", "MuirGlacier", "Berlin", "London",
+                        "ArrowGlacier", "GrayGlacier", "Merge", "Paris",
+                        "Shanghai", "Cancun"]
       if !supported.contains network then continue
       let r := match runOne testObj with
         | .passFull => ("PASS_FULL", name, "")
