@@ -351,9 +351,9 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
       halt         := .Running
       callStack    := frame :: sc.callStack }
 
-/-! ### SELFDESTRUCT
+/-! ### SELFDESTRUCT -/
 
-`State.selfDestructTo beneficiary` performs the world-state effects of a
+/-- `State.selfDestructTo beneficiary` performs the world-state effects of a
 SELFDESTRUCT-after-gas-paid: credit the beneficiary with the
 self-destructing account's balance, zero out the self's balance, mark the
 self in `substate.selfDestructSet`, add to the refund counter (first-time
