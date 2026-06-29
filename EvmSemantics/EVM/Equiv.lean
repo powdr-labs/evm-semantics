@@ -495,22 +495,24 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             -- After depth/balance pass: first the RLP-encoded
             -- `[sender, nonce]` bytes (`Option ByteArray` — `none` is
             -- the spec-impossible "payload ≥ 2^64" arm), then the
-            -- collision check on the derived address.
+            -- 63/64 forward-gas consumption (always succeeds — EIP-150
+            -- forwards even on collision), then the collision check on
+            -- the derived address against the post-forward world.
             split at h
             · rename_i h_rlp_none; cases h
             · rename_i rlpBytes h_rlp
               split at h
-              · rename_i h_coll
-                cases h
-                exact .createCollision s value offset size rest _ _ _ h_dec h_gas h_stack
-                        h_perm' rfl h_mem rfl h_take h_rlp h_coll
-              · rename_i h_nocoll
+              · rename_i h_fw
                 split at h
-                · rename_i h_fw
+                · rename_i h_coll
+                  cases h
+                  exact .createCollision s value offset size rest _ _ _ _ _ h_dec h_gas
+                          h_stack h_perm' rfl h_mem rfl h_take h_rlp rfl h_fw rfl h_coll
+                · rename_i h_nocoll
                   cases h
                   exact .create s value offset size rest _ _ _ _ _ h_dec h_gas h_stack
-                          h_perm' rfl h_mem rfl h_take h_rlp h_nocoll rfl h_fw rfl
-                · nomatch h
+                          h_perm' rfl h_mem rfl h_take h_rlp rfl h_fw rfl h_nocoll
+              · nomatch h
         · simp [h_mem] at h
     | [], h               => nomatch h
     | [_], h              => nomatch h
@@ -538,18 +540,19 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       h_perm' rfl h_mem rfl h_hash rfl h_fail
             · rename_i h_take
               split at h
-              · rename_i h_coll
-                cases h
-                exact .create2Collision s value offset size salt rest _ _ _ h_dec h_gas
-                        h_stack h_perm' rfl h_mem rfl h_hash rfl h_take h_coll
-              · rename_i h_nocoll
+              · rename_i h_fw
                 split at h
-                · rename_i h_fw
+                · rename_i h_coll
+                  cases h
+                  exact .create2Collision s value offset size salt rest _ _ _ _ _ h_dec
+                          h_gas h_stack h_perm' rfl h_mem rfl h_hash rfl h_take
+                          rfl h_fw rfl h_coll
+                · rename_i h_nocoll
                   cases h
                   exact .create2 s value offset size salt rest _ _ _ _ _ h_dec h_gas
-                          h_stack h_perm' rfl h_mem rfl h_hash rfl h_take h_nocoll
-                          rfl h_fw rfl
-                · nomatch h
+                          h_stack h_perm' rfl h_mem rfl h_hash rfl h_take
+                          rfl h_fw rfl h_nocoll
+              · nomatch h
           · nomatch h
         · simp [h_mem] at h
     | [], h                  => nomatch h

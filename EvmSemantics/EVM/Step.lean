@@ -1243,16 +1243,20 @@ inductive StepRunning : State → State → Prop
 
   /-- CREATE (address collision): the derived `newAddr` already hosts a
       contract (code or nonce > 0). The caller's nonce is bumped, `0` is
-      pushed, and no transfer or frame entry happens. The forwarded gas
-      is *not* spent.
+      pushed, and no transfer or frame entry happens.
 
-      `EvmSemantics.createAddress` returns `Option` only because of its general
-      signature (the underlying RLP encoder is `Option`-typed); the
-      `none` case is unreachable for EVM-bounded nonces. The explicit
-      `newAddr` / `h_addr` pair binds the derived address. -/
+      EIP-150 still takes the forwarded amount on collision (the child
+      "returns zero gas"), so this rule consumes `forwarded` from `s2`
+      into `s3` before bumping the nonce — mirroring the no-collision
+      `create` rule.
+
+      `EvmSemantics.createAddress` returns `Option` only because of its
+      general signature (the underlying RLP encoder is `Option`-typed);
+      the `none` case is unreachable for EVM-bounded nonces. The
+      explicit `newAddr` / `h_addr` pair binds the derived address. -/
   | createCollision (s : State)
         (value offset size : UInt256) (rest : List UInt256)
-        (s' s2 : State) (newAddr : AccountAddress)
+        (s' s2 s3 : State) (forwarded : Nat) (newAddr : AccountAddress)
         (h_op      : s.decodedOp = some .CREATE)
         (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
         (h_stack   : s.stack = value :: offset :: size :: rest)
@@ -1265,13 +1269,16 @@ inductive StepRunning : State → State → Prop
         (h_addr    : EvmSemantics.createAddress s2.executionEnv.address
                        (s2.accountMap s2.executionEnv.address).nonce.toNat
                        = some newAddr)
-        (h_coll    : (s2.accountMap newAddr).isContract = true)
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
+        (h_fw      : forwarded ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+        (h_coll    : (s3.accountMap newAddr).isContract = true)
       : StepRunning s
-          (let caller    := s2.executionEnv.address
-           let callerAcc := s2.accountMap caller
-           let σ'        := s2.accountMap.set caller
+          (let caller    := s3.executionEnv.address
+           let callerAcc := s3.accountMap caller
+           let σ'        := s3.accountMap.set caller
                               { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
-           ({ s2 with accountMap := σ', returnData := .empty
+           ({ s3 with accountMap := σ', returnData := .empty
             }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest)))
 
   /-- CREATE (taken): depth + balance check passes *and* the derived
@@ -1293,10 +1300,10 @@ inductive StepRunning : State → State → Prop
         (h_addr    : EvmSemantics.createAddress s2.executionEnv.address
                        (s2.accountMap s2.executionEnv.address).nonce.toNat
                        = some newAddr)
-        (h_nocoll  : (s2.accountMap newAddr).isContract = false)
         (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+        (h_nocoll  : (s3.accountMap newAddr).isContract = false)
       : StepRunning s
           (s3.enterCreate rest newAddr value
              (MachineState.readPadded s3.memory offset.toNat size.toNat)
@@ -1329,10 +1336,11 @@ inductive StepRunning : State → State → Prop
           ({ s2' with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
-  /-- CREATE2 (address collision). -/
+  /-- CREATE2 (address collision). Mirrors `createCollision`: EIP-150
+      takes the forwarded amount even though no child runs. -/
   | create2Collision (s : State)
         (value offset size salt : UInt256) (rest : List UInt256)
-        (s' s2 s2' : State)
+        (s' s2 s2' s3 : State) (forwarded : Nat)
         (h_op      : s.decodedOp = some .CREATE2)
         (h_gas     : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
         (h_stack   : s.stack = value :: offset :: size :: salt :: rest)
@@ -1344,15 +1352,18 @@ inductive StepRunning : State → State → Prop
         (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
         (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
                           (s2'.accountMap s2'.executionEnv.address).balance < value))
-        (h_coll    : (s2'.accountMap (EvmSemantics.create2Address s2'.executionEnv.address salt
-                       (MachineState.readPadded s2'.memory
+        (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
+        (h_fw      : forwarded ≤ s2'.gasAvailable)
+        (h_s3      : s3 = s2'.consumeGas forwarded h_fw)
+        (h_coll    : (s3.accountMap (EvmSemantics.create2Address s3.executionEnv.address salt
+                       (MachineState.readPadded s3.memory
                           offset.toNat size.toNat))).isContract = true)
       : StepRunning s
-          (let caller    := s2'.executionEnv.address
-           let callerAcc := s2'.accountMap caller
-           let σ'        := s2'.accountMap.set caller
+          (let caller    := s3.executionEnv.address
+           let callerAcc := s3.accountMap caller
+           let σ'        := s3.accountMap.set caller
                               { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
-           ({ s2' with accountMap := σ', returnData := .empty
+           ({ s3 with accountMap := σ', returnData := .empty
             }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest)))
 
   /-- CREATE2 (taken): no collision, depth + balance pass. -/
@@ -1370,12 +1381,12 @@ inductive StepRunning : State → State → Prop
         (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
         (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
                           (s2'.accountMap s2'.executionEnv.address).balance < value))
-        (h_nocoll  : (s2'.accountMap (EvmSemantics.create2Address s2'.executionEnv.address salt
-                       (MachineState.readPadded s2'.memory
-                          offset.toNat size.toNat))).isContract = false)
         (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2'.gasAvailable)
         (h_fw      : forwarded ≤ s2'.gasAvailable)
         (h_s3      : s3 = s2'.consumeGas forwarded h_fw)
+        (h_nocoll  : (s3.accountMap (EvmSemantics.create2Address s3.executionEnv.address salt
+                       (MachineState.readPadded s3.memory
+                          offset.toNat size.toNat))).isContract = false)
       : StepRunning s
           (s3.enterCreate rest
              (EvmSemantics.create2Address s3.executionEnv.address salt

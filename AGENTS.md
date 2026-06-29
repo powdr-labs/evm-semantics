@@ -153,7 +153,9 @@ block validation, precompiles, full RLP.
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and `Gas.create2HashCost` for CREATE2's address-derivation hash.
+  and EIP-3860's Cancun init-code word cost / size cap on CREATE / CREATE2
+  (the spec-fixed `Gas.create2HashCost` *is* modelled — it's the
+  address-derivation hash, charged in both `stepF` and the `Step` relation).
   SELFDESTRUCT / CREATE / CREATE2 are gas-comparable on the
   `Constantinople` fork (SELFDESTRUCT uses Frontier rules to match the
   legacy corpus); only the CALL family remains non-gas-comparable.
