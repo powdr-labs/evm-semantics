@@ -191,7 +191,7 @@ Touch these in order, then rebuild + lint + run vmtests:
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still
    closes. The helpers produce `StepRunning`; the headline `stepF_sound`
    wraps with `Step.running h_running`.
-7. `VMRunner.lean` — usually nothing. Every test goes through the
+7. `tests/VMRunner.lean` — usually nothing. Every test goes through the
    evaluator with its real `exec.gas` budget; there is no skip filter
    left to update.
 

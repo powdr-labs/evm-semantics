@@ -37,6 +37,17 @@ instance : OfNat UInt256 n := ⟨ofNat n⟩
 instance : Inhabited UInt256 := ⟨ofNat 0⟩
 instance : Repr UInt256 where reprPrec u _ := repr u.toNat
 instance : ToString UInt256 where toString u := toString u.toNat
+instance : Hashable UInt256 where hash u := hash u.val.val
+instance : LawfulBEq UInt256 where
+  eq_of_beq := fun {a b} h => by
+    cases a; cases b
+    have := of_decide_eq_true h
+    simp_all
+  rfl := by intro a; cases a; exact decide_eq_true rfl
+instance : LawfulHashable UInt256 where
+  hash_eq a b h := by
+    have : a = b := LawfulBEq.eq_of_beq h
+    rw [this]
 
 /-- Cast a byte to a 256-bit word. -/
 def ofUInt8 (b : UInt8) : UInt256 := ofNat b.toNat

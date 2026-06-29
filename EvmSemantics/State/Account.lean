@@ -5,13 +5,13 @@ public import EvmSemantics.Data.UInt256
 /-!
 `AccountAddress` and `Account`.
 
-Storage and the world `AccountMap` are modelled as **plain functions** —
-`Storage = UInt256 → UInt256`, `AccountMap = AccountAddress → Account` —
-to keep the relational semantics easy to reason about. Missing keys read
-as the default value (0 for storage; the empty account for accounts), so
-there is no `Option`-cluttered API.
-
-Updates are `Function.update`: `s.set k v = fun k' => if k' = k then v else s k'`.
+Storage and the world `AccountMap` are total maps from a 256-bit
+(resp. 160-bit) key to a value; missing keys read as the default
+(0 for storage; the empty account for accounts), so there is no
+`Option`-cluttered API. Underneath both are `Std.HashMap`s — one
+representation for both spec and runtime, so reasoning is direct
+(no spec-vs-runtime bridge to prove). A `CoeFun` instance lets every
+existing `s k` / `σ a` call site work unchanged.
 -/
 
 @[expose] public section
@@ -41,29 +41,54 @@ instance : Ord AccountAddress where compare a b := compare a.val b.val
 
 end AccountAddress
 
-/-- Persistent storage: a total function from 256-bit keys to 256-bit
-    values. The "empty" storage maps every key to `0`. -/
-abbrev Storage : Type := UInt256 → UInt256
+/-- `AccountAddress` is `Fin (2^160)`, so `Hashable` reduces to hashing
+    the underlying `Nat` representative. -/
+instance : Hashable AccountAddress where
+  hash a := hash a.val
+instance : LawfulHashable AccountAddress where
+  hash_eq a b h := by
+    have : a = b := LawfulBEq.eq_of_beq h
+    rw [this]
+
+/-- Persistent storage: a `Std.HashMap` from 256-bit keys to 256-bit
+    values, with absent keys reading as `⟨0⟩`. The "empty" storage is
+    the empty hash map. -/
+abbrev Storage : Type := Std.HashMap UInt256 UInt256
 
 namespace Storage
 
-/-- Storage that maps every key to `0`. -/
-def empty : Storage := fun _ => ⟨0⟩
+/-- Storage that maps every key to `⟨0⟩` (the empty `HashMap`). -/
+def empty : Storage := ∅
 
-/-- Read the value bound to `k`. -/
-@[reducible] def get (s : Storage) (k : UInt256) : UInt256 := s k
+/-- Read the value bound to `k`, defaulting to `⟨0⟩`. -/
+@[reducible] def get (s : Storage) (k : UInt256) : UInt256 := s.getD k ⟨0⟩
 
 /-- Update the binding of `k` to `v`. -/
-def set (s : Storage) (k v : UInt256) : Storage :=
-  fun k' => if k' = k then v else s k'
+def set (s : Storage) (k v : UInt256) : Storage := s.insert k v
 
-@[simp] theorem get_empty (k : UInt256) : Storage.empty k = ⟨0⟩ := rfl
+/-- `s k` syntax goes through `Storage.get` via this `CoeFun` instance. -/
+instance : CoeFun Storage (fun _ => UInt256 → UInt256) where
+  coe s := s.get
+
+@[simp] theorem get_empty (k : UInt256) : Storage.empty k = ⟨0⟩ := by
+  show (∅ : Std.HashMap UInt256 UInt256).getD k ⟨0⟩ = ⟨0⟩
+  simp
 
 @[simp] theorem get_set_same (s : Storage) (k v : UInt256) :
-    (s.set k v) k = v := by simp [Storage.set]
+    (s.set k v) k = v := by
+  show (s.insert k v).getD k ⟨0⟩ = v
+  simp
 
 @[simp] theorem get_set_other (s : Storage) (k k' v : UInt256) (h : k' ≠ k) :
-    (s.set k v) k' = s k' := by simp [Storage.set, h]
+    (s.set k v) k' = s k' := by
+  show (s.insert k v).getD k' ⟨0⟩ = s.getD k' ⟨0⟩
+  rw [Std.HashMap.getD_insert]
+  have hbeq : (k == k') = false := by
+    apply decide_eq_false
+    intro hval
+    apply h
+    cases k; cases k'; exact congrArg UInt256.mk hval.symm
+  simp [hbeq]
 
 end Storage
 
@@ -113,27 +138,44 @@ end Account
 
 instance : Inhabited Account := ⟨Account.empty⟩
 
-/-- World state map: address → account. Total function; addresses not
-    bound read as `Account.empty`. -/
-abbrev AccountMap : Type := AccountAddress → Account
+/-- World state map: address → account, as a `Std.HashMap`. Missing
+    addresses read as `Account.empty`. Same shape as [[Storage]]. -/
+abbrev AccountMap : Type := Std.HashMap AccountAddress Account
 
 namespace AccountMap
 
 /-- The empty world: every address maps to `Account.empty`. -/
-def empty : AccountMap := fun _ => Account.empty
-/-- Read the account at `a`. -/
-@[reducible] def get (σ : AccountMap) (a : AccountAddress) : Account := σ a
+def empty : AccountMap := ∅
+
+/-- Read the account at `a`, defaulting to `Account.empty`. -/
+@[reducible] def get (σ : AccountMap) (a : AccountAddress) : Account :=
+  σ.getD a Account.empty
+
 /-- Update the account at `a`. -/
 def set (σ : AccountMap) (a : AccountAddress) (acc : Account) : AccountMap :=
-  fun a' => if a' = a then acc else σ a'
+  σ.insert a acc
 
-@[simp] theorem get_empty (a : AccountAddress) : AccountMap.empty a = Account.empty := rfl
+/-- `σ a` syntax goes through `AccountMap.get` via this `CoeFun` instance. -/
+instance : CoeFun AccountMap (fun _ => AccountAddress → Account) where
+  coe σ := σ.get
+
+@[simp] theorem get_empty (a : AccountAddress) : AccountMap.empty a = Account.empty := by
+  show (∅ : Std.HashMap AccountAddress Account).getD a Account.empty = Account.empty
+  simp
 
 @[simp] theorem get_set_same (σ : AccountMap) (a : AccountAddress) (acc : Account) :
-    (σ.set a acc) a = acc := by simp [AccountMap.set]
+    (σ.set a acc) a = acc := by
+  show (σ.insert a acc).getD a Account.empty = acc
+  simp
 
 @[simp] theorem get_set_other (σ : AccountMap) (a a' : AccountAddress) (acc : Account)
-    (h : a' ≠ a) : (σ.set a acc) a' = σ a' := by simp [AccountMap.set, h]
+    (h : a' ≠ a) : (σ.set a acc) a' = σ a' := by
+  show (σ.insert a acc).getD a' Account.empty = σ.getD a' Account.empty
+  rw [Std.HashMap.getD_insert]
+  have hbeq : (a == a') = false := by
+    apply decide_eq_false
+    intro hval; exact h hval.symm
+  simp [hbeq]
 
 /-- Move `v` wei from `src` to `dst`. Sequential updates so a self-transfer
     (`src = dst`) is a no-op on the balance. Underflow is the caller's

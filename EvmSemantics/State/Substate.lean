@@ -91,7 +91,7 @@ structure Substate where
   /-- Snapshot of the storage at frame start, used by SSTORE to find the
       `original` value of a slot (EIP-1283 / EIP-2200). For VMTests this
       is initialised from the pre-state's `accountMap`. -/
-  originalAccountMap  : AccountAddress → Account
+  originalAccountMap  : AccountMap
 
 namespace Substate
 
@@ -104,7 +104,7 @@ def empty : Substate :=
     accessedAccounts    := AddressSet.empty
     accessedStorageKeys := StorageKeySet.empty
     logSeries           := #[]
-    originalAccountMap  := fun _ => default }
+    originalAccountMap  := AccountMap.empty }
 
 /-- Look up the `original` value of `(addr, key)` (its value at frame
     start). Used by SSTORE for EIP-1283 net-metered gas. -/
