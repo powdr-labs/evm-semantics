@@ -13,9 +13,9 @@ Design (see the agreed plan):
 * **Ignore gas**: inject a huge `gasAvailable` so `OutOfGas` never fires, and
   never compare the `gas` field. Tests whose code uses the `GAS` opcode are
   skipped (its pushed value would be poisoned by the injected gas).
-* **Skip unsupported opcodes**: a pre-scan of `exec.code` skips any test whose
-  code contains CALL/CREATE-family or SELFDESTRUCT (unimplemented), or
-  KECCAK256 / EXTCODEHASH (keccak is `opaque`, returns 0 at runtime).
+* **Skip unsupported opcodes**: a pre-scan of `exec.code` skips any test
+  whose code contains CREATE/CREATE2/SELFDESTRUCT (the still-unimplemented
+  system ops).
 * Compare storage / return-data / balance / nonce; logs are not compared
   (require RLP + real keccak — phase 2).
 
@@ -151,10 +151,7 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
     hugeGas mode the parent decides via `usesGas` below. -/
 def skipReasonOf (op : Operation) : Option String :=
   match op with
-  | .System .CALL | .System .CALLCODE | .System .DELEGATECALL | .System .STATICCALL
   | .System .CREATE | .System .CREATE2 | .System .SELFDESTRUCT => some "unsupported"
-  -- KECCAK256 and EXTCODEHASH are now backed by a real Keccak-256 impl
-  -- (`EvmSemantics.Crypto.Keccak256`), so we no longer skip them.
   | _ => none
 
 /-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
@@ -163,17 +160,14 @@ def skipReasonOf (op : Operation) : Option String :=
     eligible for gas comparison against the corpus's expected `gas` value. -/
 def gasComparableOpcode (op : Operation) : Bool :=
   match op with
-  -- KECCAK256 now fully modelled: base 30 + per-word 6·⌈size/32⌉.
+  -- KECCAK256: base 30 + per-word 6·⌈size/32⌉.
   | .Keccak _ => true
   -- EIP-2929 cold/warm-split account / slot access — not yet modelled.
   | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
   -- SLOAD: Constantinople flat 50 (Frontier value used by corpus).
-  -- SSTORE: pre-EIP-1283 schedule via `Gas.sstoreCost`. Both fixed ✓.
+  -- SSTORE: pre-EIP-1283 schedule via `Gas.sstoreCost`.
   | .SLOAD | .SSTORE => true
-  -- Per-word / per-byte / per-byteLen costs now charged dynamically in
-  -- stepF (and proved in Step): CALLDATACOPY/CODECOPY/RETURNDATACOPY/
-  -- MCOPY use `Gas.copyWordCost`, LOG uses `Gas.logDataCost`, EXP uses
-  -- `Gas.expByteCost`.
+  -- Dynamic copy/log/exp costs charged in stepF (and proved in Step).
   | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => true
   | .EXP | .Log _ => true
   -- Out-of-scope / dynamic system ops.

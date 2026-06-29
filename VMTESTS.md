@@ -7,11 +7,11 @@ Two harnesses exercise the verified evaluator (`stepF` / `run`):
   scope (no inter-contract calls, no transaction processing). This is the
   bulk of the conformance coverage; the rest of this document is about it.
 - **`StateTestRunner.lean`** (executable `statetests`) — runs the
-  BlockchainTests **`stCall*`** suites, which exercise the CALL opcode's
-  per-call-frame stack and the three `callReturn*` resume rules. Storage
-  comparison covers the union of pre/post slot keys (so cleared-to-zero
-  slots are caught). CI runs it as a separate, non-gating job against
-  `.github/statetests-baseline.txt`.
+  BlockchainTests **`stCall*` / `stCallCodes`** suites, which exercise the
+  CALL and CALLCODE opcodes' per-call-frame stack and the three
+  `callReturn*` resume rules. Storage comparison covers the union of
+  pre/post slot keys (so cleared-to-zero slots are caught). CI runs it as
+  a separate, non-gating job against `.github/statetests-baseline.txt`.
 
 ## How to run
 ```
@@ -33,10 +33,22 @@ The full suite runs tests as in-process Lean `Task`s across `jobs` workers (`-j`
 aborts the whole run; a `Task` that merely throws is recorded as one `crash`.
 Use `--file <one>.json` to run a single test in its own process for isolation.
 
-## Current results (609 tests)
+## Current results
+
+**VMTests (609 tests)**:
 ```
 pass=595 (gas-checked=492) fail=0 skip=6 (unsup=6 keccak=0 gas=0) incon=8 crash=0
 ```
+
+**StateTests `stCallCodes` (80 tests, run by `statetests`)**:
+```
+pass_full=0 pass_core=52 fail=19 incon=9 crash=0
+```
+- `pass_core` = storage + nonce + code match (the CALL-semantics signal);
+  `pass_full` would additionally require exact balances — none reach this
+  because exact balances need full gas-refund modelling (SSTORE refunds and
+  cold/warm pricing). The remaining 19 FAILs are all `Suicide*` /
+  `*_RECURSIVE_*` tests; both depend on SELFDESTRUCT, which is out of scope.
 - **gas-checked=492** — every test whose bytecode uses only opcodes with
   an exact gas cost in our schedule runs with the test's real `exec.gas`
   budget, and the corpus's remaining-`gas` value is compared. The schedule
@@ -92,18 +104,15 @@ summary. The full output and normalized summary are uploaded as artifacts.
   the corpus's bookkeeping). Under hugeGas it would be corrupt — but the
   harness only falls back to hugeGas when *some other* opcode is non-gas-
   comparable, so the previous "gas-skip" bucket is currently empty.
-- **Tests using unsupported opcodes are skipped** (6) via a bytecode pre-scan
-  (`VMRunner.skipReasonOf`): CALL / CALLCODE / DELEGATECALL / STATICCALL /
-  CREATE / CREATE2 / SELFDESTRUCT. Plain `CALL` *is* implemented in the
-  evaluator (with EIP-150 forwarding, value stipend, depth/balance
-  pre-check, static-mode value-transfer rejection, and `returnData`
-  clearing on the pre-execution failure path), and is exercised by the
-  separate `statetests` exe against the `stCall*` BlockchainTests; the
-  VMTests pre-scan continues to skip it pending gas-comparison support
-  for the call surcharge. CALLCODE / DELEGATECALL / STATICCALL / CREATE /
-  CREATE2 / SELFDESTRUCT are not implemented at all.
-- **Keccak is now real.** `EvmSemantics.keccak256` is wired (via
-  `@[implemented_by]`) to a self-contained Keccak-256 implementation in
+- **Tests using unsupported opcodes are skipped** via a bytecode pre-scan
+  (`VMRunner.skipReasonOf`): CREATE / CREATE2 / SELFDESTRUCT. The four
+  call-family opcodes (CALL / CALLCODE / DELEGATECALL / STATICCALL) are
+  implemented in the evaluator and exercised by the separate `statetests`
+  exe against the `stCall*` / `stCallCodes` BlockchainTests; the VMTests
+  pre-scan still routes them out via the gas-comparable filter because
+  the call surcharge isn't yet gas-comparable.
+- **Keccak.** `EvmSemantics.keccak256` is wired (via `@[implemented_by]`)
+  to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,
   using the *original* Keccak padding `0x01` rather than NIST SHA3's
   `0x06`). The separate `keccak_test` exe verifies the output against
@@ -121,26 +130,8 @@ summary. The full output and normalized summary are uploaded as artifacts.
 ## Known evaluator limitations surfaced by the suite
 These are gaps in the evaluator (not the harness), in rough order of impact.
 
-### CRASH — previously known categories
-- **`EXP` with a large exponent** (38: `exp*`, `loop-exp*`) — now **fixed**
-  via modular fast-exponentiation (`UInt256.expFast`, `UInt256.lean`).
-- **Huge memory offset/size** (17: `calldatacopy`/`codecopy`/`calldataload`/
-  `log*` …`TooHigh`) — now **fixed** via proper memory-expansion gas:
-  `chargeMem` / `chargeMem2` charge the Yellow-Paper quadratic cost for the
-  touched range, so a `~2^256` offset hits `OutOfGas` long before the
-  underlying `ByteArray` allocates. The zero-padding cases (calldata read
-  past end) pass; `log*…TooHigh` lands as `incon` (real EVM expects a
-  memory-expansion OOG halt the gas-ignoring harness can't reproduce).
-
-### INCONCLUSIVE (8) — all outside the evaluator's scope
-- **Push-data-aware jumpdest analysis is now implemented**
-  (`Decode.isValidJumpDest`): the JUMP/JUMPI rules call
-  `isValidJumpDest code dest.toNat = true` instead of the old
-  `decodeAt = some (.JUMPDEST, none)` check, so a `0x5b` byte sitting
-  inside a PUSH immediate is rejected. The previous 11 inconclusive
-  `*InsidePushWithJumpDest` / `DynamicJumpPathologicalTest{1,2,3}` tests
-  now pass.
-- **Remaining OOG / fuel-exhausted tests** (`*MemExp`, `*OutOfGas*`,
+### INCONCLUSIVE — outside the evaluator's scope
+- **OOG / fuel-exhausted tests** (`*MemExp`, `*OutOfGas*`,
   `*foreverOutOfGas`, `loop-*`, `ackermann33`, `loop_stacklimit_1021`): the
   EVM stops these via gas; we either don't model that opcode's cost yet
   (so the test isn't gas-checked) or the loop legitimately runs to the
@@ -195,8 +186,8 @@ Already modelled: memory expansion (Yellow-Paper quadratic),
 
 ### Harness improvements
 - [ ] **Log-hash comparison** — the corpus stores `logsHash` (a keccak over
-      RLP-encoded log entries). We have real keccak now; an RLP encoder
-      would close the loop and let us validate emitted logs end-to-end.
+      RLP-encoded log entries). An RLP encoder would close the loop and
+      let us validate emitted logs end-to-end.
 - [ ] **Storage extra-write detection** — comparison only checks the union of
       pre/post slot keys, so a write to a slot named in neither is invisible.
       Track written keys to close this blind spot.

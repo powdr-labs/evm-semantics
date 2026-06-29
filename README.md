@@ -15,18 +15,16 @@ executable functions, so that reasoning is more direct.
 
 ## Status — v1
 
-| Phase | Description | State |
-|---|---|---|
-| 1 | Toolchain (Lean 4.31.0 + Mathlib v4.31.0) + foundation types | ✅ |
-| 2 | `Operation` ADT (including EIP-8024 `DUPN`/`SWAPN`/`EXCHANGE`) and bytecode decoder | ✅ |
-| 3 | Halted-state flag + `ExecutionResult` projection | ✅ |
-| 4 | Small-step success rules (`Step`, 81 constructors) | ✅ |
-| 5 | Small-step exception rules (`Step`, 9 generic constructors) | ✅ |
-| 6 | Big-step relation (`Eval`) + reflexive-transitive closure `Steps` | ✅ |
-| 7 | Executable shadow (`stepF`) + demo (`Main.lean`) | ✅ |
-| 8 | Soundness `stepF s = .ok s' → Step s s'` | ✅ (no `sorry`) |
-| 9 | Real Keccak-256 (`EvmSemantics.Crypto.Keccak256`, wired via `@[implemented_by]`) | ✅ |
-| 10 | Plain `CALL` opcode (per-call-frame stack, EIP-150 forwarding, value stipend, static-mode guard, three `callReturn*` rules) | ✅ |
+What's in: foundation types, `Operation` ADT (incl. EIP-8024
+`DUPN`/`SWAPN`/`EXCHANGE`) and bytecode decoder, halted-state flag +
+`ExecutionResult`, small-step relation `Step` (success + exception
+rules), big-step relation `Eval` + reflexive-transitive closure
+`Steps`, executable shadow `stepF` with soundness theorem
+`stepF s = .ok s' → Step s s'` (no `sorry`), real Keccak-256
+(`Crypto/Keccak256.lean`, wired via `@[implemented_by]`), and the four
+call-family opcodes `CALL` / `CALLCODE` / `DELEGATECALL` / `STATICCALL`
+with a per-call-frame stack, EIP-150 forwarding, value stipend, and
+static-mode guard on `CALL`.
 
 **Demo (`Main.lean`)** runs `PUSH1 5 ; PUSH1 3 ; ADD ; STOP` through the
 executable shadow, producing stack `[8]` and `halt = Success`. Confirms
@@ -40,14 +38,18 @@ trivial program.
   transient), stack manipulation (POP, PUSH0–PUSH32, DUP1–16, SWAP1–16),
   control flow (JUMP, JUMPI, JUMPDEST, PC, GAS), halts (STOP, RETURN,
   REVERT, INVALID), logging (LOG0–LOG4), EIP-8024 (DUPN, SWAPN, EXCHANGE),
-  and plain **`CALL`** with EIP-150 63/64 forwarding, value stipend,
-  depth/balance pre-check, static-mode value-transfer rejection,
-  `returnData` clearing on pre-execution failure, and a list-backed
-  call-frame stack with three resume rules (`callReturnSuccess` /
-  `callReturnRevert` / `callReturnException`).
-- **Excluded from v1:** `CALLCODE` / `DELEGATECALL` / `STATICCALL`,
-  `CREATE` / `CREATE2`, `SELFDESTRUCT`, transaction processing (`Υ`),
-  block validation, precompiled contracts, RLP encoding.
+  and the four call-family opcodes **`CALL` / `CALLCODE` /
+  `DELEGATECALL` / `STATICCALL`** with EIP-150 63/64 forwarding, value
+  stipend (CALL/CALLCODE only), depth/balance pre-check, `returnData`
+  clearing on pre-execution failure, and a list-backed call-frame stack
+  with three resume rules (`callReturnSuccess` / `callReturnRevert` /
+  `callReturnException`). The four kinds share a `CallKind`-parameterised
+  callee-env / `enterCall` skeleton; per-kind axes (`codeOwner` /
+  `source` / `weiValue` / `permitStateMutation` / value transfer) live in
+  `CallKind.calleeXxx` projections.
+- **Excluded from v1:** `CREATE` / `CREATE2`, `SELFDESTRUCT`,
+  transaction processing (`Υ`), block validation, precompiled contracts,
+  RLP encoding.
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
   the static Yellow-Paper fee per fork (`Constantinople` matches the
@@ -63,11 +65,11 @@ trivial program.
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
   costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
   `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
-  in `Substate`) and the out-of-scope CALLCODE / DELEGATECALL / STATICCALL
-  / CREATE / SELFDESTRUCT family. (Plain `CALL` is modelled — its base
-  fee, memory expansion, value/new-account surcharge via
-  `Gas.callSurcharge`, and 63/64 forwarding via
-  `Gas.allButOneSixtyFourth` are all charged.)
+  in `Substate`) and the out-of-scope CREATE / CREATE2 / SELFDESTRUCT
+  family. The call family pays base fee + memory expansion + value
+  surcharge via `Gas.callSurcharge` (CALL also pays the new-account
+  portion when applicable; DELEGATECALL / STATICCALL pay zero
+  surcharge) + 63/64 forwarding via `Gas.allButOneSixtyFourth`.
   Schedule changes need to stay in lockstep across `Step`, `stepF`, the
   soundness proof, and `VMRunner.gasComparableOpcode`.
 - **World state:** modelled as plain functions, not hash maps —

@@ -986,6 +986,172 @@ inductive StepRunning : State → State → Prop
           ({ s3 with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
+  /-- CALLCODE (taken): like `call`, but the callee runs in the *caller's*
+      storage/address context (its `codeOwner` is unchanged) using the target
+      account's code. Value is "transferred" caller→caller, i.e. a no-op on
+      balances. CALLCODE never creates a new account, so the surcharge uses
+      `targetEmpty = false`. Note the **absence** of a `callcodeStatic`
+      sibling (compare `call` / `callStatic`): a value-transferring CALLCODE
+      in a static frame is *not* rejected because the self-transfer is a
+      no-op on world state — no real state mutation occurs at this opcode,
+      and the static flag still propagates into the callee frame via
+      `permitStateMutation`. -/
+  | callcode (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 s3 s4 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .CALLCODE)
+        (h_gas     : Gas.baseCost s.fork .CALLCODE ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CALLCODE) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
+        (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
+                        (s3.accountMap s3.executionEnv.codeOwner).balance < value))
+        (h_fwd     : forwarded =
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
+        (h_fw      : forwarded ≤ s3.gasAvailable)
+        (h_s4      : s4 = s3.consumeGas forwarded h_fw)
+      : StepRunning s
+          (s4.enterCall rest s4.executionEnv.codeOwner value
+             (MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat)
+             (s2.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+             retOff.toNat retLen.toNat)
+
+  /-- CALLCODE (not taken): depth limit hit or caller cannot afford the value.
+      Base+memory+surcharge gas is still charged; `0` is pushed; the forwarded
+      gas is *not* spent. -/
+  | callcodeFail (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 s3 : State)
+        (h_op      : s.decodedOp = some .CALLCODE)
+        (h_gas     : Gas.baseCost s.fork .CALLCODE ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .CALLCODE) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
+        (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
+                       (s3.accountMap s3.executionEnv.codeOwner).balance < value)
+      : StepRunning s
+          ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  ----------------------------------------------------------------------------
+  -- DELEGATECALL / STATICCALL. Both pop *six* stack items (no `value`).
+  -- The differences from `call` / `callcode` live in the per-kind
+  -- `CallKind.*` helpers in `State.lean`; both arms use `enterCallFor`
+  -- to install the callee frame.
+  --
+  -- Neither opcode transfers value, so there's no balance check and no
+  -- new-account surcharge — `Gas.callSurcharge false false = 0` for both.
+  -- We still gate on the depth limit (≥ 1024 pushes 0 instead of entering).
+  ----------------------------------------------------------------------------
+
+  /-- DELEGATECALL (taken): runs the target's code in the *caller's*
+      context (codeOwner unchanged), inheriting the caller's `source` and
+      `weiValue` — i.e. the callee sees the same `msg.sender` and
+      `CALLVALUE` as the caller did. No value parameter; no transfer;
+      no stipend. -/
+  | delegatecall (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 s3 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .DELEGATECALL)
+        (h_gas     : Gas.baseCost s.fork .DELEGATECALL ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .DELEGATECALL) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_take    : ¬ s2.executionEnv.depth ≥ 1024)
+        (h_fwd     : forwarded =
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable))
+        (h_fw      : forwarded ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+      : StepRunning s
+          (s3.enterCallFor .DelegateCall rest (AccountAddress.ofUInt256 toArg)
+             ⟨0⟩  -- value is irrelevant: weiValue is inherited
+             (MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat)
+             (s2.accountMap (AccountAddress.ofUInt256 toArg)).code
+             forwarded retOff.toNat retLen.toNat)
+
+  /-- DELEGATECALL (not taken): depth limit hit. Base + memory gas is still
+      spent; `0` is pushed and `returnData` cleared. -/
+  | delegatecallFail (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 : State)
+        (h_op      : s.decodedOp = some .DELEGATECALL)
+        (h_gas     : Gas.baseCost s.fork .DELEGATECALL ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .DELEGATECALL) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_fail    : s2.executionEnv.depth ≥ 1024)
+      : StepRunning s
+          ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
+  /-- STATICCALL (taken): runs the target's code in the target's context
+      (codeOwner = target), but forces `permitStateMutation = false` in
+      the callee frame so any state-mutating opcode raises
+      `StaticModeViolation`. No value parameter; the callee sees
+      `CALLVALUE = 0`. -/
+  | staticcall (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 s3 : State) (forwarded : Nat)
+        (h_op      : s.decodedOp = some .STATICCALL)
+        (h_gas     : Gas.baseCost s.fork .STATICCALL ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .STATICCALL) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_take    : ¬ s2.executionEnv.depth ≥ 1024)
+        (h_fwd     : forwarded =
+                       min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable))
+        (h_fw      : forwarded ≤ s2.gasAvailable)
+        (h_s3      : s3 = s2.consumeGas forwarded h_fw)
+      : StepRunning s
+          (s3.enterCallFor .StaticCall rest (AccountAddress.ofUInt256 toArg)
+             ⟨0⟩
+             (MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat)
+             (s2.accountMap (AccountAddress.ofUInt256 toArg)).code
+             forwarded retOff.toNat retLen.toNat)
+
+  /-- STATICCALL (not taken): depth limit hit. -/
+  | staticcallFail (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256)
+        (s' s2 : State)
+        (h_op      : s.decodedOp = some .STATICCALL)
+        (h_gas     : Gas.baseCost s.fork .STATICCALL ≤ s.gasAvailable)
+        (h_stack   : s.stack =
+                       gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .STATICCALL) h_gas)
+        (h_mem     : s'.canExpandMemory2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat)
+        (h_s2      : s2 = s'.consumeMemExp2 argsOff.toNat argsLen.toNat
+                            retOff.toNat retLen.toNat h_mem)
+        (h_fail    : s2.executionEnv.depth ≥ 1024)
+      : StepRunning s
+          ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+            (UInt256.ofNat 0 :: rest))
+
   ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).
   ----------------------------------------------------------------------------

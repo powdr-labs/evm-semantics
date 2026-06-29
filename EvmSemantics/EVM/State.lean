@@ -231,5 +231,127 @@ def enterCall (sc : State) (rest : List UInt256)
 
 end State
 
+/-! ### The four call-family opcodes, parameterised over `CallKind`
+
+CALL / CALLCODE / DELEGATECALL / STATICCALL share a common skeleton —
+memory expansion, surcharge, depth/balance check, 63/64 forwarding,
+`enterCall`-style child-frame installation — but differ in seven
+specific axes. The `CallKind` enum names the kinds; the helpers below
+encode the per-kind axes once so the four `Step.*` constructors and
+the four `stepF.system` arms read uniformly. -/
+
+/-- The four inter-contract call opcodes. -/
+inductive CallKind
+  | Call
+  | CallCode
+  | DelegateCall
+  | StaticCall
+  deriving DecidableEq, Repr, Inhabited
+
+namespace CallKind
+
+/-- The callee's `codeOwner` (= `ADDRESS` opcode in the callee). CALL and
+    STATICCALL switch to the target; CALLCODE and DELEGATECALL keep the
+    caller's address. -/
+def calleeCodeOwner (k : CallKind) (sc : State) (tgt : AccountAddress) :
+    AccountAddress :=
+  match k with
+  | .Call | .StaticCall => tgt
+  | .CallCode | .DelegateCall => sc.executionEnv.codeOwner
+
+/-- The callee's `source` (= `CALLER` opcode in the callee). DELEGATECALL
+    inherits the caller's own `source` so the new frame sees the same
+    `msg.sender` as the caller; the others see the caller's `codeOwner`. -/
+def calleeSource (k : CallKind) (sc : State) : AccountAddress :=
+  match k with
+  | .DelegateCall => sc.executionEnv.source
+  | _ => sc.executionEnv.codeOwner
+
+/-- The callee's `weiValue` (= `CALLVALUE` opcode in the callee).
+    DELEGATECALL inherits the caller's; STATICCALL forces `0`; CALL and
+    CALLCODE pass the value popped from the stack. -/
+def calleeWeiValue (k : CallKind) (sc : State) (value : UInt256) : UInt256 :=
+  match k with
+  | .DelegateCall => sc.executionEnv.weiValue
+  | .StaticCall => ⟨0⟩
+  | _ => value
+
+/-- The callee's `permitStateMutation` flag. STATICCALL forces `false`;
+    the others inherit. -/
+def calleePermit (k : CallKind) (sc : State) : Bool :=
+  match k with
+  | .StaticCall => false
+  | _ => sc.executionEnv.permitStateMutation
+
+/-- Whether this call kind actually transfers value caller→target. Only
+    CALL does a non-trivial transfer; CALLCODE's transfer is caller→caller
+    (a balance no-op, but the existing `Step.callcode` rule still threads
+    it through `enterCall`); DELEGATECALL and STATICCALL never transfer. -/
+def transfersValue : CallKind → Bool
+  | .Call => true
+  | _ => false
+
+end CallKind
+
+namespace State
+
+/-- Generalised callee-environment constructor, parameterised over
+    `CallKind`. The four `calleeXxx` helpers above pick which fields are
+    inherited vs overridden. For `kind = .Call` this is the existing
+    `calleeEnvForCall`; the other kinds are new. -/
+def calleeEnvFor (sc : State) (kind : CallKind) (tgt : AccountAddress)
+    (value : UInt256) (calldata calleeCode : ByteArray) :
+    EvmSemantics.ExecutionEnv :=
+  { codeOwner            := kind.calleeCodeOwner sc tgt
+    sender               := sc.executionEnv.sender
+    source               := kind.calleeSource sc
+    weiValue             := kind.calleeWeiValue sc value
+    calldata             := calldata
+    code                 := calleeCode
+    gasPrice             := sc.executionEnv.gasPrice
+    header               := sc.executionEnv.header
+    depth                := sc.executionEnv.depth + 1
+    permitStateMutation  := kind.calleePermit sc
+    blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
+    fork                 := sc.executionEnv.fork }
+
+/-- Generalised `enterCall`, parameterised over `CallKind`. Used by the
+    `Step.delegatecall` / `Step.staticcall` constructors (and could be
+    used to unify `Step.call` / `Step.callcode` in a future refactor;
+    those still go through the older `enterCall` for now). -/
+def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
+    (tgt : AccountAddress) (value : UInt256) (calldata calleeCode : ByteArray)
+    (childGas retOffset retSize : Nat) : State :=
+  let frame : Frame :=
+    { pc           := sc.pc + UInt256.ofNat 1
+      stack        := rest
+      gasAvailable := sc.gasAvailable
+      activeWords  := sc.activeWords
+      memory       := sc.memory
+      returnData   := sc.returnData
+      executionEnv := sc.executionEnv
+      retOffset    := retOffset
+      retSize      := retSize
+      snapAccountMap := sc.accountMap
+      snapSubstate   := sc.substate }
+  let newMap : EvmSemantics.AccountMap :=
+    if kind.transfersValue
+      then sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+      else sc.accountMap
+  { sc with
+      accountMap   := newMap
+      gasAvailable := childGas
+      activeWords  := UInt256.ofNat 0
+      memory       := .empty
+      returnData   := .empty
+      hReturn      := .empty
+      executionEnv := sc.calleeEnvFor kind tgt value calldata calleeCode
+      pc           := UInt256.ofNat 0
+      stack        := []
+      halt         := .Running
+      callStack    := frame :: sc.callStack }
+
+end State
+
 end EVM
 end EvmSemantics
