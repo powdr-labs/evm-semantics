@@ -8,7 +8,7 @@ public import Batteries.Tactic.Lint.Simp
 `Operation` — the EVM instruction set, mirrored from `EvmYul.Operations`.
 
 We use the same hierarchical grouping but drop the `OperationType` parameter
-(`τ`) since v1 only handles `.EVM`. Group names are spelled out (`BlockOps`
+(`τ`) since we only handle `.EVM`. Group names are spelled out (`BlockOps`
 rather than `BOp`) — only the standard mnemonic opcode names (`ADD`, `STOP`,
 …) remain short.
 -/
@@ -378,12 +378,12 @@ def Operation.popArity : Operation → Nat
 
 /-- Operations whose execution mutates persistent or transient state and
     must therefore be rejected when `executionEnv.permitStateMutation = false` (static
-    mode). Mirrors the reference's `W` predicate restricted to v1 ops. -/
+    mode). Mirrors the reference's `W` predicate. -/
 def Operation.isStateMutating : Operation → Bool
   | .SSTORE     => true
   | .TSTORE     => true
   | .Log _      => true
-  -- Out-of-scope for v1 but listed for forward compatibility:
+  -- Not yet implemented but listed for forward compatibility:
   | .CREATE     => true
   | .CREATE2    => true
   | .SELFDESTRUCT => true

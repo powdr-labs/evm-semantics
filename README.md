@@ -13,7 +13,7 @@ executable functions, so that reasoning is more direct.
 > closed — but expect rough edges, especially in the deferred proof
 > obligations. Not for production use.
 
-## Status — v1
+## Status
 
 What's in: foundation types, `Operation` ADT (incl. EIP-8024
 `DUPN`/`SWAPN`/`EXCHANGE`) and bytecode decoder, halted-state flag +
@@ -44,8 +44,8 @@ trivial program.
   clearing on pre-execution failure, and a list-backed call-frame stack
   with three resume rules (`callReturnSuccess` / `callReturnRevert` /
   `callReturnException`). The four kinds share a `CallKind`-parameterised
-  callee-env / `enterCall` skeleton; per-kind axes (`codeOwner` /
-  `source` / `weiValue` / `permitStateMutation` / value transfer) live in
+  callee-env / `enterCall` skeleton; per-kind axes (`address` /
+  `caller` / `weiValue` / `permitStateMutation` / value transfer) live in
   `CallKind.calleeXxx` projections.
 - **`SELFDESTRUCT`** is implemented: base `G_selfdestruct = 5000` +
   `Gas.selfDestructSurcharge` (25000 if the beneficiary is empty and
@@ -68,7 +68,7 @@ trivial program.
   balance), with a dedicated `Step.createCollision` /
   `Step.create2Collision` constructor pair (caller's nonce bumped,
   push 0, no transfer, no frame).
-- **Excluded from v1:** transaction processing (`Υ`), block validation,
+- **Not yet implemented:** transaction processing (`Υ`), block validation,
   precompiled contracts, full RLP (only `[address, nonce]` is encodable).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns

@@ -9,7 +9,7 @@ open EvmSemantics EvmSemantics.EVM
 /-- A tiny initial state to demo on. -/
 def initState (code : ByteArray) (gas : Nat) : State :=
   let env : ExecutionEnv :=
-    { codeOwner := 0, sender := 0, source := 0, weiValue := ⟨0⟩
+    { address := 0, origin := 0, caller := 0, weiValue := ⟨0⟩
       calldata := .empty, code := code
       gasPrice := ⟨0⟩, header := default, depth := 0, permitStateMutation := true
       blobVersionedHashes := #[]

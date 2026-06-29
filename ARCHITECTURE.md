@@ -40,7 +40,7 @@ graph TD
     subgraph "State (world + frame pieces)"
         Account["State/Account.lean<br/>AccountAddress=Fin 2^160,<br/>Storage · Account · AccountMap<br/>(function-backed maps)"]
         BlockHeader["State/BlockHeader.lean<br/>BlockHeader (block context)"]
-        ExecEnv["State/ExecutionEnv.lean<br/>ExecutionEnv I<br/>(code · calldata · sender · header)"]
+        ExecEnv["State/ExecutionEnv.lean<br/>ExecutionEnv I<br/>(code · calldata · origin · header)"]
         Substate["State/Substate.lean<br/>Substate A<br/>(logs · accessed sets · refunds)"]
     end
 
@@ -112,7 +112,7 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   each with `get`/`set` and `@[simp]` get-set lemmas.
 - **`BlockHeader.lean`** — the block-context fields BLOCK opcodes read.
 - **`ExecutionEnv.lean`** — the immutable per-frame environment `I` (code,
-  calldata, sender/source/owner, value, gas price, header, depth,
+  calldata, origin/caller/address, value, gas price, header, depth,
   `permitStateMutation` for static-call detection).
 - **`Substate.lean`** — the accrued substate `A`: `LogSeries`, accessed-account
   and accessed-storage-key sets (`AddressSet`/`StorageKeySet`, also functions to
@@ -289,8 +289,8 @@ opcode is therefore not a state mutation at this site (state-mutating
 opcodes inside the callee are still rejected because `permitStateMutation`
 propagates); (2) **surcharge** passes `targetEmpty = false` — CALLCODE
 never creates a new account; (3) **enter callee** passes the caller's own
-`codeOwner` as the call target, so `enterCall`'s self-transfer is a balance
-no-op and the callee's `codeOwner` stays the caller, while `calleeCode` is
+`address` as the call target, so `enterCall`'s self-transfer is a balance
+no-op and the callee's `address` stays the caller, while `calleeCode` is
 read from the target account so the borrowed code is what executes.
 
 `DELEGATECALL` and `STATICCALL` both pop *six* stack items (no `value`),
@@ -299,10 +299,10 @@ no balance / value transfer, and have no `*Static` constructor — they
 cannot mutate value directly. They share the same pipeline (memory
 expansion → depth-limit pre-check → 63/64 forwarding → `enterCallFor`):
 * `DELEGATECALL` sets `CallKind.DelegateCall`: the callee inherits the
-  caller's `source` (msg.sender) and `weiValue` (CALLVALUE), runs in the
+  caller's `caller` (msg.sender) and `weiValue` (CALLVALUE), runs in the
   caller's storage context, executes the target's code.
 * `STATICCALL` sets `CallKind.StaticCall`: the callee runs in the
-  target's context (codeOwner = target) but with `permitStateMutation`
+  target's context (address = target) but with `permitStateMutation`
   forced to `false`, so any state-mutating opcode in the new frame is
   rejected. `CALLVALUE` is forced to `0`.
 

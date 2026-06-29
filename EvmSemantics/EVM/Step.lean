@@ -385,7 +385,7 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .ADDRESS)
         (h_gas     : Gas.baseCost s.fork .ADDRESS ≤ s.gasAvailable)
       : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .ADDRESS) h_gas).replaceStackAndIncrPC
-                  (s.executionEnv.codeOwner.toUInt256 :: s.stack))
+                  (s.executionEnv.address.toUInt256 :: s.stack))
 
   | balance (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .BALANCE)
@@ -398,13 +398,13 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .ORIGIN)
         (h_gas     : Gas.baseCost s.fork .ORIGIN ≤ s.gasAvailable)
       : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .ORIGIN) h_gas).replaceStackAndIncrPC
-                  (s.executionEnv.sender.toUInt256 :: s.stack))
+                  (s.executionEnv.origin.toUInt256 :: s.stack))
 
   | caller (s : State)
         (h_op      : s.decodedOp = some .CALLER)
         (h_gas     : Gas.baseCost s.fork .CALLER ≤ s.gasAvailable)
       : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .CALLER) h_gas).replaceStackAndIncrPC
-                  (s.executionEnv.source.toUInt256 :: s.stack))
+                  (s.executionEnv.caller.toUInt256 :: s.stack))
 
   | callvalue (s : State)
         (h_op      : s.decodedOp = some .CALLVALUE)
@@ -601,7 +601,7 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SELFBALANCE)
         (h_gas     : Gas.baseCost s.fork .SELFBALANCE ≤ s.gasAvailable)
       : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .SELFBALANCE) h_gas).replaceStackAndIncrPC
-                  ((s.accountMap s.executionEnv.codeOwner).balance :: s.stack))
+                  ((s.accountMap s.executionEnv.address).balance :: s.stack))
 
   | basefee (s : State)
         (h_op      : s.decodedOp = some .BASEFEE)
@@ -765,7 +765,7 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .SLOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
       : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .SLOAD) h_gas).replaceStackAndIncrPC
-                  (((s.accountMap s.executionEnv.codeOwner).storage key) :: rest))
+                  (((s.accountMap s.executionEnv.address).storage key) :: rest))
 
   /-- SSTORE: pop key, value; write storage[key] := value. Requires
       static-mode permission. `h_dyn_gas` charges the EIP-1283 net-metered
@@ -781,11 +781,11 @@ inductive StepRunning : State → State → Prop
                        (s.consumeGas (Gas.baseCost s.fork .SSTORE) h_gas).gasAvailable
                      = false)
         (h_dyn_gas : Gas.sstoreCost s.fork
-                       (s.substate.originalStorage s.executionEnv.codeOwner key)
-                       ((s.accountMap s.executionEnv.codeOwner).storage key) value
+                       (s.substate.originalStorage s.executionEnv.address key)
+                       ((s.accountMap s.executionEnv.address).storage key) value
                        ≤ (s.consumeGas (Gas.baseCost s.fork .SSTORE) h_gas).gasAvailable)
       : StepRunning s
-          (let addr     := s.executionEnv.codeOwner
+          (let addr     := s.executionEnv.address
            let acc      := s.accountMap addr
            let current  := acc.storage key
            let original := s.substate.originalStorage addr key
@@ -802,7 +802,7 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .TLOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
       : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .TLOAD) h_gas).replaceStackAndIncrPC
-                  (((s.accountMap s.executionEnv.codeOwner).tstorage key) :: rest))
+                  (((s.accountMap s.executionEnv.address).tstorage key) :: rest))
 
   /-- TSTORE: like SSTORE but writes to transient storage. -/
   | tstore (s : State) (key value : UInt256) (rest : List UInt256)
@@ -811,7 +811,7 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .TSTORE ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: value :: rest)
       : StepRunning s
-          (let addr := s.executionEnv.codeOwner
+          (let addr := s.executionEnv.address
            let acc  := s.accountMap addr
            let acc' := { acc with tstorage := acc.tstorage.set key value }
            let σ'   := s.accountMap.set addr acc'
@@ -949,7 +949,7 @@ inductive StepRunning : State → State → Prop
         (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0)
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
         (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
-                        (s3.accountMap s3.executionEnv.codeOwner).balance < value))
+                        (s3.accountMap s3.executionEnv.address).balance < value))
         (h_fwd     : forwarded =
                        min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
         (h_fw      : forwarded ≤ s3.gasAvailable)
@@ -982,13 +982,13 @@ inductive StepRunning : State → State → Prop
         (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0)
                        (s2.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty) h_sc)
         (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
-                       (s3.accountMap s3.executionEnv.codeOwner).balance < value)
+                       (s3.accountMap s3.executionEnv.address).balance < value)
       : StepRunning s
           ({ s3 with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
 
   /-- CALLCODE (taken): like `call`, but the callee runs in the *caller's*
-      storage/address context (its `codeOwner` is unchanged) using the target
+      storage/address context (its `address` is unchanged) using the target
       account's code. Value is "transferred" caller→caller, i.e. a no-op on
       balances. CALLCODE never creates a new account, so the surcharge uses
       `targetEmpty = false`. Note the **absence** of a `callcodeStatic`
@@ -1012,13 +1012,13 @@ inductive StepRunning : State → State → Prop
         (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
         (h_take    : ¬ (s3.executionEnv.depth ≥ 1024 ∨
-                        (s3.accountMap s3.executionEnv.codeOwner).balance < value))
+                        (s3.accountMap s3.executionEnv.address).balance < value))
         (h_fwd     : forwarded =
                        min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable))
         (h_fw      : forwarded ≤ s3.gasAvailable)
         (h_s4      : s4 = s3.consumeGas forwarded h_fw)
       : StepRunning s
-          (s4.enterCall rest s4.executionEnv.codeOwner value
+          (s4.enterCall rest s4.executionEnv.address value
              (MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat)
              (s2.accountMap (AccountAddress.ofUInt256 toArg)).code
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
@@ -1042,7 +1042,7 @@ inductive StepRunning : State → State → Prop
         (h_sc      : Gas.callSurcharge (value.toNat != 0) false ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas (Gas.callSurcharge (value.toNat != 0) false) h_sc)
         (h_fail    : s3.executionEnv.depth ≥ 1024 ∨
-                       (s3.accountMap s3.executionEnv.codeOwner).balance < value)
+                       (s3.accountMap s3.executionEnv.address).balance < value)
       : StepRunning s
           ({ s3 with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
@@ -1059,7 +1059,7 @@ inductive StepRunning : State → State → Prop
   ----------------------------------------------------------------------------
 
   /-- DELEGATECALL (taken): runs the target's code in the *caller's*
-      context (codeOwner unchanged), inheriting the caller's `source` and
+      context (address unchanged), inheriting the caller's `source` and
       `weiValue` — i.e. the callee sees the same `msg.sender` and
       `CALLVALUE` as the caller did. No value parameter; no transfer;
       no stipend. -/
@@ -1107,7 +1107,7 @@ inductive StepRunning : State → State → Prop
             (UInt256.ofNat 0 :: rest))
 
   /-- STATICCALL (taken): runs the target's code in the target's context
-      (codeOwner = target), but forces `permitStateMutation = false` in
+      (address = target), but forces `permitStateMutation = false` in
       the callee frame so any state-mutating opcode raises
       `StaticModeViolation`. No value parameter; the callee sees
       `CALLVALUE = 0`. -/
@@ -1193,7 +1193,7 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
         (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
         (h_fail    : s2.executionEnv.depth ≥ 1024 ∨
-                       (s2.accountMap s2.executionEnv.codeOwner).balance < value)
+                       (s2.accountMap s2.executionEnv.address).balance < value)
       : StepRunning s
           ({ s2 with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
@@ -1213,13 +1213,13 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
         (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
         (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
-                          (s2.accountMap s2.executionEnv.codeOwner).balance < value))
+                          (s2.accountMap s2.executionEnv.address).balance < value))
         (h_coll    : (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                       (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
-                         (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))).isContract
+                       (Rlp.encodeAddrNonce s2.executionEnv.address
+                         (s2.accountMap s2.executionEnv.address).nonce.toNat)))).isContract
                      = true)
       : StepRunning s
-          (let caller    := s2.executionEnv.codeOwner
+          (let caller    := s2.executionEnv.address
            let callerAcc := s2.accountMap caller
            let σ'        := s2.accountMap.set caller
                               { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
@@ -1240,10 +1240,10 @@ inductive StepRunning : State → State → Prop
         (h_mem     : s'.canExpandMemory offset.toNat size.toNat)
         (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
         (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
-                          (s2.accountMap s2.executionEnv.codeOwner).balance < value))
+                          (s2.accountMap s2.executionEnv.address).balance < value))
         (h_nocoll  : (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                       (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
-                         (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))).isContract
+                       (Rlp.encodeAddrNonce s2.executionEnv.address
+                         (s2.accountMap s2.executionEnv.address).nonce.toNat)))).isContract
                      = false)
         (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
         (h_fw      : forwarded ≤ s2.gasAvailable)
@@ -1251,8 +1251,8 @@ inductive StepRunning : State → State → Prop
       : StepRunning s
           (s3.enterCreate rest
              (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                (Rlp.encodeAddrNonce s2.executionEnv.codeOwner
-                   (s2.accountMap s2.executionEnv.codeOwner).nonce.toNat)))
+                (Rlp.encodeAddrNonce s2.executionEnv.address
+                   (s2.accountMap s2.executionEnv.address).nonce.toNat)))
              value
              (MachineState.readPadded s3.memory offset.toNat size.toNat)
              forwarded)
@@ -1279,7 +1279,7 @@ inductive StepRunning : State → State → Prop
         (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
         (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
         (h_fail    : s2'.executionEnv.depth ≥ 1024 ∨
-                       (s2'.accountMap s2'.executionEnv.codeOwner).balance < value)
+                       (s2'.accountMap s2'.executionEnv.address).balance < value)
       : StepRunning s
           ({ s2' with returnData := .empty }.replaceStackAndIncrPC
             (UInt256.ofNat 0 :: rest))
@@ -1298,16 +1298,16 @@ inductive StepRunning : State → State → Prop
         (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
         (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
         (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
-                          (s2'.accountMap s2'.executionEnv.codeOwner).balance < value))
+                          (s2'.accountMap s2'.executionEnv.address).balance < value))
         (h_coll    : (s2'.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
                        (ByteArray.mk #[0xff]
-                         ++ Rlp.addressBytes s2'.executionEnv.codeOwner
+                         ++ Rlp.addressBytes s2'.executionEnv.address
                          ++ Rlp.uint256ToBytes32 salt
                          ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
                            (MachineState.readPadded s2'.memory
                               offset.toNat size.toNat)))))).isContract = true)
       : StepRunning s
-          (let caller    := s2'.executionEnv.codeOwner
+          (let caller    := s2'.executionEnv.address
            let callerAcc := s2'.accountMap caller
            let σ'        := s2'.accountMap.set caller
                               { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
@@ -1328,10 +1328,10 @@ inductive StepRunning : State → State → Prop
         (h_hash    : Gas.create2HashCost size.toNat ≤ s2.gasAvailable)
         (h_s2'     : s2' = s2.consumeGas (Gas.create2HashCost size.toNat) h_hash)
         (h_take    : ¬ (s2'.executionEnv.depth ≥ 1024 ∨
-                          (s2'.accountMap s2'.executionEnv.codeOwner).balance < value))
+                          (s2'.accountMap s2'.executionEnv.address).balance < value))
         (h_nocoll  : (s2'.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
                        (ByteArray.mk #[0xff]
-                         ++ Rlp.addressBytes s2'.executionEnv.codeOwner
+                         ++ Rlp.addressBytes s2'.executionEnv.address
                          ++ Rlp.uint256ToBytes32 salt
                          ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
                            (MachineState.readPadded s2'.memory
@@ -1344,7 +1344,7 @@ inductive StepRunning : State → State → Prop
             (MachineState.readPadded s3.memory offset.toNat size.toNat)
            let preimage : ByteArray :=
              ByteArray.mk #[0xff]
-               ++ Rlp.addressBytes s3.executionEnv.codeOwner
+               ++ Rlp.addressBytes s3.executionEnv.address
                ++ Rlp.uint256ToBytes32 salt
                ++ Rlp.uint256ToBytes32 codeHash
            s3.enterCreate rest
@@ -1388,13 +1388,13 @@ inductive StepRunning : State → State → Prop
         (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .SELFDESTRUCT) h_gas)
         (h_sc      : Gas.selfDestructSurcharge s.fork
                        ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
-                       ((s.accountMap s.executionEnv.codeOwner).balance.toNat != 0)
+                       ((s.accountMap s.executionEnv.address).balance.toNat != 0)
                        ≤ s'.gasAvailable)
       : StepRunning s
           ((s'.consumeGas
             (Gas.selfDestructSurcharge s.fork
               ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
-              ((s.accountMap s.executionEnv.codeOwner).balance.toNat != 0))
+              ((s.accountMap s.executionEnv.address).balance.toNat != 0))
             h_sc).selfDestructTo (AccountAddress.ofUInt256 beneficiary))
 
   ----------------------------------------------------------------------------
@@ -1416,7 +1416,7 @@ inductive StepRunning : State → State → Prop
                             offset.toNat size.toNat h_mem).gasAvailable)
       : StepRunning s
           (let entry : LogEntry :=
-             { address := s.executionEnv.codeOwner
+             { address := s.executionEnv.address
                topics  := topics.toArray
                data    := MachineState.readPadded s.memory offset.toNat size.toNat }
            let s'' := (s.consumeGas (Gas.baseCost s.fork (.Log ⟨n⟩)) h_gas).consumeMemExp
