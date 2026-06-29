@@ -43,6 +43,10 @@ def ofUInt8 (b : UInt8) : UInt256 := ofNat b.toNat
 
 /-- ADD: modular `a + b`. -/
 def add (a b : UInt256) : UInt256 := ⟨a.val + b.val⟩
+/-- Modular successor `a + 1`. Used by every `Step` rule that advances
+    the program counter by one byte, and by transaction-level
+    nonce bumps — sufficiently common that we give it a name. -/
+def succ (a : UInt256) : UInt256 := ⟨a.val + 1⟩
 /-- SUB: modular `a - b`. -/
 def sub (a b : UInt256) : UInt256 := ⟨a.val - b.val⟩
 /-- MUL: modular `a * b`. -/

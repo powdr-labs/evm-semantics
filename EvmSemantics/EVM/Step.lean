@@ -91,13 +91,6 @@ namespace State
 def consumeGas (s : State) (n : Nat) (_h : n ≤ s.gasAvailable) : State :=
   { s with gasAvailable := s.gasAvailable - n }
 
-/-- Gas-only mirror of `consumeGas`: returns the `gasAvailable` value
-    after paying `n` units, *without* wrapping it in a fresh `State`.
-    Used inside record-update post-states to avoid nested `let`s while
-    keeping the formula readable — equivalent to
-    `(s.consumeGas n h).gasAvailable` modulo unfolding `consumeGas`. -/
-@[inline] def gasAfter (s : State) (n : Nat) : Nat := s.gasAvailable - n
-
 /-- Gas-only mirror of `consumeGas`+`consumeMemExp`: returns the
     `gasAvailable` value after paying `n` units of static fee *plus*
     the memory-expansion delta for touching `[off, off+sz)`.
@@ -191,8 +184,11 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .ADD)
         (h_gas     : Gas.baseCost s.fork .ADD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
-      : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .ADD) h_gas).replaceStackAndIncrPC
-                  ((a + b) :: rest))
+      : StepRunning s
+          { s with
+              stack        := (a + b) :: rest
+              pc           := s.pc + UInt256.ofNat 1
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .ADD }
 
   /-- MUL: pop `a`, `b`; push `a * b`. -/
   | mul (s : State) (a b : UInt256) (rest : List UInt256)
@@ -271,7 +267,7 @@ inductive StepRunning : State → State → Prop
           { s with
               stack        := UInt256.exp a b :: rest
               pc           := s.pc + UInt256.ofNat 1
-              gasAvailable := s.gasAfter (Gas.baseCost s.fork .EXP)
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EXP
                               - Gas.expByteCost s.fork b }
 
   /-- SIGNEXTEND: pop `b`, `x`; sign-extend `x` from byte index `b`. -/
@@ -459,7 +455,7 @@ inductive StepRunning : State → State → Prop
                                     i.toNat 32).toList.foldl
                                   (fun acc b => acc * 256 + b.toNat) 0) :: rest
               pc           := s.pc + UInt256.ofNat 1
-              gasAvailable := s.gasAfter (Gas.baseCost s.fork .CALLDATALOAD) }
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CALLDATALOAD }
 
   | calldatasize (s : State)
         (h_op      : s.decodedOp = some .CALLDATASIZE)
@@ -817,11 +813,31 @@ inductive StepRunning : State → State → Prop
                                        h_gas).consumeMemExp2 destOff.toNat sz.toNat
                                        srcOff.toNat sz.toNat h_mem).gasAvailable)
       : StepRunning s
-          (let s'' := (s.consumeGas (Gas.baseCost s.fork .MCOPY) h_gas).consumeMemExp2
-                        destOff.toNat sz.toNat srcOff.toNat sz.toNat h_mem
-           let s''' := s''.consumeGas (Gas.copyWordCost sz) h_dyn_gas
-           let μ' := MachineState.mcopy s'''.toMachineState destOff srcOff sz
-           { s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+          { s with
+              stack        := rest
+              pc           := s.pc + UInt256.ofNat 1
+              gasAvailable := s.gasAfterMemExp2 (Gas.baseCost s.fork .MCOPY)
+                                destOff.toNat sz.toNat srcOff.toNat sz.toNat
+                              - Gas.copyWordCost sz
+              -- `MachineState.mcopy` reads from memory *and* re-applies
+              -- `activeWordsAfter` for src and dst on top of
+              -- `consumeMemExp2`'s result; we mirror those exact
+              -- nested applications so the rfl match against `stepF`
+              -- closes.
+              memory       := MachineState.writeBytes s.memory
+                                (MachineState.readPadded s.memory
+                                  srcOff.toNat sz.toNat)
+                                destOff.toNat
+              activeWords  := UInt256.ofNat
+                                (MachineState.activeWordsAfter
+                                  (MachineState.activeWordsAfter
+                                    (UInt256.ofNat
+                                      (MachineState.activeWordsAfter
+                                        (MachineState.activeWordsAfter
+                                          s.activeWords.toNat destOff.toNat sz.toNat)
+                                        srcOff.toNat sz.toNat)).toNat
+                                    srcOff.toNat sz.toNat)
+                                  destOff.toNat sz.toNat) }
 
   ----------------------------------------------------------------------------
   -- Storage (persistent and transient).
@@ -856,7 +872,7 @@ inductive StepRunning : State → State → Prop
           { s with
               stack        := rest
               pc           := s.pc + UInt256.ofNat 1
-              gasAvailable := s.gasAfter (Gas.baseCost s.fork .SSTORE)
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SSTORE
                               - Gas.sstoreCost s.fork
                                   (s.substate.originalStorage s.executionEnv.codeOwner key)
                                   ((s.accountMap s.executionEnv.codeOwner).storage key)
@@ -884,7 +900,7 @@ inductive StepRunning : State → State → Prop
           { s with
               stack        := rest
               pc           := s.pc + UInt256.ofNat 1
-              gasAvailable := s.gasAfter (Gas.baseCost s.fork .TSTORE)
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .TSTORE
               accountMap   := s.accountMap.set s.executionEnv.codeOwner
                                 { s.accountMap s.executionEnv.codeOwner with
                                     tstorage :=
@@ -940,10 +956,10 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .GAS ≤ s.gasAvailable)
       : StepRunning s
           { s with
-              stack        := UInt256.ofNat (s.gasAfter (Gas.baseCost s.fork .GAS))
+              stack        := UInt256.ofNat (s.gasAvailable - Gas.baseCost s.fork .GAS)
                                 :: s.stack
               pc           := s.pc + UInt256.ofNat 1
-              gasAvailable := s.gasAfter (Gas.baseCost s.fork .GAS) }
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .GAS }
 
   | jumpdest (s : State)
         (h_op      : s.decodedOp = some .JUMPDEST)
