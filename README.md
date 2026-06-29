@@ -13,7 +13,7 @@ executable functions, so that reasoning is more direct.
 > closed — but expect rough edges, especially in the deferred proof
 > obligations. Not for production use.
 
-## Status — v1
+## Status
 
 What's in: foundation types, `Operation` ADT (incl. EIP-8024
 `DUPN`/`SWAPN`/`EXCHANGE`) and bytecode decoder, halted-state flag +
@@ -44,10 +44,10 @@ trivial program.
   clearing on pre-execution failure, and a list-backed call-frame stack
   with three resume rules (`callReturnSuccess` / `callReturnRevert` /
   `callReturnException`). The four kinds share a `CallKind`-parameterised
-  callee-env / `enterCall` skeleton; per-kind axes (`codeOwner` /
-  `source` / `weiValue` / `permitStateMutation` / value transfer) live in
+  callee-env / `enterCall` skeleton; per-kind axes (`address` /
+  `caller` / `weiValue` / `permitStateMutation` / value transfer) live in
   `CallKind.calleeXxx` projections.
-- **Excluded from v1:** `CREATE` / `CREATE2`, `SELFDESTRUCT`,
+- **Not yet implemented:** `CREATE` / `CREATE2`, `SELFDESTRUCT`,
   transaction processing (`Υ`), block validation, precompiled contracts,
   RLP encoding.
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
