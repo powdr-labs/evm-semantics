@@ -450,13 +450,12 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   -- for this opcode.)
   -- Refund constant matches `Gas.selfDestructRefund`: 24000 before
   -- London (EIP-3529 removed it), 0 from London onwards.
-  let refundDelta : Nat := if sc.executionEnv.fork.atLeast .London then 0 else 24000
+  let refundDelta : Int := if sc.executionEnv.fork.atLeast .London then 0 else 24000
   let substate' : Substate :=
     { sc.substate with
         selfDestructSet := sc.substate.selfDestructSet.insert self
         selfDestructList := self :: sc.substate.selfDestructList
-        refundBalance   := sc.substate.refundBalance +
-                             UInt256.ofNat refundDelta }
+        refundBalance   := sc.substate.refundBalance + refundDelta }
   { sc with
       accountMap := map₂
       substate   := substate'
@@ -615,6 +614,8 @@ def finalizeTx (sc : State) (gasLimit : Nat)
   let fork          := sc.executionEnv.fork
   let gasUsed       := gasLimit - sc.gasAvailable
   let cap           := gasUsed / refundDenom fork
+  -- Net-metered SSTORE can leave `refundBalance` negative; the corpus
+  -- clamps to 0 before applying the `gas_used / refundDenom` cap.
   let refund        := Nat.min sc.substate.refundBalance.toNat cap
   let finalGas      := sc.gasAvailable + refund
   let senderRefund  := finalGas * gasPrice.toNat

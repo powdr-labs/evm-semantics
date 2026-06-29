@@ -759,13 +759,24 @@ inductive StepRunning : State → State → Prop
   -- Storage (persistent and transient).
   ----------------------------------------------------------------------------
 
-  /-- SLOAD: pop key; push storage[key] from the executing contract. -/
+  /-- SLOAD: pop key; push storage[key] from the executing contract.
+      EIP-2929 (Berlin+): pays the cold-access surcharge the first
+      time `(codeOwner, key)` is touched in this transaction; the
+      substate is updated to mark it warm afterwards. -/
   | sload (s : State) (key : UInt256) (rest : List UInt256)
-        (h_op      : s.decodedOp = some .SLOAD)
-        (h_gas     : Gas.baseCost s.fork .SLOAD ≤ s.gasAvailable)
-        (h_stack   : s.stack = key :: rest)
-      : StepRunning s ((s.consumeGas (Gas.baseCost s.fork .SLOAD) h_gas).replaceStackAndIncrPC
-                  (((s.accountMap s.executionEnv.codeOwner).storage key) :: rest))
+        (h_op       : s.decodedOp = some .SLOAD)
+        (h_gas      : Gas.baseCost s.fork .SLOAD ≤ s.gasAvailable)
+        (h_cold     : Gas.coldSloadExtra s.fork
+                        (s.substate.isWarmKey (s.executionEnv.codeOwner, key))
+                        ≤ s.gasAvailable - Gas.baseCost s.fork .SLOAD)
+        (h_stack    : s.stack = key :: rest)
+      : StepRunning s (
+          let extra := Gas.coldSloadExtra s.fork
+                         (s.substate.isWarmKey (s.executionEnv.codeOwner, key))
+          let sub'  := s.substate.addAccessedStorageKey (s.executionEnv.codeOwner, key)
+          ({ ((s.consumeGas (Gas.baseCost s.fork .SLOAD) h_gas).consumeGas extra h_cold)
+              with substate := sub' }.replaceStackAndIncrPC
+              (((s.accountMap s.executionEnv.codeOwner).storage key) :: rest)))
 
   /-- SSTORE: pop key, value; write storage[key] := value. Requires
       static-mode permission. `h_dyn_gas` charges the EIP-1283 net-metered
@@ -783,19 +794,23 @@ inductive StepRunning : State → State → Prop
         (h_dyn_gas : Gas.sstoreCost s.fork
                        (s.substate.originalStorage s.executionEnv.codeOwner key)
                        ((s.accountMap s.executionEnv.codeOwner).storage key) value
+                       + Gas.coldSloadExtra s.fork
+                           (s.substate.isWarmKey (s.executionEnv.codeOwner, key))
                        ≤ (s.consumeGas (Gas.baseCost s.fork .SSTORE) h_gas).gasAvailable)
       : StepRunning s
           (let addr     := s.executionEnv.codeOwner
            let acc      := s.accountMap addr
            let current  := acc.storage key
            let original := s.substate.originalStorage addr key
-           let cost     := Gas.sstoreCost s.fork original current value
+           let warm     := s.substate.isWarmKey (addr, key)
+           let cold     := Gas.coldSloadExtra s.fork warm
+           let cost     := Gas.sstoreCost s.fork original current value + cold
            let acc'     := { acc with storage := acc.storage.set key value }
            let σ'       := s.accountMap.set addr acc'
-           let refund   := Gas.sstoreRefund s.fork current value
-           let sub'     := { s.substate with
-                               refundBalance := s.substate.refundBalance +
-                                                  UInt256.ofNat refund }
+           let refund   : Int := Gas.sstoreRefund s.fork original current value
+           let sub'     := ({ s.substate with
+                                refundBalance := s.substate.refundBalance + refund
+                            }).addAccessedStorageKey (addr, key)
            { ((s.consumeGas (Gas.baseCost s.fork .SSTORE) h_gas).consumeGas cost h_dyn_gas)
                with accountMap := σ', substate := sub' }
              |>.replaceStackAndIncrPC rest)

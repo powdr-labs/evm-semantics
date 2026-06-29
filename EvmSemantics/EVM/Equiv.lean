@@ -788,7 +788,18 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     | [_], h    => nomatch h
   | SLOAD =>
     match h_stack : s.stack, h with
-    | key :: rest, h => cases h; exact .sload s key rest h_dec h_gas h_stack
+    | key :: rest, h =>
+      -- The stepF body charges the EIP-2929 cold surcharge before
+      -- replacing the stack; that branches on `extra ≤ gasAvailable`.
+      by_cases h_cold :
+        Gas.coldSloadExtra s.fork
+            (s.substate.isWarmKey (s.executionEnv.codeOwner, key))
+          ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SLOAD))
+                h_gas).gasAvailable
+      · simp [h_cold] at h
+        cases h
+        exact .sload s key rest h_dec h_gas h_cold h_stack
+      · simp [h_cold] at h
     | [], h         => nomatch h
   | SSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -810,6 +821,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
             Gas.sstoreCost s.fork
                 (s.substate.originalStorage s.executionEnv.codeOwner key)
                 ((s.accountMap s.executionEnv.codeOwner).storage key) value
+              + Gas.coldSloadExtra s.fork
+                  (s.substate.isWarmKey (s.executionEnv.codeOwner, key))
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                     h_gas).gasAvailable
           · simp [h_dyn] at h

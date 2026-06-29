@@ -200,16 +200,59 @@ def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
   else
     if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
 
-/-- SSTORE refund counter delta — the value added to
-    `Substate.refundBalance` when an SSTORE writes a new value to a slot.
-    Pre-EIP-1283 (Frontier..Byzantium and Petersburg) is simple: 15000
-    when a non-zero slot is cleared to zero. The net-metered schedules
-    (EIP-1283 Constantinople, EIP-2200 Istanbul onwards) have more
-    elaborate refund rules but we approximate by just the clear-to-zero
-    refund — most refund failures come from the SELFDESTRUCT side, not
-    the SSTORE branch alone. -/
-def Gas.sstoreRefund (_fork : Fork) (current new : UInt256) : Nat :=
-  if current.toNat ≠ 0 ∧ new.toNat = 0 then 15000 else 0
+/-- SSTORE refund counter delta — signed delta added to
+    `Substate.refundBalance` for one SSTORE writing `new` over `current`
+    when the slot's transaction-start value was `original`.
+
+    * **Pre-EIP-1283** (Frontier..Byzantium and Petersburg): +15000 on
+      a clear-to-zero, otherwise 0.
+    * **EIP-1283** (original Constantinople) / **EIP-2200**
+      (Istanbul..Cancun): net-metered. The cancel branches subtract.
+
+    The schedule values change a bit across the net-metered forks
+    (Yellow Paper §H.3 / EIP-3529 in London halves the refunds):
+
+    | constant   | EIP-1283 | EIP-2200 | EIP-3529 (London+) |
+    |------------|---------:|---------:|-------------------:|
+    | `Sclear`   |    15000 |    15000 |               4800 |
+    | `Sreset-Hwarm` |  4800 |     4200 |               2800 |
+    | `Sset-Hwarm`   | 19800 |    19200 |              19900 |
+
+    (`Hwarm` is 200 on EIP-1283 — pre-EIP-2929 — and 100 from EIP-2200
+    onwards, matching the SSTORE no-op cost on each fork.) -/
+def Gas.sstoreRefund (fork : Fork) (original current new : UInt256) : Int :=
+  let o := original.toNat
+  let c := current.toNat
+  let n := new.toNat
+  if c = n then 0
+  else if fork.atLeast .Istanbul ∨ fork = .Constantinople then
+    -- Net-metered (EIP-1283 / EIP-2200 / EIP-3529).
+    let london := fork.atLeast .London
+    let sclear : Int := if london then 4800 else 15000
+    let sresetMinusH : Int :=
+      if london then 2800
+      else if fork.atLeast .Istanbul then 4200
+      else 4800   -- EIP-1283 (Constantinople-only)
+    let ssetMinusH : Int :=
+      if london then 19900
+      else if fork.atLeast .Istanbul then 19200
+      else 19800  -- EIP-1283
+    if o = c then
+      if n = 0 then sclear else 0
+    else
+      -- Dirty branch.
+      let r₀ : Int :=
+        if c ≠ 0 ∧ n = 0 then sclear
+        else if o ≠ 0 ∧ c = 0 then -sclear
+        else 0
+      let r₁ : Int :=
+        if o ≠ 0 ∧ o = n then sresetMinusH
+        else if o = 0 ∧ o = n then ssetMinusH
+        else 0
+      r₀ + r₁
+  else
+    -- Pre-EIP-1283 schedule: clear-to-zero only.
+    if c ≠ 0 ∧ n = 0 then 15000 else 0
 
 /-- Denominator of the end-of-tx refund cap: `refund ≤ gas_used / refundDenom`.
     Pre-EIP-3529 (everything before London) uses 2; London onwards uses
@@ -263,6 +306,21 @@ def Gas.forwardGas (fork : Fork) (g gas_arg : Nat) : Nat :=
     of the forwarded gas (funded by the `G_callvalue` surcharge), not charged to
     the caller again. -/
 def Gas.callStipend : Nat := 2300
+
+/-- EIP-2929 cold-access surcharge added on top of the warm price for
+    Berlin+ forks. Returns 2000 for an account/storage-key access
+    that hasn't been touched yet in this transaction, otherwise 0.
+    Pre-Berlin always returns 0 — the cold/warm distinction didn't
+    exist, the static `baseCost` already encoded the full price.
+    The 2000/2500 values are EIP-2929's `COLD_*_COST - WARM_*_COST`:
+    `COLD_SLOAD_COST - WARM_STORAGE_READ_COST = 2100 - 100 = 2000`
+    for storage, `COLD_ACCOUNT_ACCESS_COST - WARM_STORAGE_READ_COST =
+    2600 - 100 = 2500` for accounts. -/
+@[inline] def Gas.coldSloadExtra (fork : Fork) (warm : Bool) : Nat :=
+  if fork.atLeast .Berlin ∧ !warm then 2000 else 0
+
+@[inline] def Gas.coldAccountExtra (fork : Fork) (warm : Bool) : Nat :=
+  if fork.atLeast .Berlin ∧ !warm then 2500 else 0
 
 /-- The dynamic surcharge a CALL pays on top of its base fee.
 

@@ -359,8 +359,18 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .SLOAD => match s.stack with
     | key :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap s.executionEnv.codeOwner).storage key :: rest))
+      -- EIP-2929: cold accesses pay an extra 2000 gas on top of the
+      -- warm price already in `baseCost`; the slot is then marked warm
+      -- for the rest of the transaction.
+      let sk    := (s.executionEnv.codeOwner, key)
+      let warm  := s.substate.isWarmKey sk
+      let extra := Gas.coldSloadExtra s.fork warm
+      if h : extra ≤ s'.gasAvailable then
+        let s2 := s'.consumeGas extra h
+        let sub' := s2.substate.addAccessedStorageKey sk
+        .ok ({ s2 with substate := sub' }.replaceStackAndIncrPC
+              ((s.accountMap s.executionEnv.codeOwner).storage key :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .SSTORE =>
     if ¬ s.executionEnv.permitStateMutation then static
@@ -374,17 +384,22 @@ def stackMemFlow (s s' : State) :
       let acc      := s.accountMap addr
       let current  := acc.storage key
       let original := s.substate.originalStorage addr key
-      let cost     := Gas.sstoreCost s.fork original current value
+      -- EIP-2929 cold surcharge: 2000 if the slot hasn't been touched
+      -- in this transaction; charged BEFORE the EIP-2200 dynamic cost.
+      let warm     := s.substate.isWarmKey (addr, key)
+      let cold     := Gas.coldSloadExtra s.fork warm
+      let cost     := Gas.sstoreCost s.fork original current value + cold
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
-        -- Accumulate the refund delta into `Substate.refundBalance`.
-        -- Pre-EIP-1283 (and our simplified net-metered approximation):
-        -- 15000 is added on a clear-to-zero, 0 otherwise.
-        let refund   := Gas.sstoreRefund s.fork current value
-        let sub'     := { s.substate with
-                            refundBalance := s.substate.refundBalance +
-                                               UInt256.ofNat refund }
+        -- Accumulate the signed refund delta into `Substate.refundBalance`.
+        -- Net-metered SSTORE (Constantinople EIP-1283, Istanbul+ EIP-2200)
+        -- can produce a negative delta when an earlier `+Sclear` is
+        -- cancelled by a non-zero re-write within the same transaction.
+        let refund   : Int := Gas.sstoreRefund s.fork original current value
+        let sub'     := ({ s.substate with
+                             refundBalance := s.substate.refundBalance + refund
+                         }).addAccessedStorageKey (addr, key)
         .ok ({ (s'.consumeGas cost h) with
                  accountMap := σ', substate := sub'
              }.replaceStackAndIncrPC rest)

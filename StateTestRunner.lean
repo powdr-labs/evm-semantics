@@ -165,16 +165,32 @@ def buildState (sender : AccountAddress) (preMap : AccountMap)
       permitStateMutation := true
       blobVersionedHashes := #[]
       fork                := fork }
+  -- EIP-2929 access-list pre-warming (Berlin+): the sender, the call
+  -- target, the precompiles 0x01..0x09, and (Shanghai+) the coinbase
+  -- start the transaction warm.
+  let preWarm : List AccountAddress :=
+    if fork.atLeast .Berlin then
+      let base := [sender, toAddr,
+                   AccountAddress.ofNat 1, AccountAddress.ofNat 2,
+                   AccountAddress.ofNat 3, AccountAddress.ofNat 4,
+                   AccountAddress.ofNat 5, AccountAddress.ofNat 6,
+                   AccountAddress.ofNat 7, AccountAddress.ofNat 8,
+                   AccountAddress.ofNat 9]
+      if fork.atLeast .Shanghai then header.coinbase :: base else base
+    else []
+  let warmedSub : Substate :=
+    preWarm.foldl (fun A a => A.addAccessedAccount a)
+      { Substate.empty with originalAccountMap := accountMap }
   { toMachineState :=
       { gasAvailable := gasLimit - intrinsicGas fork data, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
-    substate     := { Substate.empty with originalAccountMap := accountMap }
     executionEnv := execEnv
     pc           := ⟨0⟩
     stack        := []
     execLength   := 0
-    halt         := .Running }
+    halt         := .Running
+    substate     := warmedSub }
 
 ----------------------------------------------------------------------------
 -- Runner.

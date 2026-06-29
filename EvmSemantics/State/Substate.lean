@@ -89,12 +89,22 @@ structure Substate where
   /-- Iterable mirror of [[touchedAccounts]] for EIP-161 end-of-tx
       cleanup. Same role as [[selfDestructList]]. -/
   touchedList         : List AccountAddress := []
-  /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
-  refundBalance       : UInt256
+  /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears and
+      (pre-EIP-3529) `SELFDESTRUCT`. EIP-1283/EIP-2200 net-metered
+      SSTORE can *decrement* the counter, so we store it as an `Int`;
+      `finalizeTx` clamps to `Nat` via `Int.toNat` before applying the
+      `gasUsed / refundDenom` cap. -/
+  refundBalance       : Int
   /-- `Aₐ` — accounts already accessed in this transaction (warm). -/
   accessedAccounts    : AddressSet
+  /-- Iterable mirror of [[accessedAccounts]] used for EIP-2929 warm /
+      cold checks at runtime. Membership is by `BEq`; duplicates are
+      tolerated. -/
+  accessedAccountsList : List AccountAddress := []
   /-- `Aₖ` — storage slots already accessed in this transaction. -/
   accessedStorageKeys : StorageKeySet
+  /-- Iterable mirror of [[accessedStorageKeys]] for EIP-2929. -/
+  accessedStorageKeysList : List (AccountAddress × UInt256) := []
   /-- `Aₗ` — ordered list of LOG records emitted so far. -/
   logSeries           : LogSeries
   /-- Snapshot of the storage at frame start, used by SSTORE to find the
@@ -111,9 +121,11 @@ def empty : Substate :=
     selfDestructList    := []
     touchedAccounts     := AddressSet.empty
     touchedList         := []
-    refundBalance       := ⟨0⟩
+    refundBalance       := 0
     accessedAccounts    := AddressSet.empty
+    accessedAccountsList := []
     accessedStorageKeys := StorageKeySet.empty
+    accessedStorageKeysList := []
     logSeries           := #[]
     originalAccountMap  := fun _ => default }
 
@@ -122,13 +134,34 @@ def empty : Substate :=
 def originalStorage (A : Substate) (addr : AccountAddress) (key : UInt256) : UInt256 :=
   (A.originalAccountMap addr).storage key
 
-/-- Mark `a` as a warm account in `A.accessedAccounts`. -/
+/-- Mark `a` as a warm account in `A.accessedAccounts`. The runtime
+    mirror `A.accessedAccountsList` is also extended (a no-op if `a`
+    is already present, to avoid unbounded growth on repeated
+    re-touch). -/
 def addAccessedAccount (A : Substate) (a : AccountAddress) : Substate :=
-  { A with accessedAccounts := A.accessedAccounts.insert a }
+  { A with
+      accessedAccounts := A.accessedAccounts.insert a
+      accessedAccountsList :=
+        if A.accessedAccountsList.contains a then A.accessedAccountsList
+        else a :: A.accessedAccountsList }
 
 /-- Mark `(addr, key)` as a warm storage slot in `A.accessedStorageKeys`. -/
 def addAccessedStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Substate :=
-  { A with accessedStorageKeys := A.accessedStorageKeys.insert sk }
+  { A with
+      accessedStorageKeys := A.accessedStorageKeys.insert sk
+      accessedStorageKeysList :=
+        if A.accessedStorageKeysList.contains sk then A.accessedStorageKeysList
+        else sk :: A.accessedStorageKeysList }
+
+/-- True iff `a` is already in the EIP-2929 warm-account set. Linear
+    scan; the list is small in practice (≤ a few hundred entries even
+    on the worst-case mainnet transaction). -/
+def isWarmAccount (A : Substate) (a : AccountAddress) : Bool :=
+  A.accessedAccountsList.contains a
+
+/-- True iff `(addr, key)` is already in the EIP-2929 warm-storage set. -/
+def isWarmKey (A : Substate) (sk : AccountAddress × UInt256) : Bool :=
+  A.accessedStorageKeysList.contains sk
 
 /-- Append a LOG record to the substate's `logSeries`. -/
 def appendLog (A : Substate) (entry : LogEntry) : Substate :=
