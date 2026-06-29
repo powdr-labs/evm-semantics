@@ -176,14 +176,14 @@ def resumeByHalt (child : State) (f : Frame) (rest : List Frame) : State :=
   | .Exception _ => child.resumeException f rest
 
 /-- The callee's execution environment for a plain `CALL` from caller state `sc`
-    into address `to`: the callee runs *its own* code and storage (`codeOwner`),
-    sees the caller as `source`, receives `value`/`calldata`, and is one level
+    into address `to`: the callee runs *its own* code and storage (`address`),
+    sees the caller as `caller`, receives `value`/`calldata`, and is one level
     deeper. (CALLCODE/DELEGATECALL/STATICCALL differ here — added later.) -/
 def calleeEnvForCall (sc : State) (tgt : AccountAddress) (value : UInt256)
     (calldata calleeCode : ByteArray) : EvmSemantics.ExecutionEnv :=
-  { codeOwner            := tgt
-    sender               := sc.executionEnv.sender
-    source               := sc.executionEnv.codeOwner
+  { address              := tgt
+    origin               := sc.executionEnv.origin
+    caller               := sc.executionEnv.address
     weiValue             := value
     calldata             := calldata
     code                 := calleeCode
@@ -217,7 +217,7 @@ def enterCall (sc : State) (rest : List UInt256)
       snapAccountMap := sc.accountMap
       snapSubstate   := sc.substate }
   { sc with
-      accountMap   := sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+      accountMap   := sc.accountMap.transfer sc.executionEnv.address tgt value
       gasAvailable := childGas
       activeWords  := UInt256.ofNat 0
       memory       := .empty
@@ -250,22 +250,23 @@ inductive CallKind
 
 namespace CallKind
 
-/-- The callee's `codeOwner` (= `ADDRESS` opcode in the callee). CALL and
+/-- The callee's `address` (= `ADDRESS` opcode in the callee). CALL and
     STATICCALL switch to the target; CALLCODE and DELEGATECALL keep the
     caller's address. -/
-def calleeCodeOwner (k : CallKind) (sc : State) (tgt : AccountAddress) :
+def calleeAddress (k : CallKind) (sc : State) (tgt : AccountAddress) :
     AccountAddress :=
   match k with
   | .Call | .StaticCall => tgt
-  | .CallCode | .DelegateCall => sc.executionEnv.codeOwner
+  | .CallCode | .DelegateCall => sc.executionEnv.address
 
-/-- The callee's `source` (= `CALLER` opcode in the callee). DELEGATECALL
-    inherits the caller's own `source` so the new frame sees the same
-    `msg.sender` as the caller; the others see the caller's `codeOwner`. -/
-def calleeSource (k : CallKind) (sc : State) : AccountAddress :=
+/-- The callee's `caller` (= `CALLER` opcode in the callee).
+    DELEGATECALL inherits the caller's own `caller` so the new frame
+    sees the same `msg.sender` as the parent frame; the others see
+    the parent frame's `address`. -/
+def calleeCaller (k : CallKind) (sc : State) : AccountAddress :=
   match k with
-  | .DelegateCall => sc.executionEnv.source
-  | _ => sc.executionEnv.codeOwner
+  | .DelegateCall => sc.executionEnv.caller
+  | _ => sc.executionEnv.address
 
 /-- The callee's `weiValue` (= `CALLVALUE` opcode in the callee).
     DELEGATECALL inherits the caller's; STATICCALL forces `0`; CALL and
@@ -302,9 +303,9 @@ namespace State
 def calleeEnvFor (sc : State) (kind : CallKind) (tgt : AccountAddress)
     (value : UInt256) (calldata calleeCode : ByteArray) :
     EvmSemantics.ExecutionEnv :=
-  { codeOwner            := kind.calleeCodeOwner sc tgt
-    sender               := sc.executionEnv.sender
-    source               := kind.calleeSource sc
+  { address              := kind.calleeAddress sc tgt
+    origin               := sc.executionEnv.origin
+    caller               := kind.calleeCaller sc
     weiValue             := kind.calleeWeiValue sc value
     calldata             := calldata
     code                 := calleeCode
@@ -336,7 +337,7 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
       snapSubstate   := sc.substate }
   let newMap : EvmSemantics.AccountMap :=
     if kind.transfersValue
-      then sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+      then sc.accountMap.transfer sc.executionEnv.address tgt value
       else sc.accountMap
   { sc with
       accountMap   := newMap
@@ -367,7 +368,7 @@ the Yellow Paper's "σ'[r].balance ← σ[r].balance + σ[Iₐ].balance ;
 net-cancel the two updates and leave the balance *unchanged*, which is
 wrong for the self-beneficiary case. -/
 def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
-  let self    := sc.executionEnv.codeOwner
+  let self    := sc.executionEnv.address
   let selfBal := (sc.accountMap self).balance
   let benAcc  := sc.accountMap beneficiary
   let map₁    := sc.accountMap.set beneficiary

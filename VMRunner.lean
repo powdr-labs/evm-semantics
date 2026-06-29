@@ -94,9 +94,9 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
       blockHash     := fun _ => ⟨0⟩ }
   let execEnv : ExecutionEnv :=
-    { codeOwner := hexToAddress (strField exec "address")
-      sender    := hexToAddress (strField exec "origin")   -- ORIGIN
-      source    := hexToAddress (strField exec "caller")   -- CALLER
+    { address   := hexToAddress (strField exec "address")
+      origin    := hexToAddress (strField exec "origin")   -- ORIGIN
+      caller    := hexToAddress (strField exec "caller")   -- CALLER
       weiValue  := hexToUInt256 (strField exec "value")
       calldata  := hexToBytes   (strField exec "data")
       code      := hexToBytes   (strField exec "code")

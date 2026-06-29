@@ -733,8 +733,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         | key :: value :: rest, h =>
           by_cases h_dyn :
             Gas.sstoreCost s.fork
-                (s.substate.originalStorage s.executionEnv.codeOwner key)
-                ((s.accountMap s.executionEnv.codeOwner).storage key) value
+                (s.substate.originalStorage s.executionEnv.address key)
+                ((s.accountMap s.executionEnv.address).storage key) value
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                     h_gas).gasAvailable
           · simp [h_dyn] at h

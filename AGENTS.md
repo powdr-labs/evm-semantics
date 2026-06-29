@@ -110,7 +110,7 @@ EVM/Exception.lean  EVM/State.lean  EVM/Halted.lean
 EVM/Step.lean  EVM/BigStep.lean  EVM/StepF.lean  EVM/Equiv.lean
 ```
 
-## Scope (v1)
+## Scope
 
 Multi-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
 memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
@@ -122,7 +122,7 @@ failure path). Per-kind differences are isolated to the `CallKind` enum
 in `State.lean`: `CALL` adds a static-mode value-transfer rejection and
 may include the new-account surcharge; `CALLCODE` borrows code and runs
 in the caller's context with a self-transfer no-op; `DELEGATECALL`
-inherits the caller's `source` and `weiValue` (no transfer); `STATICCALL`
+inherits the caller's `caller` and `weiValue` (no transfer); `STATICCALL`
 forces `permitStateMutation = false` in the callee frame. The three
 relational `callReturn*` rules cover the success/revert/exception resume
 paths and are shared by all four opcodes; `Main.run` /
@@ -130,8 +130,8 @@ paths and are shared by all four opcodes; `Main.run` /
 `Except.error` into `resumeException` rather than propagating it as a
 top-level abort. `SELFDESTRUCT` is also implemented (base 5000 +
 new-account surcharge, balance burn on self-beneficiary, scheduled
-deletion via `Substate.selfDestructSet`). **Excluded:** CREATE /
-CREATE2, transaction processing, block validation, precompiles, RLP.
+deletion via `Substate.selfDestructSet`). **Not yet implemented:** CREATE
+/ CREATE2, transaction processing, block validation, precompiles, RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
