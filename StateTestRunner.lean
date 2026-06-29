@@ -11,7 +11,7 @@ a post-state-root `hash`, needing keccak + RLP + a Merkle-Patricia trie), the
 BlockchainTests carry an **expanded `postState`** (balance/code/nonce/storage
 per account), so we can verify the recursive CALL semantics directly.
 
-Scope (v1): we run only the `Constantinople` fork variant of each test (the only
+Scope: we run only the `Constantinople` fork variant of each test (the only
 fork whose schedule `EvmSemantics` models for the CALL family — EIP-150 gas).
 The top-level transaction is executed as the `to` account's code; CALL opcodes
 inside it recurse through the new frame-stack machinery. We compare the
@@ -104,9 +104,9 @@ def buildState (preMap : AccountMap) (env tx : Json) : State :=
       baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
       blockHash     := fun _ => ⟨0⟩ }
   let execEnv : ExecutionEnv :=
-    { codeOwner := toAddr
-      sender    := txSender
-      source    := txSender
+    { address := toAddr
+      origin  := txSender
+      caller  := txSender
       weiValue  := value
       calldata  := data
       code      := (accountMap toAddr).code

@@ -16,7 +16,7 @@ single immediate byte is folded into the `Operation` value itself
 no separate argument is needed.
 
 The byte→opcode map mirrors the Yellow Paper instruction table; we
-return `none` for any byte not assigned to a v1-supported instruction.
+return `none` for any byte not assigned to a supported instruction.
 -/
 
 @[expose] public section

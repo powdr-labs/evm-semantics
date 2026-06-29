@@ -4,7 +4,7 @@ public import EvmSemantics.Data.UInt256
 public import EvmSemantics.State.Account
 
 /-!
-A minimal `BlockHeader` carrying only the fields the v1 step relation
+A minimal `BlockHeader` carrying only the fields the step relation
 reads (COINBASE / TIMESTAMP / NUMBER / PREVRANDAO / GASLIMIT / BASEFEE /
 CHAINID-via-state).
 -/
@@ -13,7 +13,7 @@ CHAINID-via-state).
 
 namespace EvmSemantics
 
-/-- Block header `H` — only the fields v1 reads. -/
+/-- Block header `H` — only the fields the step relation reads. -/
 structure BlockHeader where
   /-- `H_c` — beneficiary (miner) address. -/
   coinbase     : AccountAddress
