@@ -1201,10 +1201,15 @@ inductive StepRunning : State → State → Prop
   /-- CREATE (address collision): the derived `newAddr` already hosts a
       contract (code or nonce > 0). The caller's nonce is bumped, `0` is
       pushed, and no transfer or frame entry happens. The forwarded gas
-      is *not* spent. -/
+      is *not* spent.
+
+      The address-derivation RLP is bound via the explicit
+      `rlpBytes`/`h_rlp` pair; `Rlp.encodeAddrNonce` returns `Option`
+      because its general signature admits arbitrary `Nat` nonces, but
+      EVM nonces are gas-bounded so a `some` always exists in practice. -/
   | createCollision (s : State)
         (value offset size : UInt256) (rest : List UInt256)
-        (s' s2 : State)
+        (s' s2 : State) (rlpBytes : ByteArray)
         (h_op      : s.decodedOp = some .CREATE)
         (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
         (h_stack   : s.stack = value :: offset :: size :: rest)
@@ -1214,10 +1219,11 @@ inductive StepRunning : State → State → Prop
         (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
         (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
                           (s2.accountMap s2.executionEnv.address).balance < value))
-        (h_coll    : (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                       (Rlp.encodeAddrNonce s2.executionEnv.address
-                         (s2.accountMap s2.executionEnv.address).nonce.toNat)))).isContract
-                     = true)
+        (h_rlp     : Rlp.encodeAddrNonce s2.executionEnv.address
+                       (s2.accountMap s2.executionEnv.address).nonce.toNat
+                       = some rlpBytes)
+        (h_coll    : (s2.accountMap (AccountAddress.ofUInt256
+                       (EvmSemantics.keccak256 rlpBytes))).isContract = true)
       : StepRunning s
           (let caller    := s2.executionEnv.address
            let callerAcc := s2.accountMap caller
@@ -1228,10 +1234,11 @@ inductive StepRunning : State → State → Prop
 
   /-- CREATE (taken): depth + balance check passes *and* the derived
       address is free. The remaining gas (after base + memory) has
-      63/64 forwarded to the init-code frame. -/
+      63/64 forwarded to the init-code frame. See `createCollision`
+      for the `rlpBytes` / `h_rlp` convention. -/
   | create (s : State)
         (value offset size : UInt256) (rest : List UInt256)
-        (s' s2 s3 : State) (forwarded : Nat)
+        (s' s2 s3 : State) (forwarded : Nat) (rlpBytes : ByteArray)
         (h_op      : s.decodedOp = some .CREATE)
         (h_gas     : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
         (h_stack   : s.stack = value :: offset :: size :: rest)
@@ -1241,18 +1248,17 @@ inductive StepRunning : State → State → Prop
         (h_s2      : s2 = s'.consumeMemExp offset.toNat size.toNat h_mem)
         (h_take    : ¬ (s2.executionEnv.depth ≥ 1024 ∨
                           (s2.accountMap s2.executionEnv.address).balance < value))
-        (h_nocoll  : (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                       (Rlp.encodeAddrNonce s2.executionEnv.address
-                         (s2.accountMap s2.executionEnv.address).nonce.toNat)))).isContract
-                     = false)
+        (h_rlp     : Rlp.encodeAddrNonce s2.executionEnv.address
+                       (s2.accountMap s2.executionEnv.address).nonce.toNat
+                       = some rlpBytes)
+        (h_nocoll  : (s2.accountMap (AccountAddress.ofUInt256
+                       (EvmSemantics.keccak256 rlpBytes))).isContract = false)
         (h_fwd     : forwarded = Gas.allButOneSixtyFourth s2.gasAvailable)
         (h_fw      : forwarded ≤ s2.gasAvailable)
         (h_s3      : s3 = s2.consumeGas forwarded h_fw)
       : StepRunning s
           (s3.enterCreate rest
-             (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                (Rlp.encodeAddrNonce s2.executionEnv.address
-                   (s2.accountMap s2.executionEnv.address).nonce.toNat)))
+             (AccountAddress.ofUInt256 (EvmSemantics.keccak256 rlpBytes))
              value
              (MachineState.readPadded s3.memory offset.toNat size.toNat)
              forwarded)

@@ -746,33 +746,39 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            -- Address-collision check: if `newAddr` already hosts code or
-            -- has nonce > 0 the create *fails* with the caller's nonce
-            -- still bumped (push 0, no transfer, no frame, forwarded gas
-            -- not spent). Discriminated via a `Bool` (`Account.isContract`)
-            -- so the Equiv proof can split cleanly on the match.
-            match (s2.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                    (Rlp.encodeAddrNonce s2.executionEnv.address
-                      (s2.accountMap s2.executionEnv.address).nonce.toNat)))).isContract with
-            | true =>
-              let caller    := s2.executionEnv.address
-              let callerAcc := s2.accountMap caller
-              let σ' := s2.accountMap.set caller
-                          { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
-              .ok ({ s2 with accountMap := σ', returnData := .empty
-                   }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
-            | false =>
-              if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
-                let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
-                let s3 := s2.consumeGas forwarded hfw
-                .ok (s3.enterCreate rest
-                       (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                          (Rlp.encodeAddrNonce s2.executionEnv.address
-                            (s2.accountMap s2.executionEnv.address).nonce.toNat)))
-                       value
-                       (MachineState.readPadded s3.memory offset.toNat size.toNat)
-                       forwarded)
-              else .error .OutOfGas
+            -- Derive `newAddr` from `keccak256(rlp([sender, nonce]))`. The
+            -- RLP encoder is `Option`-typed: it returns `none` only when
+            -- the payload would exceed `2^64` bytes, which is unreachable
+            -- here ([20-byte address, ≤32-byte nonce] tops out at ~55
+            -- bytes). We map a `none` to `InvalidInstruction` for
+            -- completeness, but a gas-bounded execution never reaches it.
+            match Rlp.encodeAddrNonce s2.executionEnv.address
+                    (s2.accountMap s2.executionEnv.address).nonce.toNat with
+            | none => .error .InvalidInstruction
+            | some rlpBytes =>
+              let newAddr := AccountAddress.ofUInt256 (EvmSemantics.keccak256 rlpBytes)
+              -- Address-collision check: if `newAddr` already hosts code
+              -- or has nonce > 0 the create *fails* with the caller's
+              -- nonce still bumped (push 0, no transfer, no frame,
+              -- forwarded gas not spent). Discriminated via a `Bool`
+              -- (`Account.isContract`) so the Equiv proof can split
+              -- cleanly on the match.
+              match (s2.accountMap newAddr).isContract with
+              | true =>
+                let caller    := s2.executionEnv.address
+                let callerAcc := s2.accountMap caller
+                let σ' := s2.accountMap.set caller
+                            { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+                .ok ({ s2 with accountMap := σ', returnData := .empty
+                     }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+              | false =>
+                if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
+                  let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
+                  let s3 := s2.consumeGas forwarded hfw
+                  .ok (s3.enterCreate rest newAddr value
+                         (MachineState.readPadded s3.memory offset.toNat size.toNat)
+                         forwarded)
+                else .error .OutOfGas
     | _ => underflow
   | .CREATE2 => match s.stack with
     | value :: offset :: size :: salt :: rest =>
