@@ -1137,6 +1137,7 @@ inductive StepRunning : State → State → Prop
         (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
                          (s.accountMap s.executionEnv.address).balance < value))
         (h_fwd      : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+                        s.executionEnv.fork
                         (s.gasAvailable
                           - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)))
       : StepRunning s
@@ -1196,6 +1197,7 @@ inductive StepRunning : State → State → Prop
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                       (s.accountMap s.executionEnv.address).balance < value))
         (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+                     s.executionEnv.fork
                      (s.gasAvailable
                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)))
       : StepRunning s
@@ -1260,6 +1262,7 @@ inductive StepRunning : State → State → Prop
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
         (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+                     s.executionEnv.fork
                      (s.gasAvailable
                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)))
       : StepRunning s
@@ -1311,6 +1314,7 @@ inductive StepRunning : State → State → Prop
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
         (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+                     s.executionEnv.fork
                      (s.gasAvailable
                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen)))
       : StepRunning s
@@ -1416,7 +1420,7 @@ inductive StepRunning : State → State → Prop
         (h_addr  : EvmSemantics.createAddress s.executionEnv.address
                      (s.accountMap s.executionEnv.address).nonce.toNat
                      = some newAddr)
-        (h_fwd   : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.createCommitted s offset size))
         (h_coll  : (s.accountMap newAddr).isContract = true)
       : StepRunning s
@@ -1446,7 +1450,7 @@ inductive StepRunning : State → State → Prop
         (h_addr   : EvmSemantics.createAddress s.executionEnv.address
                       (s.accountMap s.executionEnv.address).nonce.toNat
                       = some newAddr)
-        (h_fwd    : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.createCommitted s offset size))
         (h_nocoll : (s.accountMap newAddr).isContract = false)
       : StepRunning s
@@ -1492,7 +1496,7 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                         (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd   : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.create2Committed s offset size))
         (h_coll  : (s.accountMap
                      (EvmSemantics.create2Address s.executionEnv.address salt
@@ -1518,7 +1522,7 @@ inductive StepRunning : State → State → Prop
         (h_gas    : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_take   : ¬ (s.executionEnv.depth ≥ 1024 ∨
                          (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd    : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.create2Committed s offset size))
         (h_nocoll : (s.accountMap
                       (EvmSemantics.create2Address s.executionEnv.address salt

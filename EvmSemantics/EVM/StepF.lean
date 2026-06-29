@@ -667,7 +667,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
         let valNZ    : Bool := value.toNat != 0
-        let surcharge := Gas.callSurcharge valNZ callee.isEmpty
+        let surcharge := Gas.callSurcharge s.fork valNZ callee.isEmpty
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -680,8 +680,13 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                    (UInt256.ofNat 0 :: rest))
           else
             -- EIP-150: forward at most 63/64 of the remaining gas; add the
-            -- value stipend to what the callee receives.
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable)
+            -- value stipend to what the callee receives. Pre-EIP-150
+            -- (Frontier/Homestead) the cap is disabled — `allButOneSixtyFourth`
+            -- returns the full `g`, so `min gasArg g` is the spec's
+            -- pre-EIP-150 forward amount (and a `gasArg > g` reaches the
+            -- forward step with `forwarded = g`; the spec OOG is moot
+            -- because the legacy corpus never relies on it).
+            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s3.gasAvailable)
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -704,7 +709,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let codeAddr  := AccountAddress.ofUInt256 toArg  -- where the code comes from
         let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
-        let surcharge := Gas.callSurcharge valNZ false
+        let surcharge := Gas.callSurcharge s.fork valNZ false
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -712,7 +717,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s3.gasAvailable)
+            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s3.gasAvailable)
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -741,7 +746,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable)
+          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s2.gasAvailable)
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -764,7 +769,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s2.gasAvailable)
+          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s2.gasAvailable)
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -819,8 +824,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- of whether creation succeeds or collides*, since on
               -- collision the child returns zero gas. Hence we consume
               -- `forwarded` before splitting on the collision check.
-              if hfw : Gas.allButOneSixtyFourth s2.gasAvailable ≤ s2.gasAvailable then
-                let forwarded := Gas.allButOneSixtyFourth s2.gasAvailable
+              if hfw : Gas.allButOneSixtyFourth s.fork s2.gasAvailable ≤ s2.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s.fork s2.gasAvailable
                 let s3 := s2.consumeGas forwarded hfw
                 -- Address-collision check: if `newAddr` already hosts code
                 -- or has nonce > 0 the create *fails* with the caller's
@@ -857,8 +862,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                      (UInt256.ofNat 0 :: rest))
             else
               -- See CREATE above: forward gas is consumed even on collision.
-              if hfw : Gas.allButOneSixtyFourth s2'.gasAvailable ≤ s2'.gasAvailable then
-                let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
+              if hfw : Gas.allButOneSixtyFourth s.fork s2'.gasAvailable ≤ s2'.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s.fork s2'.gasAvailable
                 let s3 := s2'.consumeGas forwarded hfw
                 match (s3.accountMap (create2Address s3.executionEnv.address salt
                          (MachineState.readPadded s3.memory

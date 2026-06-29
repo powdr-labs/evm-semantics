@@ -60,21 +60,21 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .CALLDATASIZE | .CODESIZE | .GASPRICE | .RETURNDATASIZE => 2
     | .CALLDATALOAD                                          => 3
     | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY            => 3
-    -- BALANCE = 400 (EIP-150 Tangerine Whistle, unchanged through
-    -- Constantinople; Istanbul EIP-1884 raised to 700 but the legacy
-    -- corpus we target predates that).
-    -- EXTCODEHASH = 400 (EIP-1052, introduced at Constantinople).
+    -- BALANCE / EXTCODEHASH: 20 in Frontier/Homestead, raised to 400
+    -- by EIP-150 (Tangerine Whistle), 700 by EIP-1884 (Istanbul), warm
+    -- 100 by EIP-2929 (Berlin; cold price not yet modelled).
     | .BALANCE | .EXTCODEHASH                                =>
-      match fork with
-      | .Constantinople => 400
-      | .Cancun         => 100  -- warm-priced placeholder for EIP-2929
-    -- EXTCODESIZE = 700 (EIP-150). EXTCODECOPY = 700 base + per-word
-    -- `Gas.copyWordCost`, the per-word piece is charged dynamically
-    -- in `stepF.EXTCODECOPY`.
+      if fork.atLeast .Berlin     then 100
+      else if fork.atLeast .Istanbul then 700
+      else if fork.atLeast .TangerineWhistle then 400
+      else                              20
+    -- EXTCODESIZE / EXTCODECOPY: 20 Frontier/Homestead, raised to 700
+    -- by EIP-150, warm-100 by EIP-2929 (Berlin). EXTCODECOPY also pays
+    -- per-word `Gas.copyWordCost`, charged dynamically.
     | .EXTCODESIZE | .EXTCODECOPY                            =>
-      match fork with
-      | .Constantinople => 700
-      | .Cancun         => 100  -- warm-priced placeholder for EIP-2929
+      if fork.atLeast .Berlin     then 100
+      else if fork.atLeast .TangerineWhistle then 700
+      else                              20
   | .Block op => match op with
     | .COINBASE | .TIMESTAMP | .NUMBER | .PREVRANDAO
     | .GASLIMIT | .CHAINID | .BASEFEE | .BLOBBASEFEE         => 2
@@ -87,14 +87,15 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .MLOAD | .MSTORE | .MSTORE8 | .MCOPY                   => 3
     | .JUMP                                                  => 8
     | .JUMPI                                                 => 10
-    -- SLOAD:
-    -- Constantinople: 50 (matches the legacy ethereum/tests corpus, which
-    -- actually uses the Frontier value rather than Tangerine-Whistle 200).
-    -- Cancun warm-access: 100 (EIP-2929). Cold (2100) not yet modelled.
+    -- SLOAD: 50 Frontier/Homestead, raised to 200 by EIP-150
+    -- (Tangerine Whistle), 800 by EIP-1884 (Istanbul), warm-100 by
+    -- EIP-2929 (Berlin; we use the warm price since access lists
+    -- aren't tracked yet).
     | .SLOAD                                                 =>
-      match fork with
-      | .Constantinople => 50
-      | .Cancun         => 100
+      if fork.atLeast .Berlin     then 100
+      else if fork.atLeast .Istanbul then 800
+      else if fork.atLeast .TangerineWhistle then 200
+      else                              50
     -- SSTORE: dynamic — see `Gas.sstoreCost`. Static portion is 0.
     | .SSTORE                                                => 0
     | .TLOAD | .TSTORE                                       => 100
@@ -111,36 +112,28 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     -- a keccak hash over the init code for its address derivation
     -- (`Gas.create2HashCost`), charged at this site.
     | .CREATE | .CREATE2                                     => 32000
-    -- CALL family base access fee. Constantinople (EIP-150): flat 700.
-    -- Cancun warm access (EIP-2929): 100 (cold 2600 not yet modelled). The
-    -- value/new-account surcharge and 63/64 forwarding are computed in
-    -- `stepF.system` / `StepRunning.call`, not here (cf. memory expansion for
-    -- MSTORE).
+    -- CALL family base access fee: 40 in Frontier/Homestead, raised
+    -- to 700 by EIP-150 (Tangerine Whistle), warm-100 by EIP-2929
+    -- (Berlin). The value/new-account surcharge and 63/64 forwarding
+    -- are computed in `stepF.system` / `StepRunning.call`, not here.
     | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL        =>
-      match fork with
-      | .Constantinople => 700
-      | .Cancun         => 100
-    -- SELFDESTRUCT base fee. The legacy ethereum/tests "Constantinople"
-    -- corpus uses Frontier rules (`G_selfdestruct = 0`, no `G_newaccount`
-    -- surcharge) — same pattern as our Frontier-era SLOAD = 50 and
-    -- Frontier-era EXP per-byte = 10 choices for the "Constantinople"
-    -- fork tag. Modern post-EIP-150 schedule (5000) lives on `Cancun`.
-    -- The new-account surcharge — also fork-gated — is added by
-    -- `Gas.selfDestructSurcharge` at the call site.
+      if fork.atLeast .Berlin     then 100
+      else if fork.atLeast .TangerineWhistle then 700
+      else                              40
+    -- SELFDESTRUCT base fee: 0 in Frontier/Homestead, raised to 5000
+    -- by EIP-150 (Tangerine Whistle). The new-account surcharge —
+    -- also fork-gated — is added by `Gas.selfDestructSurcharge` at
+    -- the call site.
     | .SELFDESTRUCT                                          =>
-      match fork with
-      | .Constantinople => 0
-      | .Cancun         => 5000
+      if fork.atLeast .TangerineWhistle then 5000 else 0
 
 /-- EIP-2200 SSTORE stipend sentry (Istanbul onward, including Cancun):
     an SSTORE that finds `gasleft ≤ G_callstipend = 2300` at entry must
     halt with `OutOfGas` *regardless* of the actual `sstoreCost` — even
-    a no-op write. Constantinople (which reverted EIP-1283) has no such
-    sentry, so it returns `false` here. -/
+    a no-op write. Pre-Istanbul (including the original Constantinople
+    with EIP-1283 and Petersburg which reverted it) had no such sentry. -/
 def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
-  match fork with
-  | .Constantinople => false
-  | .Cancun         => decide (gas ≤ 2300)
+  if fork.atLeast .Istanbul then decide (gas ≤ 2300) else false
 
 /-- Dynamic gas cost of an SSTORE under `fork`, given the slot's
     `original` value (at frame start), `current` value (just before this
@@ -169,14 +162,21 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     Refunds are tracked separately in `Substate.refundBalance` (not yet
     populated). -/
 def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
-  match fork with
-  | .Constantinople =>
-    if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
-  | .Cancun =>
+  -- The original Constantinople activated EIP-1283 net-metered SSTORE
+  -- (briefly; reverted by Petersburg). We target the legacy corpus's
+  -- _Constantinople variant which was generated against the pre-EIP-1283
+  -- rules, so our `Constantinople` tag matches Petersburg's behaviour.
+  if fork.atLeast .Istanbul then
+    -- EIP-2200 net-metered (Istanbul onwards). EIP-2929 cold/warm
+    -- (Berlin+) adds 2100 to the first SSTORE of a transaction; we
+    -- don't yet track that and use the warm price.
     if current.toNat = new.toNat then 100
     else if current.toNat = original.toNat then
       if original.toNat = 0 then 20000 else 2900
     else 100
+  else
+    -- Pre-EIP-1283 (Frontier..Byzantium + our Constantinople tag + Petersburg).
+    if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
 
 /-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
     Used by CALLDATACOPY, CODECOPY, RETURNDATACOPY, MCOPY, EXTCODECOPY. -/
@@ -194,8 +194,24 @@ def Gas.logDataCost (size : UInt256) : Nat :=
 
 /-- The EIP-150 "all but one 64th" gas-forwarding cap: a CALL may forward at
     most `g - ⌊g/64⌋` of the `g` gas remaining (after the call's own
-    base/value/new-account/memory costs are paid). -/
-def Gas.allButOneSixtyFourth (g : Nat) : Nat := g - g / 64
+    base/value/new-account/memory costs are paid).
+
+    Pre-EIP-150 (Frontier, Homestead): **no cap** — the call may try to
+    forward up to all of `g`. If `gas_arg > g`, the CALL OOGs (which is
+    exactly why EIP-150 introduced the cap). Post-EIP-150 (Tangerine
+    Whistle onwards): the cap `g - g/64` always applies. -/
+def Gas.allButOneSixtyFourth (fork : Fork) (g : Nat) : Nat :=
+  if fork.atLeast .TangerineWhistle then g - g / 64 else g
+
+/-- Actual gas forwarded to a callee given the caller's remaining gas `g`
+    (after the call's own base/value/new-account/memory costs are paid)
+    and the user-supplied `gas_arg`. From EIP-150 onwards this is
+    `min(gas_arg, allButOneSixtyFourth g)`; pre-EIP-150 there is no cap
+    and the gas argument is used verbatim — if it exceeds `g`, the
+    caller's subsequent `forwarded ≤ g` check fails and the CALL OOGs. -/
+def Gas.forwardGas (fork : Fork) (g gas_arg : Nat) : Nat :=
+  if fork.atLeast .TangerineWhistle then Nat.min gas_arg (g - g / 64)
+  else gas_arg
 
 /-- The stipend (`G_callstipend = 2300`) added to the gas a callee receives
     when a non-zero `value` is transferred — it is *given* to the callee on top
@@ -203,15 +219,25 @@ def Gas.allButOneSixtyFourth (g : Nat) : Nat := g - g / 64
     the caller again. -/
 def Gas.callStipend : Nat := 2300
 
-/-- The dynamic surcharge a CALL pays on top of its base fee, given whether a
-    non-zero value is transferred (`valueNonZero`) and whether the target
-    account is currently empty (`targetEmpty`). `G_callvalue = 9000` for a value
-    transfer; `G_newaccount = 25000` when that transfer also brings a previously
-    empty account into existence. (Pre-EIP-2929 Constantinople schedule; the
-    flat `G_call = 700` access fee is the `baseCost`.) -/
-def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
-  (if valueNonZero then 9000 else 0) +
-  (if valueNonZero && targetEmpty then 25000 else 0)
+/-- The dynamic surcharge a CALL pays on top of its base fee.
+
+    * `G_callvalue = 9000` for a value-transferring CALL (`valueNonZero`).
+    * `G_newaccount = 25000` when the call brings a previously empty
+      account into existence. The "into existence" condition is fork-gated:
+      - Pre-EIP-158 (`Frontier`, `Homestead`, `TangerineWhistle`): charged whenever
+        the target is empty, even with `value = 0` — the legacy rule is
+        that any CALL to a non-existent account creates one.
+      - From EIP-158 (Spurious Dragon) onwards: charged only when the
+        target is empty AND the value transfer is non-zero (i.e. only
+        when the transfer actually delivers wei to a fresh account). -/
+def Gas.callSurcharge (fork : Fork) (valueNonZero targetEmpty : Bool) : Nat :=
+  let valSurcharge : Nat := if valueNonZero then 9000 else 0
+  let newSurcharge : Nat :=
+    if fork.atLeast .SpuriousDragon then
+      if valueNonZero && targetEmpty then 25000 else 0
+    else
+      if targetEmpty then 25000 else 0
+  valSurcharge + newSurcharge
 
 /-- The new-account surcharge a SELFDESTRUCT pays when its balance transfer
     brings a previously empty beneficiary into existence. Fork-gated to
@@ -222,9 +248,12 @@ def Gas.callSurcharge (valueNonZero targetEmpty : Bool) : Nat :=
     `beneficiaryEmpty` and `selfHasBalance` hold. -/
 def Gas.selfDestructSurcharge (fork : Fork)
     (beneficiaryEmpty selfHasBalance : Bool) : Nat :=
-  match fork with
-  | .Constantinople => 0
-  | .Cancun         => if beneficiaryEmpty && selfHasBalance then 25000 else 0
+  if fork.atLeast .SpuriousDragon then
+    if beneficiaryEmpty && selfHasBalance then 25000 else 0
+  else if fork.atLeast .TangerineWhistle then
+    -- EIP-150 charges 25000 if beneficiary is empty, regardless of value.
+    if beneficiaryEmpty then 25000 else 0
+  else 0
 
 /-- CREATE2's extra per-init-code-word keccak cost: `G_keccak256word · ⌈n/32⌉`
     where `n = |initCode|`. This is the cost of the *address derivation*
@@ -242,9 +271,7 @@ def Gas.create2HashCost (initCodeLen : Nat) : Nat :=
     Applied to CREATE and CREATE2 on `Cancun` only; `Constantinople`
     predates the EIP, so the cost is `0` there. -/
 def Gas.initCodeWordCost (fork : Fork) (initCodeLen : Nat) : Nat :=
-  match fork with
-  | .Constantinople => 0
-  | .Cancun         => 2 * ((initCodeLen + 31) / 32)
+  if fork.atLeast .Shanghai then 2 * ((initCodeLen + 31) / 32) else 0
 
 /-- EIP-3860 (Cancun) init-code size cap: CREATE / CREATE2 reject init
     code larger than `2 · maxCodeSize = 49152` bytes. The cap is *not*
@@ -254,9 +281,7 @@ def Gas.initCodeWordCost (fork : Fork) (initCodeLen : Nat) : Nat :=
 /-- Whether `initCodeLen` exceeds the EIP-3860 cap on the active fork.
     Returns `false` on `Constantinople` (the EIP is Cancun-only). -/
 def Gas.initCodeTooLarge (fork : Fork) (initCodeLen : Nat) : Bool :=
-  match fork with
-  | .Constantinople => false
-  | .Cancun         => initCodeLen > Gas.maxInitCodeSize
+  fork.atLeast .Shanghai && initCodeLen > Gas.maxInitCodeSize
 
 /-- The SELFDESTRUCT refund (`R_selfdestruct = 24000`) added to
     `Substate.refundBalance` on the *first* time an account self-destructs
@@ -266,9 +291,8 @@ def Gas.initCodeTooLarge (fork : Fork) (initCodeLen : Nat) : Bool :=
     "Constantinople" corpus expects the classic 24000 refund. We return `0`
     on Cancun pending EIP-6780. -/
 def Gas.selfDestructRefund (fork : Fork) : Nat :=
-  match fork with
-  | .Constantinople => 24000
-  | .Cancun         => 0
+  -- London (EIP-3529) removed the SELFDESTRUCT refund entirely.
+  if fork.atLeast .London then 0 else 24000
 
 /-- Per-byte EXP cost. The per-byte multiplier is `10` at Frontier and
     `50` post-Spurious-Dragon (EIP-160). The legacy ethereum/tests
@@ -277,8 +301,61 @@ def Gas.selfDestructRefund (fork : Fork) : Nat :=
 def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
   if exponent.toNat = 0 then 0
   else
-    let perByte := match fork with | .Constantinople => 10 | .Cancun => 50
+    let perByte := if fork.atLeast .SpuriousDragon then 50 else 10
     perByte * (Nat.log2 exponent.toNat / 8 + 1)
+
+/-- SSTORE refund counter delta — signed delta added to
+    `Substate.refundBalance` for one SSTORE writing `new` over `current`
+    when the slot's transaction-start value was `original`.
+
+    * **Pre-EIP-1283** (Frontier..Byzantium and Petersburg+pre-Istanbul):
+      +15000 on a clear-to-zero, otherwise 0.
+    * **EIP-1283 / EIP-2200** (original Constantinople / Istanbul+):
+      net-metered with negative refunds for cancellations.
+    * **EIP-3529** (London+) halves several refund constants and drops
+      others.
+
+    The constants change across the net-metered forks (Yellow Paper
+    §H.3 / EIP-3529):
+
+    | constant       | EIP-1283 | EIP-2200 | EIP-3529 (London+) |
+    |----------------|---------:|---------:|-------------------:|
+    | `Sclear`       |    15000 |    15000 |               4800 |
+    | `Sreset-Hwarm` |     4800 |     4200 |               2800 |
+    | `Sset-Hwarm`   |    19800 |    19200 |              19900 | -/
+def Gas.sstoreRefund (fork : Fork) (original current new : UInt256) : Int :=
+  let o := original.toNat
+  let c := current.toNat
+  let n := new.toNat
+  if c = n then 0
+  else if fork.atLeast .Istanbul then
+    -- Net-metered (EIP-2200 / EIP-3529).
+    let london := fork.atLeast .London
+    let sclear : Int := if london then 4800 else 15000
+    let sresetMinusH : Int := if london then 2800 else 4200
+    let ssetMinusH   : Int := if london then 19900 else 19200
+    if o = c then
+      if o ≠ 0 ∧ n = 0 then sclear else 0
+    else
+      let r₀ : Int :=
+        if o ≠ 0 ∧ c ≠ 0 ∧ n = 0 then sclear
+        else if o ≠ 0 ∧ c = 0 then -sclear
+        else 0
+      let r₁ : Int :=
+        if o ≠ 0 ∧ o = n then sresetMinusH
+        else if o = 0 ∧ o = n then ssetMinusH
+        else 0
+      r₀ + r₁
+  else
+    -- Pre-EIP-1283 schedule: clear-to-zero only.
+    if c ≠ 0 ∧ n = 0 then 15000 else 0
+
+/-- Denominator of the end-of-tx refund cap: `refund ≤ gas_used / refundDenom`.
+    Pre-EIP-3529 (everything before London) uses 2; London onwards uses
+    5 per EIP-3529 (the EIP also removed the SELFDESTRUCT refund, which
+    is gated separately in `Gas.selfDestructRefund`). -/
+def Gas.refundDenom (fork : Fork) : Nat :=
+  if fork.atLeast .London then 5 else 2
 
 ----------------------------------------------------------------------------
 -- Per-opcode total gas-cost functions.
@@ -409,7 +486,7 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.callSurcharge (value.toNat != 0)
+  + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
       (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
 
 /-- Gas charged to the parent frame before forwarding for a `CALLCODE`:
@@ -420,7 +497,7 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALLCODE
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.callSurcharge (value.toNat != 0) false
+  + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false
 
 /-- Gas charged to the parent frame before forwarding for a `DELEGATECALL`:
     static base + memory-expansion delta. No value, so no surcharge. -/

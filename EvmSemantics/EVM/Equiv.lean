@@ -459,17 +459,17 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
           · rename_i h_sc
             -- The `accountMap` reads through `consumeGas`/`consumeMemExp2` are the
             -- same as on `s`. We need that for the surcharge bundling.
-            set surch := Gas.callSurcharge (value.toNat != 0)
+            set surch := Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
                   (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                     retOff.toNat retLen.toNat h_mem).accountMap
                     (AccountAddress.ofUInt256 toArg)).isEmpty with hsurch
-            have h_surch_eq : surch = Gas.callSurcharge (value.toNat != 0)
+            have h_surch_eq : surch = Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
                 (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty := by
               simp [hsurch, State.consumeGas, State.consumeMemExp2]
             have h_committed :
                 Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                 ≤ s.gasAvailable := by
-              show base + md + Gas.callSurcharge (value.toNat != 0)
+              show base + md + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
                     (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
                   ≤ s.gasAvailable
               rw [← h_surch_eq]
@@ -513,7 +513,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                 have post_eq :
                     ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).consumeGas surch h_sc).consumeGas
-                        (min gasArg.toNat (Gas.allButOneSixtyFourth
+                        (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                           (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                               argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                             surch h_sc).gasAvailable)) h_fw).enterCall
@@ -526,7 +526,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                           retOff.toNat retLen.toNat h_mem).accountMap
                         (AccountAddress.ofUInt256 toArg)).code
-                      ((min gasArg.toNat (Gas.allButOneSixtyFourth
+                      ((min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                         (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                             surch h_sc).gasAvailable))
@@ -535,7 +535,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     = (({ s with
                           gasAvailable := s.gasAvailable
                             - Gas.callCommitted s value argsOff argsLen retOff retLen toArg
-                            - (min gasArg.toNat (Gas.allButOneSixtyFourth
+                            - (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                                 (s.gasAvailable
                                  - Gas.callCommitted s value argsOff argsLen retOff retLen
                                    toArg)))
@@ -544,7 +544,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         } : State).enterCall rest (AccountAddress.ofUInt256 toArg) value
                           (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                           (s.accountMap (AccountAddress.ofUInt256 toArg)).code
-                          ((min gasArg.toNat (Gas.allButOneSixtyFourth
+                          ((min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                               (s.gasAvailable
                                - Gas.callCommitted s value argsOff argsLen retOff retLen
                                  toArg)))
@@ -587,9 +587,11 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
         · rename_i h_sc
           have h_committed :
               Gas.callcodeCommitted s value argsOff argsLen retOff retLen ≤ s.gasAvailable := by
-            show base + md + Gas.callSurcharge (value.toNat != 0) false ≤ s.gasAvailable
+            show base + md + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false ≤ s.gasAvailable
             simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
-                  MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem h_sc
+                  MachineState.memExpansionDelta2, Gas.callSurcharge, Bool.and_false,
+                  ← hbase, ← hmd] at h_mem h_sc
+            simp [Gas.callSurcharge, Bool.and_false]
             omega
           split at h
           · rename_i h_fail
@@ -600,7 +602,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             have post_eq :
                 ({ ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                     retOff.toNat retLen.toNat h_mem).consumeGas
-                    (Gas.callSurcharge (value.toNat != 0) false) h_sc with
+                    (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false) h_sc with
                     returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                 = ({ s with
                     gasAvailable := s.gasAvailable
@@ -628,35 +630,35 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               have post_eq :
                   ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas
-                      (Gas.callSurcharge (value.toNat != 0) false) h_sc).consumeGas
-                      (min gasArg.toNat (Gas.allButOneSixtyFourth
+                      (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false) h_sc).consumeGas
+                      (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                         ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                          (Gas.callSurcharge (value.toNat != 0) false) h_sc).gasAvailable)))
+                          (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false) h_sc).gasAvailable)))
                       h_fw).enterCall rest
                     (((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                        (Gas.callSurcharge (value.toNat != 0) false) h_sc).consumeGas
+                        (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false) h_sc).consumeGas
                         _ h_fw).executionEnv.address)
                     value
                     (MachineState.readPadded
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                        (Gas.callSurcharge (value.toNat != 0) false) h_sc).consumeGas
+                        (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false) h_sc).consumeGas
                         _ h_fw).memory argsOff.toNat argsLen.toNat)
                     (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).accountMap
                       (AccountAddress.ofUInt256 toArg)).code
-                    ((min gasArg.toNat (Gas.allButOneSixtyFourth
+                    ((min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                        (Gas.callSurcharge (value.toNat != 0) false) h_sc).gasAvailable)))
+                        (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false) h_sc).gasAvailable)))
                       + (bif (value.toNat != 0) then Gas.callStipend else 0))
                     retOff.toNat retLen.toNat
                   = (({ s with
                         gasAvailable := s.gasAvailable
                           - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
-                          - (min gasArg.toNat (Gas.allButOneSixtyFourth
+                          - (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                               (s.gasAvailable
                                - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)))
                         activeWords := s.activeWordsAfterUInt256_2
@@ -664,7 +666,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       } : State).enterCall rest s.executionEnv.address value
                         (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                         (s.accountMap (AccountAddress.ofUInt256 toArg)).code
-                        ((min gasArg.toNat (Gas.allButOneSixtyFourth
+                        ((min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                             (s.gasAvailable
                              - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)))
                           + (bif (value.toNat != 0) then Gas.callStipend else 0))
@@ -757,7 +759,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             have post_eq :
                 (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                   retOff.toNat retLen.toNat h_mem).consumeGas
-                    (min gasArg.toNat (Gas.allButOneSixtyFourth
+                    (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                       ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).gasAvailable))
                     h_fw).enterCallFor
@@ -769,14 +771,14 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).accountMap
                     (AccountAddress.ofUInt256 toArg)).code
-                  (min gasArg.toNat (Gas.allButOneSixtyFourth
+                  (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                     ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).gasAvailable))
                   retOff.toNat retLen.toNat
                 = (({ s with
                       gasAvailable := s.gasAvailable
                         - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
-                        - (min gasArg.toNat (Gas.allButOneSixtyFourth
+                        - (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                             (s.gasAvailable
                               - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)))
                       activeWords := s.activeWordsAfterUInt256_2
@@ -785,7 +787,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       (AccountAddress.ofUInt256 toArg) ⟨0⟩
                       (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                       (s.accountMap (AccountAddress.ofUInt256 toArg)).code
-                      (min gasArg.toNat (Gas.allButOneSixtyFourth
+                      (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                         (s.gasAvailable
                           - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)))
                       retOff.toNat retLen.toNat) := by
@@ -860,7 +862,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             have post_eq :
                 (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                   retOff.toNat retLen.toNat h_mem).consumeGas
-                    (min gasArg.toNat (Gas.allButOneSixtyFourth
+                    (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                       ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).gasAvailable))
                     h_fw).enterCallFor
@@ -872,14 +874,14 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).accountMap
                     (AccountAddress.ofUInt256 toArg)).code
-                  (min gasArg.toNat (Gas.allButOneSixtyFourth
+                  (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                     ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).gasAvailable))
                   retOff.toNat retLen.toNat
                 = (({ s with
                       gasAvailable := s.gasAvailable
                         - Gas.staticcallCommitted s argsOff argsLen retOff retLen
-                        - (min gasArg.toNat (Gas.allButOneSixtyFourth
+                        - (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                             (s.gasAvailable
                               - Gas.staticcallCommitted s argsOff argsLen retOff retLen)))
                       activeWords := s.activeWordsAfterUInt256_2
@@ -888,7 +890,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       (AccountAddress.ofUInt256 toArg) ⟨0⟩
                       (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                       (s.accountMap (AccountAddress.ofUInt256 toArg)).code
-                      (min gasArg.toNat (Gas.allButOneSixtyFourth
+                      (min gasArg.toNat (Gas.allButOneSixtyFourth s.executionEnv.fork
                         (s.gasAvailable
                           - Gas.staticcallCommitted s argsOff argsLen retOff retLen)))
                       retOff.toNat retLen.toNat) := by
@@ -1015,7 +1017,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   -- untouched). `grind` handles the rest.
                   set s3 := ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
                               h_mem).consumeGas
-                              (Gas.allButOneSixtyFourth ((s.consumeGas base h_gas).consumeMemExp
+                              (Gas.allButOneSixtyFourth s.executionEnv.fork ((s.consumeGas base h_gas).consumeMemExp
                                 offset.toNat size.toNat h_mem).gasAvailable) h_fw
                   have post_eq :
                       ({ s3 with
@@ -1027,7 +1029,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                       = ({ s with
                           gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
-                            - Gas.allButOneSixtyFourth
+                            - Gas.allButOneSixtyFourth s.executionEnv.fork
                                 (s.gasAvailable - Gas.createCommitted s offset size)
                           activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
                           accountMap := s.accountMap.set s.executionEnv.address
@@ -1051,22 +1053,22 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   have post_eq :
                       (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
                         h_mem).consumeGas
-                        (Gas.allButOneSixtyFourth ((s.consumeGas base h_gas).consumeMemExp
+                        (Gas.allButOneSixtyFourth s.executionEnv.fork ((s.consumeGas base h_gas).consumeMemExp
                           offset.toNat size.toNat h_mem).gasAvailable) h_fw).enterCreate
                         rest newAddr value
                         (MachineState.readPadded
                           (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
                             h_mem).consumeGas _ h_fw).memory offset.toNat size.toNat)
-                        (Gas.allButOneSixtyFourth ((s.consumeGas base h_gas).consumeMemExp
+                        (Gas.allButOneSixtyFourth s.executionEnv.fork ((s.consumeGas base h_gas).consumeMemExp
                           offset.toNat size.toNat h_mem).gasAvailable)
                       = (({ s with
                             gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
-                              - Gas.allButOneSixtyFourth
+                              - Gas.allButOneSixtyFourth s.executionEnv.fork
                                   (s.gasAvailable - Gas.createCommitted s offset size)
                             activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
                           } : State).enterCreate rest newAddr value
                             (MachineState.readPadded s.memory offset.toNat size.toNat)
-                            (Gas.allButOneSixtyFourth
+                            (Gas.allButOneSixtyFourth s.executionEnv.fork
                               (s.gasAvailable - Gas.createCommitted s offset size))) := by
                     simp [State.enterCreate, State.consumeGas, State.consumeMemExp,
                           State.activeWordsAfterUInt256, Gas.createCommitted,
@@ -1142,7 +1144,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                 set s3 := (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
                             h_mem).consumeGas (Gas.create2HashCost size.toNat) h_hash
                           ).consumeGas
-                            (Gas.allButOneSixtyFourth
+                            (Gas.allButOneSixtyFourth s.executionEnv.fork
                               (((s.consumeGas base h_gas).consumeMemExp offset.toNat
                                 size.toNat h_mem).consumeGas
                                 (Gas.create2HashCost size.toNat) h_hash).gasAvailable) h_fw
@@ -1164,7 +1166,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                       = ({ s with
                           gasAvailable := s.gasAvailable - Gas.create2Committed s offset size
-                            - Gas.allButOneSixtyFourth
+                            - Gas.allButOneSixtyFourth s.executionEnv.fork
                                 (s.gasAvailable - Gas.create2Committed s offset size)
                           activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
                           accountMap := s.accountMap.set s.executionEnv.address
@@ -1196,12 +1198,12 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           (MachineState.readPadded s3.memory offset.toNat size.toNat))
                         value
                         (MachineState.readPadded s3.memory offset.toNat size.toNat)
-                        (Gas.allButOneSixtyFourth (((s.consumeGas base h_gas).consumeMemExp
+                        (Gas.allButOneSixtyFourth s.executionEnv.fork (((s.consumeGas base h_gas).consumeMemExp
                           offset.toNat size.toNat h_mem).consumeGas
                           (Gas.create2HashCost size.toNat) h_hash).gasAvailable)
                       = (({ s with
                             gasAvailable := s.gasAvailable - Gas.create2Committed s offset size
-                              - Gas.allButOneSixtyFourth
+                              - Gas.allButOneSixtyFourth s.executionEnv.fork
                                   (s.gasAvailable - Gas.create2Committed s offset size)
                             activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
                           } : State).enterCreate rest
@@ -1209,7 +1211,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                               (MachineState.readPadded s.memory offset.toNat size.toNat))
                             value
                             (MachineState.readPadded s.memory offset.toNat size.toNat)
-                            (Gas.allButOneSixtyFourth
+                            (Gas.allButOneSixtyFourth s.executionEnv.fork
                               (s.gasAvailable - Gas.create2Committed s offset size))) := by
                     simp [s3, State.enterCreate, State.consumeGas, State.consumeMemExp,
                           State.activeWordsAfterUInt256, Gas.create2Committed,

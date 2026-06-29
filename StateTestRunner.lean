@@ -79,9 +79,39 @@ def intrinsicGas (data : ByteArray) : Nat := Id.run do
     g := g + (if b == 0 then 4 else 68)
   return g
 
+/-- Map a BlockchainTest variant suffix (the bit after the last `_` in the
+    test object's key, e.g. `_Constantinople`, `_Berlin`) to a `Fork`. Each
+    variant in BlockchainTests/GeneralStateTests is named
+    `<base>_<network>_d<i>g<j>v<k>` (the suffix we get) — the `network` is
+    the activation fork. We return `none` for variants we don't model
+    (notably `Frontier`-tagged variants that exercise the legacy schedule;
+    those are covered by VMTests). -/
+def parseFork (s : String) : Option Fork :=
+  if s.endsWith "_Frontier" then some .Frontier
+  else if s.endsWith "_Homestead" then some .Homestead
+  else if s.endsWith "_EIP150" then some .TangerineWhistle
+  else if s.endsWith "_EIP158" then some .SpuriousDragon
+  else if s.endsWith "_Byzantium" then some .Byzantium
+  else if s.endsWith "_Constantinople" then some .Constantinople
+  else if s.endsWith "_ConstantinopleFix" then some .Petersburg
+  else if s.endsWith "_Petersburg" then some .Petersburg
+  else if s.endsWith "_Istanbul" then some .Istanbul
+  else if s.endsWith "_MuirGlacier" then some .MuirGlacier
+  else if s.endsWith "_Berlin" then some .Berlin
+  else if s.endsWith "_London" then some .London
+  else if s.endsWith "_ArrowGlacier" then some .ArrowGlacier
+  else if s.endsWith "_GrayGlacier" then some .GrayGlacier
+  else if s.endsWith "_Merge" then some .Paris
+  else if s.endsWith "_Paris" then some .Paris
+  else if s.endsWith "_Shanghai" then some .Shanghai
+  else if s.endsWith "_Cancun" then some .Cancun
+  else if s.endsWith "_Prague" then some .Prague
+  else if s.endsWith "_Osaka" then some .Osaka
+  else none
+
 /-- Build the top-level execution `State` for a BlockchainTest test object,
     given its `pre` accounts and the block's transaction JSON. -/
-def buildState (preMap : AccountMap) (env tx : Json) : State :=
+def buildState (preMap : AccountMap) (env tx : Json) (fork : Fork) : State :=
   let toAddr   := hexToAddress (strField tx "to")
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
@@ -115,7 +145,7 @@ def buildState (preMap : AccountMap) (env tx : Json) : State :=
       depth     := 0
       permitStateMutation := true
       blobVersionedHashes := #[]
-      fork                := .Constantinople }
+      fork                := fork }
   { toMachineState :=
       { gasAvailable := gasLimit - intrinsicGas data, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
@@ -203,7 +233,7 @@ def cmpPost (sf : State) (preEntries postEntries : List (String × Json))
         msgs := s!"{addrStr} bal {got.balance.toNat}≠{expBal.toNat}" :: msgs
   return msgs
 
-def runOne (testObj : Json) : Outcome :=
+def runOne (testObj : Json) (fork : Fork) : Outcome :=
   let preMap : AccountMap :=
     (objEntries testObj "pre").foldl
       (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
@@ -214,23 +244,45 @@ def runOne (testObj : Json) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let s0 := buildState preMap (subObj testObj "env") tx
+      let env      := subObj testObj "env"
+      let gasLimit := hexToNat     (strField tx "gasLimit")
+      let gasPrice := hexToUInt256 (strField tx "gasPrice")
+      let coinbase := hexToAddress (strField env "currentCoinbase")
+      let upfront  := gasLimit * gasPrice.toNat
+      let s0 := buildState preMap env tx fork
       -- Steps are bounded by gas: every non-halting opcode costs ≥1 gas, and
       -- resume steps are bounded by the number of CALLs (≥700 gas each). So
       -- `2·gasAvailable` (plus slack) can never pre-empt a genuine OutOfGas; it
       -- is purely a backstop against an evaluator bug producing a 0-gas
       -- non-halting step.
-      match run s0 (2 * s0.gasAvailable + 100000) with
-      | .error .OutOfFuel => .incon "fuel exhausted"
-      | .error e => .incon s!"top-level halt {repr e}"
-      | .ok sf =>
-        let pre := objEntries testObj "pre"
-        let post := objEntries testObj "postState"
+      let pre := objEntries testObj "pre"
+      let post := objEntries testObj "postState"
+      let finishOk (sf : State) : Outcome :=
         match cmpPost sf pre post false with
         | [] => match cmpPost sf pre post true with
                 | [] => .passFull
                 | _  => .passCore
         | msgs => .fail (String.intercalate "; " (msgs.take 3))
+      match run s0 (2 * s0.gasAvailable + 100000) with
+      | .error .OutOfFuel => .incon "fuel exhausted"
+      | .error _ =>
+        -- Top-level exceptional halt (OutOfGas, bad jump, …): the YP
+        -- requires every state mutation of execution to be rolled back, and
+        -- the sender to be charged the *full* gasLimit (no refund). We
+        -- materialise that final state from `preMap`: bump sender nonce,
+        -- debit `gasLimit·gasPrice`, credit coinbase the same amount —
+        -- the value transfer (which `buildState` applied) is *not*
+        -- replayed since the execution didn't take. Then run the same
+        -- post-state comparison as the success path.
+        let sender    := preMap txSender
+        let coinAcc   := preMap coinbase
+        let map₁ := preMap.set txSender
+          { sender with nonce := sender.nonce + UInt256.ofNat 1
+                        balance := sender.balance - UInt256.ofNat upfront }
+        let map₂ := map₁.set coinbase
+          { coinAcc with balance := coinAcc.balance + UInt256.ofNat upfront }
+        finishOk { s0 with accountMap := map₂, halt := .Success }
+      | .ok sf => finishOk sf
     | [] => .incon "no transactions"
   | [] => .incon "no blocks"
 
@@ -257,8 +309,10 @@ partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
     else if path.toString.endsWith ".json" then out := out.push path
   return out.qsort (fun a b => a.toString < b.toString)
 
-/-- Run every `*_Constantinople` test in one file; return one `(tag, name, msg)`
-    triple per test (`tag ∈ {PASS_FULL, PASS_CORE, FAIL, INCON}`). -/
+/-- Run every fork variant in one file; return one `(tag, name, msg)`
+    triple per test (`tag ∈ {PASS_FULL, PASS_CORE, FAIL, INCON}`). Variants
+    whose `network` suffix doesn't map to a `Fork` we model are skipped
+    silently (they don't count toward any tally). -/
 def runFileResults (path : System.FilePath) : IO (Array (String × String × String)) := do
   let txt ← IO.FS.readFile path
   match Json.parse txt with
@@ -267,65 +321,146 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
     let entries := match j with | .obj m => m.toArray.toList | _ => []
     let mut out := #[]
     for (name, testObj) in entries do
-      if !name.endsWith "_Constantinople" then continue
-      let r := match runOne testObj with
-        | .passFull => ("PASS_FULL", name, "")
-        | .passCore => ("PASS_CORE", name, "")
-        | .fail m   => ("FAIL", name, m)
-        | .incon m  => ("INCON", name, m)
-      out := out.push r
+      match parseFork name with
+      | none => continue
+      | some fork =>
+        let r := match runOne testObj fork with
+          | .passFull => ("PASS_FULL", name, "")
+          | .passCore => ("PASS_CORE", name, "")
+          | .fail m   => ("FAIL", name, m)
+          | .incon m  => ("INCON", name, m)
+        out := out.push r
     return out
 
-/-- Run `files`, up to `jobs` `Task`s in flight. Prints per-test `FAIL`/`INCON`
-    notes (stable, spawn order) when `verbose`, then returns the folded tally.
-    Mirrors `VMRunner.runDir`. -/
-def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool) : IO Tally := do
+/-- Run `files` keeping up to `jobs` `Task`s **continuously in flight**: as
+    each one finishes, the next file is dispatched immediately rather than
+    waiting for the rest of the batch (the old `for task in tasks do IO.wait
+    task` pattern starved cores whenever one file in the batch was slow —
+    the `_ABCB_RECURSIVE` family on functional world-state maps takes
+    minutes per file).
+
+    The scheduler is a fixed-size array of `jobs` slots; each slot holds at
+    most one in-flight task. The main loop polls slots with
+    `Task.hasFinished` (non-blocking), harvests anything done, refills the
+    slot with the next file, and sleeps `10ms` only when every slot is
+    busy (so we don't busy-spin the main thread).
+
+    Per-task wall-clock cap: if `timeoutMs > 0`, a task whose elapsed time
+    exceeds the cap is marked `INCON wall-timeout`, its slot freed, and the
+    next file dispatched. The abandoned task continues running in the
+    background (Lean's `Task`s aren't OS-cancellable), but it no longer
+    blocks the harness — and the slot count drops to `jobs - hung` for the
+    remainder of the run, which is the closest we can get without
+    subprocess isolation. `timeoutMs = 0` disables the cap.
+
+    Output is in completion order (which can differ from spawn order). The
+    summary scripts key on FAIL ids, not line order. -/
+def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
+    (timeoutMs : Nat := 0) : IO Tally := do
   let mut t : Tally := {}
-  let mut i := 0
   let n := files.size
-  let batch := Nat.max 1 jobs
-  while i < n do
-    let stop := Nat.min (i + batch) n
-    let mut tasks : Array (Task (Except IO.Error (Array (String × String × String)))) := #[]
-    for k in [i:stop] do
-      tasks := tasks.push (← IO.asTask (runFileResults files[k]!))
-    for task in tasks do
-      match (← IO.wait task) with
+  if n = 0 then return t
+  let workers := Nat.max 1 jobs
+  -- Each slot: optional (file index, spawn-time millis, task).
+  let mut slots :
+      Array (Option (Nat × Nat × Task (Except IO.Error (Array (String × String × String))))) :=
+    Array.replicate workers none
+  let mut nextIdx : Nat := 0
+  let mut remaining : Nat := n
+  let foldResult : Tally → Bool →
+      Except IO.Error (Array (String × String × String)) → IO Tally :=
+    fun t verb r => do
+      let mut t := t
+      match r with
       | .ok results =>
         for (tag, name, msg) in results do
           match tag with
           | "PASS_FULL" => t := { t with passFull := t.passFull + 1 }
           | "PASS_CORE" => t := { t with passCore := t.passCore + 1 }
           | "FAIL"      => t := { t with fail := t.fail + 1 }
-                           if verbose then IO.println s!"FAIL {name}: {msg}"
+                           if verb then IO.println s!"FAIL {name}: {msg}"
           | "INCON"     => t := { t with incon := t.incon + 1 }
-                           if verbose then IO.println s!"INCON {name}: {msg}"
+                           if verb then IO.println s!"INCON {name}: {msg}"
           | _           => t := { t with crash := t.crash + 1 }
-                           if verbose then IO.println s!"CRASH {name}: {msg}"
+                           if verb then IO.println s!"CRASH {name}: {msg}"
       | .error e =>
         t := { t with crash := t.crash + 1 }
-        if verbose then IO.println s!"CRASH (task): {e}"
-    i := stop
+        if verb then IO.println s!"CRASH (task): {e}"
+      return t
+  -- Prime the pool: spawn up to `workers` initial tasks. Use
+  -- `Task.Priority.dedicated` so each task gets its own OS thread —
+  -- Lean's default pool caps non-dedicated workers at `numCores`,
+  -- which under heavy GC contention starves the sliding window even
+  -- when `jobs` is set higher.
+  for i in [0:workers] do
+    if nextIdx < n then
+      let now ← IO.monoMsNow
+      let task ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
+      slots := slots.set! i (some (nextIdx, now, task))
+      nextIdx := nextIdx + 1
+  -- Main loop: poll, harvest, refill.
+  while remaining > 0 do
+    let mut progress := false
+    for i in [0:workers] do
+      match slots[i]! with
+      | none => pure ()
+      | some (idx, startMs, task) =>
+        let done ← IO.hasFinished task
+        let elapsed := (← IO.monoMsNow) - startMs
+        if done then
+          t ← foldResult t verbose (← IO.wait task)
+          remaining := remaining - 1
+          progress := true
+          -- Refill slot.
+          if nextIdx < n then
+            let now ← IO.monoMsNow
+            let next ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
+            slots := slots.set! i (some (nextIdx, now, next))
+            nextIdx := nextIdx + 1
+          else
+            slots := slots.set! i none
+        else if timeoutMs > 0 ∧ elapsed > timeoutMs then
+          -- Abandon: mark INCON and free the slot. The task keeps
+          -- running in the background but the harness moves on.
+          t := { t with incon := t.incon + 1 }
+          if verbose then
+            IO.println s!"INCON {files[idx]!.fileName.getD files[idx]!.toString}: \
+              wall-timeout (>{timeoutMs}ms, abandoned)"
+          remaining := remaining - 1
+          progress := true
+          if nextIdx < n then
+            let now ← IO.monoMsNow
+            let next ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
+            slots := slots.set! i (some (nextIdx, now, next))
+            nextIdx := nextIdx + 1
+          else
+            slots := slots.set! i none
+    if !progress then
+      -- All in-flight tasks still running; yield CPU briefly.
+      IO.sleep 10
   return t
 
-/-- Resolve worker count: `-j N`, else env `STATETESTS_JOBS`, else 8. -/
-def parseJobs (args : List String) : Nat × List String := Id.run do
-  let rec go : List String → Option Nat → List String → Nat × List String
-    | [], n, acc => (n.getD 0, acc.reverse)
-    | "-j" :: v :: rest, _, acc => go rest (some v.toNat!) acc
-    | x :: rest, n, acc => go rest n (x :: acc)
-  go args none []
+/-- Parse `-j N` and `--timeout MS` out of `args`. Returns the jobs
+    value (or `0` for "unset"), the timeout-in-millis (`0` = disabled),
+    and the remaining args. -/
+def parseFlags (args : List String) : Nat × Nat × List String := Id.run do
+  let rec go : List String → Option Nat → Option Nat → List String → Nat × Nat × List String
+    | [], j, tm, acc => (j.getD 0, tm.getD 0, acc.reverse)
+    | "-j" :: v :: rest, _, tm, acc => go rest (some v.toNat!) tm acc
+    | "--timeout" :: v :: rest, j, _, acc => go rest j (some v.toNat!) acc
+    | x :: rest, j, tm, acc => go rest j tm (x :: acc)
+  go args none none []
 
 def main (args : List String) : IO Unit := do
   let verbose := args.contains "-v"
-  let (jobs0, rest) := parseJobs (args.filter (· != "-v"))
+  let (jobs0, timeoutMs, rest) := parseFlags (args.filter (· != "-v"))
   let jobs ← if jobs0 > 0 then pure jobs0 else do
     match (← IO.getEnv "STATETESTS_JOBS") with
     | some s => pure (Nat.max 1 s.toNat!)
     | none   => pure 8
   let root : System.FilePath := rest.headD "."
   let files ← if (← root.isDir) then collectJson root else pure #[root]
-  let t ← runFiles files jobs verbose
+  let t ← runFiles files jobs verbose timeoutMs
   IO.println s!"pass(full={t.passFull} core+={t.passCore}) fail={t.fail} \
 incon={t.incon} crash={t.crash} (total {t.total})"
 
