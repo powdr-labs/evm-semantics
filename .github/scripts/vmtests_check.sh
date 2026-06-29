@@ -31,7 +31,7 @@ echo "_Full ethereum/legacytests VMTests suite, run against the evaluator. Non-g
 echo
 echo "| metric | baseline | current | Δ |"
 echo "| --- | ---: | ---: | ---: |"
-for key in pass fail crash incon skip_unsup skip_keccak skip_gas total; do
+for key in pass fail crash incon total; do
   b="$(cval "$baseline" "$key")"; c="$(cval "$current" "$key")"
   b="${b:-0}"; c="${c:-0}"
   d=$((c - b))

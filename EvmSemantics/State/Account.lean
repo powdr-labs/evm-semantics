@@ -8,11 +8,10 @@ public import EvmSemantics.Data.UInt256
 Storage and the world `AccountMap` are total maps from a 256-bit
 (resp. 160-bit) key to a value; missing keys read as the default
 (0 for storage; the empty account for accounts), so there is no
-`Option`-cluttered API. Underneath both are `Std.HashMap`s — the
-spec view *is* the runtime view: there is no `@[implemented_by]`
-trick to trust, and no `toFun ↔ cache` invariant to maintain. A
-`CoeFun` instance lets every existing `s k` / `σ a` call site work
-unchanged.
+`Option`-cluttered API. Underneath both are `Std.HashMap`s — one
+representation for both spec and runtime, so reasoning is direct
+(no spec-vs-runtime bridge to prove). A `CoeFun` instance lets every
+existing `s k` / `σ a` call site work unchanged.
 -/
 
 @[expose] public section

@@ -8,16 +8,13 @@ public import Lean.Data.Json
 `VMRunner` — Phase-1 harness that runs the legacy ethereum/tests **VMTests**
 against the executable evaluator (`stepF` / `run`).
 
-Design (see the agreed plan):
+Design:
 * Target the legacy VMTests suite (pure single-frame EVM; no calls / no tx).
-* **Ignore gas**: inject a huge `gasAvailable` so `OutOfGas` never fires, and
-  never compare the `gas` field. Tests whose code uses the `GAS` opcode are
-  skipped (its pushed value would be poisoned by the injected gas).
-* **Skip unsupported opcodes**: a pre-scan of `exec.code` skips any test
-  whose code contains CREATE/CREATE2/SELFDESTRUCT (the still-unimplemented
-  system ops).
-* Compare storage / return-data / balance / nonce; logs are not compared
-  (require RLP + real keccak — phase 2).
+* Every test runs with its declared `exec.gas` budget. For tests with a
+  `post` block we compare storage, return-data, balance, nonce, and the
+  remaining `gas` value. Tests without a `post` are expected to halt
+  exceptionally; any in-frame exception counts as a pass.
+* Logs are not compared (would need RLP encoding to compute `logsHash`).
 
 Usage: `vmtests <path-to-Constantinople/VMTests>`
 -/
@@ -73,8 +70,6 @@ def mkAccount (accJson : Json) : Account :=
     storage  := storage
     tstorage := Storage.empty }
 
-def hugeGas : Nat := 2 ^ 63
-
 /-- Assemble the initial `State` from a VMTest `exec`/`env`/`pre`, using
     `gas` as the initial `gasAvailable`. -/
 def buildStateWith (testObj : Json) (gas : Nat) : State :=
@@ -119,10 +114,6 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
     execLength   := 0
     halt         := .Running }
 
-/-- Default `buildState`: inject `hugeGas` so `OutOfGas` never fires. Used
-    for tests that aren't gas-comparable (any opcode with dynamic cost). -/
-def buildState (testObj : Json) : State := buildStateWith testObj hugeGas
-
 ----------------------------------------------------------------------------
 -- Driver
 ----------------------------------------------------------------------------
@@ -152,85 +143,12 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
           run (({ s with halt := .Exception e }).resumeByHalt f rest) (fuel - 1)
 
 ----------------------------------------------------------------------------
--- Opcode pre-scan
-----------------------------------------------------------------------------
-
-/-- Reason (if any) the opcode forces the test to be skipped *outright*
-    (regardless of gas mode). `GAS` is intentionally not listed here — it's
-    fine under gas-compared mode (the pushed value is then correct); under
-    hugeGas mode the parent decides via `usesGas` below. -/
-def skipReasonOf (_op : Operation) : Option String := none
-
-/-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
-    schedule exactly (no cold/warm split, no per-word/byte/topic dynamic
-    component). A test whose bytecode contains only such opcodes is
-    eligible for gas comparison against the corpus's expected `gas` value. -/
-def gasComparableOpcode (op : Operation) : Bool :=
-  match op with
-  -- KECCAK256: base 30 + per-word 6·⌈size/32⌉.
-  | .Keccak _ => true
-  -- EIP-2929 cold/warm-split account / slot access — not yet modelled.
-  | .BALANCE | .EXTCODESIZE | .EXTCODEHASH | .EXTCODECOPY => false
-  -- SLOAD: Constantinople flat 50 (Frontier value used by corpus).
-  -- SSTORE: pre-EIP-1283 schedule via `Gas.sstoreCost`.
-  | .SLOAD | .SSTORE => true
-  -- Dynamic copy/log/exp costs charged in stepF (and proved in Step).
-  | .CALLDATACOPY | .CODECOPY | .RETURNDATACOPY | .MCOPY => true
-  | .EXP | .Log _ => true
-  -- CALL family: dynamic value/new-account surcharge + 63/64
-  -- forwarding interact with caller gas in ways the comparator hasn't
-  -- been audited for, so kept non-comparable.
-  | .CALL | .CALLCODE | .DELEGATECALL | .STATICCALL => false
-  -- SELFDESTRUCT, CREATE, CREATE2: gas-comparable now.
-  -- - SELFDESTRUCT: on `Constantinople` the legacy corpus uses Frontier
-  --   rules (cost 0, no `G_newaccount` surcharge), so `baseCost` +
-  --   `selfDestructSurcharge` collapse to 0 here and the corpus's
-  --   per-frame `gas` value matches exactly. The 24000 refund stays in
-  --   `Substate.refundBalance` but is NOT applied at frame end (the
-  --   legacy VMTests corpus reports pre-refund gas).
-  -- - CREATE / CREATE2: the VMTests corpus has no test that actually
-  --   reaches these as instruction-boundary opcodes (any `0xf0`/`0xf5`
-  --   byte sits inside a PUSH immediate). Flipping the flag here lets
-  --   those tests get gas-checked too without changing any behaviour.
-  | .SELFDESTRUCT | .CREATE | .CREATE2 => true
-  | _ => true
-
-/-- Outcome of a full bytecode scan. `skipReason` overrides everything
-    else; otherwise `gasComparable` says whether the test can use its real
-    `exec.gas` and have its remaining-`gas` field compared. -/
-structure ScanResult where
-  skipReason    : Option String
-  gasComparable : Bool
-  usesGas       : Bool       -- bytecode contains the `GAS` opcode
-  deriving Inhabited
-
-/-- Scan `code` for opcodes that force a skip and track whether the test is
-    gas-comparable. On an undefined byte, advance by 1 and keep scanning;
-    on a known op advance past its immediate (`1 + argBytes`). -/
-partial def scanCode (code : ByteArray) (pc : Nat)
-    (gasOk : Bool := true) (sawGas : Bool := false) : ScanResult :=
-  if pc ≥ code.size then
-    { skipReason    := none
-      gasComparable := gasOk
-      usesGas       := sawGas }
-  else
-    match Decode.opcodeOf (code.get! pc) with
-    | some op =>
-      match skipReasonOf op with
-      | some r => { skipReason := some r, gasComparable := false, usesGas := sawGas }
-      | none   =>
-        let sawGas' := sawGas || (op == .GAS)
-        scanCode code (pc + 1 + op.argBytes) (gasOk && gasComparableOpcode op) sawGas'
-    | none => scanCode code (pc + 1) gasOk sawGas
-
-----------------------------------------------------------------------------
 -- Outcome + comparison
 ----------------------------------------------------------------------------
 
 inductive Outcome where
-  | pass (gasChecked : Bool := false)
+  | pass
   | fail (msg : String)
-  | skip (reason : String)   -- "unsupported" | "keccak" | "gas"
   | incon (msg : String)
   deriving Repr
 
@@ -264,80 +182,58 @@ def cmpAccounts (sf : State) (testObj : Json) : Option String := Id.run do
         return some s!"{addrStr} slot {slotStr} got {ourV} exp {expV}"
   return none
 
-/-- Run one test object and classify the outcome. -/
+/-- Run one test object and classify the outcome. Every test runs with
+    its declared `exec.gas` budget; on a test with a `post` block, both
+    storage and the remaining `gas` are compared against the corpus. -/
 def runTest (testObj : Json) : Outcome :=
   let exec := subObj testObj "exec"
-  let code := hexToBytes (strField exec "code")
-  let scan := scanCode code 0
-  match scan.skipReason with
-  | some r => .skip r
-  | none =>
-    -- Gas-comparable iff every opcode has the EVM's fee-schedule-exact
-    -- fixed cost. Tests with the `GAS` opcode are only OK under
-    -- gas-comparable mode (under hugeGas, the pushed value would be
-    -- meaningless).
-    let gasCompare := scan.gasComparable
-    if scan.usesGas && !gasCompare then
-      .skip "gas"
+  let inputGas := hexToNat (strField exec "gas")
+  let s0 := buildStateWith testObj inputGas
+  let hasPost := hasField testObj "post"
+  match run s0 2000000 with
+  | .error .OutOfFuel => .incon "fuel exhausted"
+  | .error e =>
+    if hasPost then .fail s!"expected success, got {repr e}"
+    else .pass                              -- exception expected, got exception
+  | .ok sf =>
+    if !hasPost then
+      match sf.halt with
+      | .Reverted => .pass                  -- REVERT counts as expected failure
+      | h =>
+        let extra := if sf.stack.length > 1024 then " (overflow-suspected)" else ""
+        .incon s!"expected exception, got {repr h}{extra}"
     else
-      let inputGas := hexToNat (strField exec "gas")
-      let s0 := buildStateWith testObj (if gasCompare then inputGas else hugeGas)
-      let hasPost := hasField testObj "post"
-      match run s0 2000000 with
-      | .error .OutOfFuel => .incon "fuel exhausted"
-      | .error e =>
-        if hasPost then .fail s!"expected success, got {repr e}"
-        else .pass                              -- exception expected, got exception
-      | .ok sf =>
-        if !hasPost then
-          match sf.halt with
-          | .Reverted => .pass                  -- REVERT counts as expected failure
-          | h =>
-            let extra := if sf.stack.length > 1024 then " (overflow-suspected)" else ""
-            .incon s!"expected exception, got {repr h}{extra}"
+      match cmpAccounts sf testObj with
+      | some msg => .fail msg
+      | none =>
+        let outExp := hexToBytes (strField testObj "out")
+        if sf.hReturn.toList != outExp.toList then
+          .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
         else
-          match cmpAccounts sf testObj with
-          | some msg => .fail msg
-          | none =>
-            let outExp := hexToBytes (strField testObj "out")
-            if sf.hReturn.toList != outExp.toList then
-              .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
-            else if gasCompare then
-              let expGas := hexToNat (strField testObj "gas")
-              if sf.gasAvailable != expGas then
-                .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
-              else .pass (gasChecked := true)
-            else .pass
+          let expGas := hexToNat (strField testObj "gas")
+          if sf.gasAvailable != expGas then
+            .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
+          else .pass
 
 ----------------------------------------------------------------------------
 -- Tally + file walking
 ----------------------------------------------------------------------------
 
 structure Tally where
-  pass : Nat := 0
-  passGasChecked : Nat := 0    -- of `pass`, how many also matched the `gas` field
-  fail : Nat := 0
-  skipUns : Nat := 0
-  skipKec : Nat := 0
-  skipGas : Nat := 0
+  pass  : Nat := 0
+  fail  : Nat := 0
   incon : Nat := 0
   crash : Nat := 0       -- evaluator panic / timeout (child exited non-zero)
   deriving Inhabited
 
 def Tally.add (t u : Tally) : Tally :=
-  { pass := t.pass + u.pass, passGasChecked := t.passGasChecked + u.passGasChecked
-    fail := t.fail + u.fail
-    skipUns := t.skipUns + u.skipUns, skipKec := t.skipKec + u.skipKec
-    skipGas := t.skipGas + u.skipGas, incon := t.incon + u.incon
-    crash := t.crash + u.crash }
+  { pass := t.pass + u.pass, fail := t.fail + u.fail
+    incon := t.incon + u.incon, crash := t.crash + u.crash }
 
-def Tally.total (t : Tally) : Nat :=
-  t.pass + t.fail + t.skipUns + t.skipKec + t.skipGas + t.incon + t.crash
+def Tally.total (t : Tally) : Nat := t.pass + t.fail + t.incon + t.crash
 
 def Tally.line (t : Tally) : String :=
-  s!"pass={t.pass} (gas-checked={t.passGasChecked}) fail={t.fail} " ++
-  s!"skip(unsup={t.skipUns} keccak={t.skipKec} gas={t.skipGas}) " ++
-  s!"incon={t.incon} crash={t.crash}"
+  s!"pass={t.pass} fail={t.fail} incon={t.incon} crash={t.crash}"
 
 /-- Collect all `*.json` files under `p` (recursively), sorted. -/
 partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
@@ -354,13 +250,11 @@ partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
 -- Child mode: process ONE file, print machine-readable result lines.
 ----------------------------------------------------------------------------
 
-/-- The tag for an `Outcome`, with optional message. The `pass` variant
-    uses `msg = "gas"` to mark a gas-checked pass, `""` otherwise. -/
+/-- The tag for an `Outcome`, with optional message. -/
 def outcomeTag : Outcome → String × String
-  | .pass gc => ("PASS", if gc then "gas" else "")
-  | .fail m  => ("FAIL", m)
-  | .incon m => ("INCON", m)
-  | .skip r  => ("SKIP", r)
+  | .pass     => ("PASS", "")
+  | .fail m   => ("FAIL", m)
+  | .incon m  => ("INCON", m)
 
 /-- `--file` mode: one line per test `TAG\tname\tmsg`. A panic here aborts
     only this child process (the parent records it as a crash). -/
@@ -403,17 +297,10 @@ def absorbResults (f : System.FilePath) (results : Array (String × String × St
   let mut notes := notes
   for (tag, name, msg) in results do
     match tag with
-    | "PASS"     =>
-      t := { t with pass := t.pass + 1 }
-      if msg == "gas" then
-        t := { t with passGasChecked := t.passGasChecked + 1 }
+    | "PASS"     => t := { t with pass := t.pass + 1 }
     | "FAIL"     => t := { t with fail := t.fail + 1 }
                     notes := notes.push s!"FAIL {name}: {msg}"
     | "INCON"    => t := { t with incon := t.incon + 1 }
-    | "SKIP"     => match msg with
-        | "unsupported" => t := { t with skipUns := t.skipUns + 1 }
-        | "keccak"      => t := { t with skipKec := t.skipKec + 1 }
-        | _             => t := { t with skipGas := t.skipGas + 1 }
     | "PARSEERR" => t := { t with crash := t.crash + 1 }
                     notes := notes.push s!"PARSEERR {f.fileName.getD f.toString}: {msg}"
     | _          => pure ()

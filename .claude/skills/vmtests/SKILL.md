@@ -1,6 +1,6 @@
 ---
 name: vmtests
-description: Run the ethereum/legacytests VMTests conformance suite against the evaluator (stepF/run), interpret the pass/fail/skip/incon/crash results, and refresh the committed CI baseline. Use when asked to run vmtests, check conformance, investigate a failing or crashing test, or update the baseline after an evaluator fix.
+description: Run the ethereum/legacytests VMTests conformance suite against the evaluator (stepF/run), interpret the pass/fail/incon/crash results, and refresh the committed CI baseline. Use when asked to run vmtests, check conformance, investigate a failing or crashing test, or update the baseline after an evaluator fix.
 ---
 
 # vmtests
@@ -41,18 +41,19 @@ one that panics.
 
 ## Reading the summary
 
-Line looks like: `pass=… (gas-checked=…) fail=… skip=… (unsup/keccak/gas) incon=… crash=…`
+Line looks like: `pass=… fail=… incon=… crash=…`
 
-- **pass / gas-checked** — gas-checked tests run with the real `exec.gas` budget
-  and compare the remaining `gas`; the rest run gas-ignored (`gasAvailable=2^63`).
-- **skip** — `unsup` (CALL/CREATE family, SELFDESTRUCT), `keccak`
-  (KECCAK256/EXTCODEHASH — `keccak256` is opaque, returns 0), `gas` (GAS opcode
-  where gas-checked mode isn't available).
-- **incon** — out-of-gas / fuel-exhausted cases the infinite-gas harness can't
-  reproduce, plus the ~11 jump-into-PUSH-data tests (a real soundness gap).
-- **crash** — a worker `Task` threw and the parent recorded it (a hard panic
-  instead aborts the whole run). Should be 0; a new crash is a real regression —
-  isolate it with `--file` on that test.
+- **pass** — every test runs with its real `exec.gas` budget; on a test
+  with a `post` block, the remaining `gas` is compared too.
+- **fail** — storage / return-data / balance / nonce / gas mismatch
+  against the test's `post` block.
+- **incon** — out-of-gas / fuel-exhausted cases the harness can't
+  reproduce (the loop legitimately exceeds the 2M-step fuel cap, or the
+  test relies on enforcement we don't yet model — e.g. the 1024-stack
+  cap).
+- **crash** — a worker `Task` threw and the parent recorded it (a hard
+  panic instead aborts the whole run). Should be 0; a new crash is a
+  real regression — isolate it with `--file` on that test.
 
 ## Refresh the baseline (after an evaluator fix turns fails into passes)
 

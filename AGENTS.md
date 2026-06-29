@@ -77,14 +77,15 @@ Three views of the same semantics, with `Step` as the source of truth:
   some .X` (the op-only projection of `s.decoded`); most also carry
   `h_gas : Gas.baseCost s.fork op ≤ s.gasAvailable` (`gasAvailable : Nat`)
   and an `h_stack` shape, but the exact premises vary —
-  `StepRunning.stop` has no `h_gas`/`h_stack` (whereas
-  `return_`/`revert` carry `h_gas`,
-  `h_stack`, and `h_mem`), and stackless reads (`address`, `coinbase`,
-  `pc`, …) have no `h_stack`. **Exception:** `StepRunning.pushN` is the
-  one success rule that uses the full `s.decoded` premise, because it
-  consumes the PUSH immediate. Read the actual constructor; `consumeGas`
-  takes the gas-sufficiency proof explicitly so the saturating Nat
-  subtraction is provably safe.
+  `StepRunning.stop` has no `h_gas`/`h_stack`, and stackless reads
+  (`address`, `coinbase`, `pc`, …) have no `h_stack`. **Exception:**
+  `StepRunning.pushN` is the one success rule that uses the full
+  `s.decoded` premise, because it consumes the PUSH immediate. The
+  gas premise on each rule is a **bundled** `Nat`-valued total
+  (`Gas.<op>Total s ...` for opcodes with dynamic costs, plain
+  `Gas.baseCost s.fork op` for opcodes that have only the static fee),
+  and the post-state is a flat `{ s with ... }` record update that uses
+  the same total as `gasAvailable := s.gasAvailable - Gas.<op>Total ...`.
 - **`Eval : State → ExecutionResult → Prop`** (`EVM/BigStep.lean`) — big-step,
   the reflexive-transitive closure `Steps` ending in a halted state, projected
   by `State.toResult` to `success | returned _ | reverted _ | exception _`.
@@ -152,14 +153,13 @@ block validation, precompiles, full RLP.
   forwarding (`Gas.allButOneSixtyFourth`), and memory expansion via
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
-  `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and EIP-3860's Cancun init-code word cost / size cap on CREATE / CREATE2
-  (the spec-fixed `Gas.create2HashCost` *is* modelled — it's the
-  address-derivation hash, charged in both `stepF` and the `Step` relation).
-  SELFDESTRUCT / CREATE / CREATE2 are gas-comparable on the
-  `Constantinople` fork (SELFDESTRUCT uses Frontier rules to match the
-  legacy corpus); only the CALL family remains non-gas-comparable.
-  `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
+  `EXTCODEHASH` (`100` on Cancun is a warm-priced placeholder pending an
+  `accessedAccounts` set in `Substate`; Constantinople uses the proper
+  EIP-150 / EIP-1052 values 400 / 700) and `Gas.create2HashCost` for
+  CREATE2's address-derivation hash. The VMRunner no longer maintains a
+  gas-comparable filter — every test runs with its declared
+  `exec.gas` budget and (when it has a `post` block) compares the
+  remaining-`gas` value against the corpus.
 
 ## Adding or changing an opcode
 
@@ -170,10 +170,17 @@ Touch these in order, then rebuild + lint + run vmtests:
 3. `EVM/Gas.lean` — `Gas.baseCost`. Charge the real static base fee per fork.
    For a *dynamic* cost, follow the established pattern: a fork-aware helper
    (`Gas.copyWordCost`, `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`,
-   `Gas.sstoreCost`) that gets charged in the handler after the dispatcher's
-   `consumeGas baseCost`. If the new dynamic cost touches state the harness
-   can't reproduce (e.g. EIP-2929 cold/warm), leave it stubbed at the
-   warm-access value and mark it `false` in step 7's `gasComparableOpcode`.
+   `Gas.sstoreCost`) that gets charged in `stepF` via `consumeGas` after
+   `chargeMem`. Then define a `Gas.<op>Total` (or `Gas.<op>Committed` for the
+   CALL/CREATE families) that bundles `baseCost + memExpansionDelta + dyn`
+   into a single `Nat`-valued total — this is what the `StepRunning` rule
+   uses on both sides (pre-condition `Gas.<op>Total ≤ s.gasAvailable` and
+   post-state `gasAvailable := s.gasAvailable - Gas.<op>Total`). Every
+   opcode's gas is now compared against the corpus's expected
+   remaining-`gas` value on any with-`post` test; if your dynamic cost
+   touches state the harness can't reproduce (e.g. EIP-2929 cold/warm),
+   stub it at the value that matches the target corpus — gas-mismatch
+   failures will surface immediately if you pick wrong.
 4. `EVM/Step.lean` — the success constructor (in `StepRunning`; follow
    the `add` anatomy: `h_op : s.decodedOp = some .X`, `h_gas`, `h_stack`
    premises — but adjust for the constructor's kind; halts/stackless
@@ -184,11 +191,9 @@ Touch these in order, then rebuild + lint + run vmtests:
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still
    closes. The helpers produce `StepRunning`; the headline `stepF_sound`
    wraps with `Step.running h_running`.
-7. `tests/VMRunner.lean` — update the conformance pre-scan if the opcode's support or
-   gas status changed: `skipReasonOf` (skip unsupported opcodes) and
-   `gasComparableOpcode`. The latter has a catch-all `| _ => true`, so a new
-   opcode with a *dynamic* cost is silently treated as gas-comparable unless you
-   add it — and gas-checked runs would then compare bogus `gas`.
+7. `tests/VMRunner.lean` — usually nothing. Every test goes through the
+   evaluator with its real `exec.gas` budget; there is no skip filter
+   left to update.
 
 ## CI gates (`.github/workflows/ci.yml`)
 

@@ -23,14 +23,21 @@ appropriate helper.
 
 Each helper takes both the original state `s` (for reads from `s.stack`,
 `s.memory`, etc.) and the gas-consumed state `s'` (used to construct the
-successor). Out-of-scope opcodes (CALL family, CREATE family,
-SELFDESTRUCT) are mapped to `InvalidInstruction`.
+successor). The CALL family, CREATE/CREATE2, SELFDESTRUCT, and LOG are
+all implemented — `stepF` mirrors the entire `StepRunning` rule set.
 
 The LOG branch uses an auxiliary `popN` helper (defined in section 9
 below) to pop the variable number of topics. `popN_correct` proves it
 preserves the list invariant `topics.length = k ∧ stk = topics ++ rest`,
 which `log_sound` uses to recover the witness list expected by
 `StepRunning.log`.
+
+`stepF` charges dynamic gas in **chained** form
+(`((g - base) - memDelta) - kwc`), via `consumeGas` and `consumeMemExp`.
+The bundled `Gas.<op>Total` totals used by `StepRunning` (single
+`Nat`-valued sum: base + memory expansion + per-word / per-byte
+dynamic) equal the chain by `Nat.sub_add_eq`; the soundness proof in
+`Equiv.lean` bridges between the two forms.
 -/
 
 @[expose] public section
@@ -42,6 +49,57 @@ namespace EVM
 def underflow : Except ExecutionException State := .error .StackUnderflow
 /-- Sugar for the static-mode-violation exception result. -/
 def static    : Except ExecutionException State := .error .StaticModeViolation
+
+namespace State
+
+/-- Subtract `n` from the available gas. The proof `h` witnesses that the
+    subtraction does not underflow; without it `consumeGas` would silently
+    saturate at `0`, divorcing the function from its precondition. The
+    proof is currently unused in the body (Nat subtraction is total) but
+    keeps the call sites from accidentally subtracting too much. -/
+@[nolint unusedArguments]
+def consumeGas (s : State) (n : Nat) (_h : n ≤ s.gasAvailable) : State :=
+  { s with gasAvailable := s.gasAvailable - n }
+
+/-- `s` has enough gas to pay the memory-expansion cost for touching
+    `[offset, offset+sz)`. Used as the precondition of `consumeMemExp` and
+    by `stepF.chargeMem`. -/
+abbrev canExpandMemory (s : State) (offset sz : Nat) : Prop :=
+  MachineState.memExpansionDelta s.activeWords.toNat offset sz ≤ s.gasAvailable
+
+/-- Two-range version of `canExpandMemory`, for MCOPY (read and write ranges). -/
+abbrev canExpandMemory2 (s : State) (off1 sz1 off2 sz2 : Nat) : Prop :=
+  MachineState.memExpansionDelta2 s.activeWords.toNat off1 sz1 off2 sz2 ≤ s.gasAvailable
+
+/-- Charge memory-expansion gas for the byte range `[offset, offset+sz)` and
+    advance the active-words high-water mark. The hypothesis `h` witnesses
+    that the expansion cost fits in the available gas (it is *not* combined
+    with op cost — callers are expected to first `consumeGas` for the op and
+    then call this on the resulting state, mirroring `stepF.chargeMem`). -/
+def consumeMemExp (s : State) (offset sz : Nat) (h : s.canExpandMemory offset sz) : State :=
+  let new := MachineState.activeWordsAfter s.activeWords.toNat offset sz
+  let cost := MachineState.memCost new - MachineState.memCost s.activeWords.toNat
+  { (s.consumeGas cost h) with activeWords := UInt256.ofNat new }
+
+/-- Two-range version of `consumeMemExp`, used by MCOPY which touches both
+    the source read range and the destination write range. Charges expansion
+    gas for the union of the two ranges. -/
+def consumeMemExp2 (s : State) (off1 sz1 off2 sz2 : Nat)
+    (h : s.canExpandMemory2 off1 sz1 off2 sz2) : State :=
+  let new1 := MachineState.activeWordsAfter s.activeWords.toNat off1 sz1
+  let new2 := MachineState.activeWordsAfter new1 off2 sz2
+  let cost := MachineState.memCost new2 - MachineState.memCost s.activeWords.toNat
+  { (s.consumeGas cost h) with activeWords := UInt256.ofNat new2 }
+
+/-- Push a new stack and advance the pc by `pcΔ` (default 1). -/
+def replaceStackAndIncrPC (s : State) (stk : List UInt256) (pcΔ : Nat := 1) : State :=
+  { s with stack := stk, pc := s.pc + UInt256.ofNat pcΔ }
+
+/-- Advance the pc by `pcΔ` (default 1) without touching the stack. -/
+def incrPC (s : State) (pcΔ : Nat := 1) : State :=
+  { s with pc := s.pc + UInt256.ofNat pcΔ }
+
+end State
 
 /-- Charge Yellow-Paper memory-expansion gas for touching `[offset, offset+sz)`
     on `s`, and advance the active-words high-water mark accordingly.  Returns

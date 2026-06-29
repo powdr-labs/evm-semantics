@@ -54,6 +54,14 @@ def ofUInt8 (b : UInt8) : UInt256 := ofNat b.toNat
 
 /-- ADD: modular `a + b`. -/
 def add (a b : UInt256) : UInt256 := ⟨a.val + b.val⟩
+/-- Modular successor `a + 1`. Used by every `Step` rule that advances
+    the program counter by one byte, and by transaction-level
+    nonce bumps — sufficiently common that we give it a name.
+    Defined via `add a (ofNat 1)` (rather than `⟨a.val + 1⟩`) so it is
+    *definitionally* equal to the form `replaceStackAndIncrPC`
+    produces, and the flat-record post-states keep matching `stepF`
+    by `rfl`. -/
+@[inline] def succ (a : UInt256) : UInt256 := add a (ofNat 1)
 /-- SUB: modular `a - b`. -/
 def sub (a b : UInt256) : UInt256 := ⟨a.val - b.val⟩
 /-- MUL: modular `a * b`. -/
