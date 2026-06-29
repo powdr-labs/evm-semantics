@@ -746,17 +746,16 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            -- Derive `newAddr` from `keccak256(rlp([sender, nonce]))`. The
-            -- RLP encoder is `Option`-typed: it returns `none` only when
-            -- the payload would exceed `2^64` bytes, which is unreachable
-            -- here ([20-byte address, ≤32-byte nonce] tops out at ~55
+            -- Derive `newAddr` via `createAddress`. The encoder is
+            -- `Option`-typed: it returns `none` only when the payload
+            -- would exceed `2^64` bytes, which is unreachable here
+            -- ([20-byte address, ≤32-byte nonce] tops out at ~55
             -- bytes). We map a `none` to `InvalidInstruction` for
             -- completeness, but a gas-bounded execution never reaches it.
-            match Rlp.encodeAddrNonce s2.executionEnv.address
+            match createAddress s2.executionEnv.address
                     (s2.accountMap s2.executionEnv.address).nonce.toNat with
             | none => .error .InvalidInstruction
-            | some rlpBytes =>
-              let newAddr := AccountAddress.ofUInt256 (EvmSemantics.keccak256 rlpBytes)
+            | some newAddr =>
               -- Address-collision check: if `newAddr` already hosts code
               -- or has nonce > 0 the create *fails* with the caller's
               -- nonce still bumped (push 0, no transfer, no frame,
@@ -795,13 +794,9 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
                      (UInt256.ofNat 0 :: rest))
             else
-              match (s2'.accountMap (AccountAddress.ofUInt256 (EvmSemantics.keccak256
-                      (ByteArray.mk #[0xff]
-                        ++ Rlp.addressBytes s2'.executionEnv.address
-                        ++ Rlp.uint256ToBytes32 salt
-                        ++ Rlp.uint256ToBytes32 (EvmSemantics.keccak256
-                          (MachineState.readPadded s2'.memory
-                             offset.toNat size.toNat)))))).isContract with
+              match (s2'.accountMap (create2Address s2'.executionEnv.address salt
+                       (MachineState.readPadded s2'.memory
+                          offset.toNat size.toNat))).isContract with
               | true =>
                 let caller    := s2'.executionEnv.address
                 let callerAcc := s2'.accountMap caller
@@ -814,14 +809,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                   let forwarded := Gas.allButOneSixtyFourth s2'.gasAvailable
                   let s3 := s2'.consumeGas forwarded hfw
                   let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
-                  let codeHash := EvmSemantics.keccak256 initCode
-                  let preimage : ByteArray :=
-                    ByteArray.mk #[0xff]
-                      ++ Rlp.addressBytes s3.executionEnv.address
-                      ++ Rlp.uint256ToBytes32 salt
-                      ++ Rlp.uint256ToBytes32 codeHash
                   .ok (s3.enterCreate rest
-                         (AccountAddress.ofUInt256 (EvmSemantics.keccak256 preimage))
+                         (create2Address s3.executionEnv.address salt initCode)
                          value initCode forwarded)
                 else .error .OutOfGas
           else .error .OutOfGas
