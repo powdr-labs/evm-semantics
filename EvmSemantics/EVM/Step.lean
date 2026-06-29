@@ -1153,6 +1153,50 @@ inductive StepRunning : State → State → Prop
             (UInt256.ofNat 0 :: rest))
 
   ----------------------------------------------------------------------------
+  -- SELFDESTRUCT: pop the beneficiary, transfer all of self's balance to
+  -- it (credit-then-debit so self-beneficiary burns the balance), mark
+  -- self in `substate.selfDestructSet`, and halt with `.Success`. The
+  -- account isn't actually deleted at this site — deletion happens at end
+  -- of transaction; for our single-tx test corpora the runner projects
+  -- through `selfDestructSet` when comparing post-state.
+  ----------------------------------------------------------------------------
+
+  /-- SELFDESTRUCT attempted while the frame disallows state mutation
+      (static mode). Halts with `StaticModeViolation` before paying any
+      gas, mirroring `stepF.system`'s early static check (cf. `callStatic`). -/
+  | selfDestructStatic (s : State)
+        (beneficiary : UInt256) (rest : List UInt256)
+        (h_op    : s.decodedOp = some .SELFDESTRUCT)
+        (h_stack : s.stack = beneficiary :: rest)
+        (h_perm  : s.executionEnv.permitStateMutation = false)
+      : StepRunning s (s.haltWith .StaticModeViolation)
+
+  /-- SELFDESTRUCT: pop `beneficiary`, charge base (`G_selfdestruct = 5000`)
+      and the new-account surcharge (`25000` iff the beneficiary is empty
+      *and* self has a non-zero balance), then credit beneficiary,
+      zero-out self, mark self in `selfDestructSet`, and halt with
+      `.Success`. The order of explicit parameters mirrors the
+      `stepF.system .SELFDESTRUCT` arm step-for-step. -/
+  | selfDestruct (s : State)
+        (beneficiary : UInt256) (rest : List UInt256)
+        (s' : State)
+        (h_op      : s.decodedOp = some .SELFDESTRUCT)
+        (h_gas     : Gas.baseCost s.fork .SELFDESTRUCT ≤ s.gasAvailable)
+        (h_stack   : s.stack = beneficiary :: rest)
+        (h_perm    : s.executionEnv.permitStateMutation = true)
+        (h_s'      : s' = s.consumeGas (Gas.baseCost s.fork .SELFDESTRUCT) h_gas)
+        (h_sc      : Gas.selfDestructSurcharge
+                       ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
+                       ((s.accountMap s.executionEnv.address).balance.toNat != 0)
+                       ≤ s'.gasAvailable)
+      : StepRunning s
+          ((s'.consumeGas
+            (Gas.selfDestructSurcharge
+              ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
+              ((s.accountMap s.executionEnv.address).balance.toNat != 0))
+            h_sc).selfDestructTo (AccountAddress.ofUInt256 beneficiary))
+
+  ----------------------------------------------------------------------------
   -- Logging: LOG0–LOG4 (parametric over topic count).
   ----------------------------------------------------------------------------
 

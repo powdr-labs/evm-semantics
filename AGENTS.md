@@ -128,8 +128,10 @@ relational `callReturn*` rules cover the success/revert/exception resume
 paths and are shared by all four opcodes; `Main.run` /
 `StateTestRunner.run` / `VMRunner.run` all convert a subcall
 `Except.error` into `resumeException` rather than propagating it as a
-top-level abort. **Not yet implemented:** CREATE / CREATE2, SELFDESTRUCT,
-transaction processing, block validation, precompiles, RLP.
+top-level abort. `SELFDESTRUCT` is also implemented (base 5000 +
+new-account surcharge, balance burn on self-beneficiary, scheduled
+deletion via `Substate.selfDestructSet`). **Not yet implemented:** CREATE
+/ CREATE2, transaction processing, block validation, precompiles, RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
@@ -146,7 +148,9 @@ transaction processing, block validation, precompiles, RLP.
   `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
   EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
   `EXTCODEHASH` (stubbed at `1`/`100`, needs `accessedAccounts` in `Substate`)
-  and the out-of-scope CREATE / CREATE2 / SELFDESTRUCT family.
+  and the out-of-scope CREATE / CREATE2 family. SELFDESTRUCT is
+  modelled (base 5000, `Gas.selfDestructSurcharge`) but marked
+  non-gas-comparable pending refund-counter accounting.
   `VMRunner.gasComparableOpcode` is the gate for which tests can be gas-checked.
 
 ## Adding or changing an opcode

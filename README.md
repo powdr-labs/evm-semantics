@@ -47,9 +47,13 @@ trivial program.
   callee-env / `enterCall` skeleton; per-kind axes (`address` /
   `caller` / `weiValue` / `permitStateMutation` / value transfer) live in
   `CallKind.calleeXxx` projections.
-- **Not yet implemented:** `CREATE` / `CREATE2`, `SELFDESTRUCT`,
-  transaction processing (`Υ`), block validation, precompiled contracts,
-  RLP encoding.
+- **`SELFDESTRUCT`** is implemented: base `G_selfdestruct = 5000` +
+  `Gas.selfDestructSurcharge` (25000 if the beneficiary is empty and
+  self has non-zero balance), credit-then-debit transfer so a
+  self-beneficiary correctly *burns* the balance, marks self in
+  `Substate.selfDestructSet`, and adds the 24000 refund on Constantinople.
+- **Not yet implemented:** `CREATE` / `CREATE2`, transaction processing
+  (`Υ`), block validation, precompiled contracts, RLP encoding.
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
   the static Yellow-Paper fee per fork (`Constantinople` matches the
@@ -65,8 +69,9 @@ trivial program.
   per-word/byte/topic charges) is expressible. The only remaining unmodelled
   costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
   `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
-  in `Substate`) and the out-of-scope CREATE / CREATE2 / SELFDESTRUCT
-  family. The call family pays base fee + memory expansion + value
+  in `Substate`) and the out-of-scope CREATE / CREATE2 family.
+  `SELFDESTRUCT` is modelled (base 5000 + `Gas.selfDestructSurcharge`)
+  but marked non-gas-comparable pending refund-counter accounting. The call family pays base fee + memory expansion + value
   surcharge via `Gas.callSurcharge` (CALL also pays the new-account
   portion when applicable; DELEGATECALL / STATICCALL pay zero
   surcharge) + 63/64 forwarding via `Gas.allButOneSixtyFourth`.

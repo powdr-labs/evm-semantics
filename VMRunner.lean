@@ -151,7 +151,7 @@ partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
     hugeGas mode the parent decides via `usesGas` below. -/
 def skipReasonOf (op : Operation) : Option String :=
   match op with
-  | .System .CREATE | .System .CREATE2 | .System .SELFDESTRUCT => some "unsupported"
+  | .System .CREATE | .System .CREATE2 => some "unsupported"
   | _ => none
 
 /-- True when this opcode's `Gas.baseCost s.fork` value matches the real EVM's fee
@@ -172,7 +172,10 @@ def gasComparableOpcode (op : Operation) : Bool :=
   | .EXP | .Log _ => true
   -- Out-of-scope / dynamic system ops.
   | .CREATE | .CREATE2 | .CALL | .CALLCODE
-  | .DELEGATECALL | .STATICCALL | .SELFDESTRUCT => false
+  | .DELEGATECALL | .STATICCALL => false
+  -- SELFDESTRUCT: base 5000 is fixed, but the 25000 new-account surcharge
+  -- and the 24000 refund are dynamic; keep it gas-non-comparable for now.
+  | .SELFDESTRUCT => false
   | _ => true
 
 /-- Outcome of a full bytecode scan. `skipReason` overrides everything
