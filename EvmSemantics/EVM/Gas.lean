@@ -236,6 +236,28 @@ def Gas.selfDestructSurcharge (fork : Fork)
 def Gas.create2HashCost (initCodeLen : Nat) : Nat :=
   6 * ((initCodeLen + 31) / 32)
 
+/-- EIP-3860 (Cancun) per-init-code-word charge:
+    `G_initcodeword · ⌈n/32⌉` with `G_initcodeword = 2`.
+
+    Applied to CREATE and CREATE2 on `Cancun` only; `Constantinople`
+    predates the EIP, so the cost is `0` there. -/
+def Gas.initCodeWordCost (fork : Fork) (initCodeLen : Nat) : Nat :=
+  match fork with
+  | .Constantinople => 0
+  | .Cancun         => 2 * ((initCodeLen + 31) / 32)
+
+/-- EIP-3860 (Cancun) init-code size cap: CREATE / CREATE2 reject init
+    code larger than `2 · maxCodeSize = 49152` bytes. The cap is *not*
+    enforced on `Constantinople`. -/
+@[inline] def Gas.maxInitCodeSize : Nat := 49152
+
+/-- Whether `initCodeLen` exceeds the EIP-3860 cap on the active fork.
+    Returns `false` on `Constantinople` (the EIP is Cancun-only). -/
+def Gas.initCodeTooLarge (fork : Fork) (initCodeLen : Nat) : Bool :=
+  match fork with
+  | .Constantinople => false
+  | .Cancun         => initCodeLen > Gas.maxInitCodeSize
+
 /-- The SELFDESTRUCT refund (`R_selfdestruct = 24000`) added to
     `Substate.refundBalance` on the *first* time an account self-destructs
     in a transaction. Constantinople and Cancun differ on whether the
@@ -359,8 +381,8 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
 @[inline] def Gas.sstoreTotal (s : State) (key value : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SSTORE
   + Gas.sstoreCost s.executionEnv.fork
-      (s.substate.originalStorage s.executionEnv.codeOwner key)
-      ((s.accountMap s.executionEnv.codeOwner).storage key)
+      (s.substate.originalStorage s.executionEnv.address key)
+      ((s.accountMap s.executionEnv.address).storage key)
       value
 
 /-- Total gas cost of `RETURN` at `s` for stack args `offset, size`:
@@ -438,7 +460,7 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SELFDESTRUCT
   + Gas.selfDestructSurcharge s.executionEnv.fork
       ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
-      ((s.accountMap s.executionEnv.codeOwner).balance.toNat != 0)
+      ((s.accountMap s.executionEnv.address).balance.toNat != 0)
 
 /-- Total gas cost of `LOG n` at `s` for stack args `offset, size`:
     static base (`375 + 375·n`) + memory-expansion delta for the read range

@@ -110,7 +110,7 @@ EVM/Exception.lean  EVM/State.lean  EVM/Halted.lean
 EVM/Step.lean  EVM/BigStep.lean  EVM/StepF.lean  EVM/Equiv.lean
 ```
 
-## Scope (v1)
+## Scope
 
 Multi-frame EVM: arithmetic, comparison/bitwise, KECCAK256, env/block reads,
 memory, storage (incl. transient), stack ops, control flow, halts, LOG0–4,
@@ -122,7 +122,7 @@ failure path). Per-kind differences are isolated to the `CallKind` enum
 in `State.lean`: `CALL` adds a static-mode value-transfer rejection and
 may include the new-account surcharge; `CALLCODE` borrows code and runs
 in the caller's context with a self-transfer no-op; `DELEGATECALL`
-inherits the caller's `source` and `weiValue` (no transfer); `STATICCALL`
+inherits the caller's `caller` and `weiValue` (no transfer); `STATICCALL`
 forces `permitStateMutation = false` in the callee frame. The three
 relational `callReturn*` rules cover the success/revert/exception resume
 paths and are shared by all four opcodes; `Main.run` /
@@ -135,8 +135,8 @@ marked by `Frame.createAddr := some newAddr`, with a dedicated
 `resumeCreateSuccess` rule that installs `hReturn` as the new code
 (charged at `G_codedeposit = 200` per byte). Address derivation uses a
 minimal RLP encoder (`EvmSemantics.Rlp`) for CREATE and a raw keccak
-preimage for CREATE2. **Excluded:** transaction processing, block
-validation, precompiles, full RLP.
+preimage for CREATE2. **Not yet implemented:** transaction processing,
+block validation, precompiles, full RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while

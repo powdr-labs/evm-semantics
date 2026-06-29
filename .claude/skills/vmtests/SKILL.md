@@ -6,7 +6,7 @@ description: Run the ethereum/legacytests VMTests conformance suite against the 
 # vmtests
 
 Run the legacy ethereum **VMTests** suite against the executable evaluator. This
-is the conformance suite matching the v1 scope: single-frame EVM, no
+is the conformance suite matching the project scope: single-frame EVM, no
 inter-contract calls, no transaction processing. Read `AGENTS.md` for project
 scope and `VMTESTS.md` for the full harness writeup and known gaps.
 

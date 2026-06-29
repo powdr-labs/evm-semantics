@@ -30,7 +30,7 @@ structure MachineState where
   activeWords  : UInt256
   /-- Byte-addressable working memory `m`. -/
   memory       : ByteArray
-  /-- `o` — return data from the most recent sub-call. v1 leaves this empty. -/
+  /-- `o` — return data from the most recent sub-call. -/
   returnData   : ByteArray
   /-- `hReturn` — buffer used to communicate RETURN/REVERT output upward. -/
   hReturn     : ByteArray

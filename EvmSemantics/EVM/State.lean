@@ -167,26 +167,49 @@ def resumeException (child : State) (f : Frame) (rest : List Frame) : State :=
     `Gas.lean` in the import graph. -/
 @[inline] def codeDepositPerByte : Nat := 200
 
+/-- EIP-170 (Spurious Dragon, both modelled forks): a contract's
+    deployed code is rejected if it exceeds this many bytes. The
+    init code itself can be larger (subject to EIP-3860's cap on
+    Cancun); only the *returned* runtime code is capped here. -/
+@[inline] def maxCodeSize : Nat := 24576
+
+/-- EIP-3541 (Cancun): does the candidate deployed code start with the
+    reserved `0xEF` byte? Such code is rejected at deploy time; the
+    rule does not apply on `Constantinople`. -/
+def isReservedCodePrefix (fork : Fork) (code : ByteArray) : Bool :=
+  match fork with
+  | .Cancun         => code.size ≥ 1 && code[0]! == 0xEF
+  | .Constantinople => false
+
 /-- CREATE-frame success resume: the child halted with `.Success` or
-    `.Returned` and its `hReturn` is the candidate deployed code. We
-    charge `G_codedeposit · |hReturn|` from the child's remaining gas,
-    then either deploy the code (and push the new address to the caller)
-    or — if the deposit is unaffordable — fail like an exception
-    (rollback world to snapshot, push `0`, no refund). The caller is *not*
-    handed `hReturn` via memory (CREATE never copies output to caller
-    memory), so we pass `ByteArray.empty` to `resumeWith`. -/
+    `.Returned` and its `hReturn` is the candidate deployed code.
+
+    Three reject conditions all route through the same rollback path
+    (push `0`, no refund, snapshot world restored):
+
+    * **OOG**: the per-byte `G_codedeposit · |hReturn|` deposit cost
+      doesn't fit in `child.gasAvailable`.
+    * **EIP-170**: `|hReturn|` exceeds `maxCodeSize`.
+    * **EIP-3541** (Cancun): `hReturn` begins with `0xEF`.
+
+    Otherwise we deploy the code, push the new address, and refund
+    the remaining gas. The caller is *not* handed `hReturn` via
+    memory (CREATE never copies output to caller memory), so we pass
+    `ByteArray.empty` to `resumeWith`. -/
 def resumeCreateSuccess (child : State) (f : Frame) (rest : List Frame)
     (newAddr : AccountAddress) : State :=
   let codeLen     := child.hReturn.size
   let depositCost := codeDepositPerByte * codeLen
-  if depositCost ≤ child.gasAvailable then
+  let oversized   := codeLen > maxCodeSize
+  let badPrefix   := isReservedCodePrefix child.executionEnv.fork child.hReturn
+  if depositCost ≤ child.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then
     let σ := child.accountMap.set newAddr
                { (child.accountMap newAddr) with code := child.hReturn }
     let pushed := newAddr.toUInt256
     child.resumeWith f rest pushed ByteArray.empty
       (child.gasAvailable - depositCost) σ child.substate
   else
-    -- Out-of-gas for code deposit: act like an exception.
+    -- Reject deployment (OOG, EIP-170, or EIP-3541): act like an exception.
     child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
       f.snapAccountMap f.snapSubstate
 
@@ -222,14 +245,14 @@ def resumeByHalt (child : State) (f : Frame) (rest : List Frame) : State :=
   | some _,   .Exception _    => child.resumeCreateException f rest
 
 /-- The callee's execution environment for a plain `CALL` from caller state `sc`
-    into address `to`: the callee runs *its own* code and storage (`codeOwner`),
-    sees the caller as `source`, receives `value`/`calldata`, and is one level
+    into address `to`: the callee runs *its own* code and storage (`address`),
+    sees the caller as `caller`, receives `value`/`calldata`, and is one level
     deeper. (CALLCODE/DELEGATECALL/STATICCALL differ here — added later.) -/
 def calleeEnvForCall (sc : State) (tgt : AccountAddress) (value : UInt256)
     (calldata calleeCode : ByteArray) : EvmSemantics.ExecutionEnv :=
-  { codeOwner            := tgt
-    sender               := sc.executionEnv.sender
-    source               := sc.executionEnv.codeOwner
+  { address              := tgt
+    origin               := sc.executionEnv.origin
+    caller               := sc.executionEnv.address
     weiValue             := value
     calldata             := calldata
     code                 := calleeCode
@@ -263,7 +286,7 @@ def enterCall (sc : State) (rest : List UInt256)
       snapAccountMap := sc.accountMap
       snapSubstate   := sc.substate }
   { sc with
-      accountMap   := sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+      accountMap   := sc.accountMap.transfer sc.executionEnv.address tgt value
       gasAvailable := childGas
       activeWords  := UInt256.ofNat 0
       memory       := .empty
@@ -296,22 +319,23 @@ inductive CallKind
 
 namespace CallKind
 
-/-- The callee's `codeOwner` (= `ADDRESS` opcode in the callee). CALL and
+/-- The callee's `address` (= `ADDRESS` opcode in the callee). CALL and
     STATICCALL switch to the target; CALLCODE and DELEGATECALL keep the
     caller's address. -/
-def calleeCodeOwner (k : CallKind) (sc : State) (tgt : AccountAddress) :
+def calleeAddress (k : CallKind) (sc : State) (tgt : AccountAddress) :
     AccountAddress :=
   match k with
   | .Call | .StaticCall => tgt
-  | .CallCode | .DelegateCall => sc.executionEnv.codeOwner
+  | .CallCode | .DelegateCall => sc.executionEnv.address
 
-/-- The callee's `source` (= `CALLER` opcode in the callee). DELEGATECALL
-    inherits the caller's own `source` so the new frame sees the same
-    `msg.sender` as the caller; the others see the caller's `codeOwner`. -/
-def calleeSource (k : CallKind) (sc : State) : AccountAddress :=
+/-- The callee's `caller` (= `CALLER` opcode in the callee).
+    DELEGATECALL inherits the caller's own `caller` so the new frame
+    sees the same `msg.sender` as the parent frame; the others see
+    the parent frame's `address`. -/
+def calleeCaller (k : CallKind) (sc : State) : AccountAddress :=
   match k with
-  | .DelegateCall => sc.executionEnv.source
-  | _ => sc.executionEnv.codeOwner
+  | .DelegateCall => sc.executionEnv.caller
+  | _ => sc.executionEnv.address
 
 /-- The callee's `weiValue` (= `CALLVALUE` opcode in the callee).
     DELEGATECALL inherits the caller's; STATICCALL forces `0`; CALL and
@@ -348,9 +372,9 @@ namespace State
 def calleeEnvFor (sc : State) (kind : CallKind) (tgt : AccountAddress)
     (value : UInt256) (calldata calleeCode : ByteArray) :
     EvmSemantics.ExecutionEnv :=
-  { codeOwner            := kind.calleeCodeOwner sc tgt
-    sender               := sc.executionEnv.sender
-    source               := kind.calleeSource sc
+  { address              := kind.calleeAddress sc tgt
+    origin               := sc.executionEnv.origin
+    caller               := kind.calleeCaller sc
     weiValue             := kind.calleeWeiValue sc value
     calldata             := calldata
     code                 := calleeCode
@@ -382,7 +406,7 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
       snapSubstate   := sc.substate }
   let newMap : EvmSemantics.AccountMap :=
     if kind.transfersValue
-      then sc.accountMap.transfer sc.executionEnv.codeOwner tgt value
+      then sc.accountMap.transfer sc.executionEnv.address tgt value
       else sc.accountMap
   { sc with
       accountMap   := newMap
@@ -397,9 +421,9 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
       halt         := .Running
       callStack    := frame :: sc.callStack }
 
-/-! ### SELFDESTRUCT
+/-! ### SELFDESTRUCT -/
 
-`State.selfDestructTo beneficiary` performs the world-state effects of a
+/-- `State.selfDestructTo beneficiary` performs the world-state effects of a
 SELFDESTRUCT-after-gas-paid: credit the beneficiary with the
 self-destructing account's balance, zero out the self's balance, mark the
 self in `substate.selfDestructSet`, add to the refund counter (first-time
@@ -413,7 +437,7 @@ the Yellow Paper's "σ'[r].balance ← σ[r].balance + σ[Iₐ].balance ;
 net-cancel the two updates and leave the balance *unchanged*, which is
 wrong for the self-beneficiary case. -/
 def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
-  let self    := sc.executionEnv.codeOwner
+  let self    := sc.executionEnv.address
   let selfBal := (sc.accountMap self).balance
   let benAcc  := sc.accountMap beneficiary
   let map₁    := sc.accountMap.set beneficiary
@@ -448,23 +472,23 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
 /-! ### CREATE / CREATE2
 
 A CREATE-family opcode opens a *creation* sub-frame whose code is the
-init bytes read from caller memory and whose `codeOwner` is the
+init bytes read from caller memory and whose `address` is the
 freshly-derived `newAddr`. The frame is marked on the call stack by
 `Frame.createAddr := some newAddr`; on a `.Success`/`.Returned` halt
 the child's `hReturn` is installed as `newAddr`'s code (see
 `resumeCreateSuccess`). -/
 
 /-- The callee's execution environment for a CREATE/CREATE2 init-code
-    run. `codeOwner = newAddr` (the new contract executes its own init
-    in its own storage slot), `source = caller`, `weiValue = value`,
-    `calldata = empty` (init code receives no calldata), `code =
-    initCode`, depth is incremented, and the static flag propagates from
-    the caller. -/
+    run. `address = newAddr` (the new contract executes its own init
+    in its own storage slot), `caller = parent.address`, `weiValue =
+    value`, `calldata = empty` (init code receives no calldata), `code
+    = initCode`, depth is incremented, and the static flag propagates
+    from the caller. -/
 def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
     (value : UInt256) (initCode : ByteArray) : EvmSemantics.ExecutionEnv :=
-  { codeOwner            := newAddr
-    sender               := sc.executionEnv.sender
-    source               := sc.executionEnv.codeOwner
+  { address              := newAddr
+    origin               := sc.executionEnv.origin
+    caller               := sc.executionEnv.address
     weiValue             := value
     calldata             := .empty
     code                 := initCode
@@ -486,7 +510,7 @@ def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
     3. Snapshot the caller into a `Frame` whose `createAddr := some
        newAddr` so `resumeByHalt` routes the child's halt through the
        CREATE-resume helpers.
-    4. Install the callee frame: code = `initCode`, codeOwner =
+    4. Install the callee frame: code = `initCode`, address =
        `newAddr`, gas = `childGas`.
 
     The new account starts with `nonce = 1` (EIP-161 pre-existence rule:
@@ -495,6 +519,15 @@ def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
 def enterCreate (sc : State) (rest : List UInt256)
     (newAddr : AccountAddress) (value : UInt256) (initCode : ByteArray)
     (childGas : Nat) : State :=
+  let caller := sc.executionEnv.address
+  let callerAcc := sc.accountMap caller
+  -- Bump the creator nonce first. The bump must persist even if init
+  -- code reverts / faults / fails the code-deposit gas check, so the
+  -- frame's `snapAccountMap` snapshots the *post-bump* world (`map₁`).
+  -- Only the value transfer and the new-account nonce are layered on
+  -- top for the child's world and rolled back on a child failure.
+  let map₁ : EvmSemantics.AccountMap :=
+    sc.accountMap.set caller { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
   let frame : Frame :=
     { pc             := sc.pc + UInt256.ofNat 1
       stack          := rest
@@ -505,13 +538,9 @@ def enterCreate (sc : State) (rest : List UInt256)
       executionEnv   := sc.executionEnv
       retOffset      := 0
       retSize        := 0
-      snapAccountMap := sc.accountMap
+      snapAccountMap := map₁
       snapSubstate   := sc.substate
       createAddr     := some newAddr }
-  let caller := sc.executionEnv.codeOwner
-  let callerAcc := sc.accountMap caller
-  let map₁ : EvmSemantics.AccountMap :=
-    sc.accountMap.set caller { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
   let map₂ := map₁.transfer caller newAddr value
   -- Bring the new account into existence with nonce 1 (and any pre-existing
   -- code/storage at this address is preserved — see the collision check in

@@ -510,18 +510,26 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             exact .createFail s value offset size rest _ _ h_dec h_gas h_stack
                     h_perm' rfl h_mem rfl h_fail
           · rename_i h_take
-            -- After depth/balance pass: `match (...).isContract with | true => ... | false => ...`
+            -- After depth/balance pass: first the RLP-encoded
+            -- `[sender, nonce]` bytes (`Option ByteArray` — `none` is
+            -- the spec-impossible "payload ≥ 2^64" arm), then the
+            -- 63/64 forward-gas consumption (always succeeds — EIP-150
+            -- forwards even on collision), then the collision check on
+            -- the derived address against the post-forward world.
             split at h
-            · rename_i h_coll
-              cases h
-              exact .createCollision s value offset size rest _ _ h_dec h_gas h_stack
-                      h_perm' rfl h_mem rfl h_take h_coll
-            · rename_i h_nocoll
+            · rename_i h_rlp_none; cases h
+            · rename_i rlpBytes h_rlp
               split at h
               · rename_i h_fw
-                cases h
-                exact .create s value offset size rest _ _ _ _ h_dec h_gas h_stack
-                        h_perm' rfl h_mem rfl h_take h_nocoll rfl h_fw rfl
+                split at h
+                · rename_i h_coll
+                  cases h
+                  exact .createCollision s value offset size rest _ _ _ _ _ h_dec h_gas
+                          h_stack h_perm' rfl h_mem rfl h_take h_rlp rfl h_fw rfl h_coll
+                · rename_i h_nocoll
+                  cases h
+                  exact .create s value offset size rest _ _ _ _ _ h_dec h_gas h_stack
+                          h_perm' rfl h_mem rfl h_take h_rlp rfl h_fw rfl h_nocoll
               · nomatch h
         · simp [h_mem] at h
     | [], h               => nomatch h
@@ -550,18 +558,19 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       h_perm' rfl h_mem rfl h_hash rfl h_fail
             · rename_i h_take
               split at h
-              · rename_i h_coll
-                cases h
-                exact .create2Collision s value offset size salt rest _ _ _ h_dec h_gas
-                        h_stack h_perm' rfl h_mem rfl h_hash rfl h_take h_coll
-              · rename_i h_nocoll
+              · rename_i h_fw
                 split at h
-                · rename_i h_fw
+                · rename_i h_coll
+                  cases h
+                  exact .create2Collision s value offset size salt rest _ _ _ _ _ h_dec
+                          h_gas h_stack h_perm' rfl h_mem rfl h_hash rfl h_take
+                          rfl h_fw rfl h_coll
+                · rename_i h_nocoll
                   cases h
                   exact .create2 s value offset size salt rest _ _ _ _ _ h_dec h_gas
-                          h_stack h_perm' rfl h_mem rfl h_hash rfl h_take h_nocoll
-                          rfl h_fw rfl
-                · nomatch h
+                          h_stack h_perm' rfl h_mem rfl h_hash rfl h_take
+                          rfl h_fw rfl h_nocoll
+              · nomatch h
           · nomatch h
         · simp [h_mem] at h
     | [], h                  => nomatch h
@@ -826,8 +835,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
         | key :: value :: rest, h =>
           by_cases h_dyn :
             Gas.sstoreCost s.fork
-                (s.substate.originalStorage s.executionEnv.codeOwner key)
-                ((s.accountMap s.executionEnv.codeOwner).storage key) value
+                (s.substate.originalStorage s.executionEnv.address key)
+                ((s.accountMap s.executionEnv.address).storage key) value
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                     h_gas).gasAvailable
           · simp [h_dyn] at h
@@ -1000,13 +1009,13 @@ theorem resume_sound (s : State) (f : Frame) (rest : List Frame)
   · -- `.Running`: ruled out by `h_nr`
     exact absurd ‹s.halt = .Running› h_nr
   · -- CALL-frame Success
-    exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack
+    exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack ‹_›
   · -- CALL-frame Returned
-    exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack
+    exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack ‹_›
   · -- CALL-frame Reverted
-    exact .callReturnRevert s f rest ‹_› h_stack
+    exact .callReturnRevert s f rest ‹_› h_stack ‹_›
   · -- CALL-frame Exception
-    exact .callReturnException s f rest _ ‹_› h_stack
+    exact .callReturnException s f rest _ ‹_› h_stack ‹_›
   · -- CREATE-frame Success
     exact .createReturnSuccess s f rest _ (Or.inl ‹_›) h_stack ‹_›
   · -- CREATE-frame Returned
