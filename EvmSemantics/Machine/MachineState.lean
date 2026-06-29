@@ -112,11 +112,12 @@ def bytesToBigEndianNat (bs : ByteArray) : Nat :=
 def readWord (bs : ByteArray) (offset : Nat) : UInt256 :=
   UInt256.ofNat (bytesToBigEndianNat (readPadded bs offset 32))
 
-/-- MLOAD: read 32 bytes at `addr`, returning (word, μ'). -/
+/-- MLOAD: read 32 bytes at `addr`, returning the word and the unchanged
+    machine state. The caller is responsible for charging the
+    memory-expansion gas (via `consumeMemExp`), which already advances the
+    active-words high-water mark. -/
 def mload (μ : MachineState) (addr : UInt256) : UInt256 × MachineState :=
-  let μ' := { μ with
-                activeWords := UInt256.ofNat (activeWordsAfter μ.activeWords.toNat addr.toNat 32) }
-  (readWord μ.memory addr.toNat, μ')
+  (readWord μ.memory addr.toNat, μ)
 
 /-- Decompose a 256-bit word into 32 big-endian bytes. -/
 def wordBytes (w : UInt256) : ByteArray :=
@@ -125,29 +126,22 @@ def wordBytes (w : UInt256) : ByteArray :=
     if i = 0 then acc else go (i-1) (n / 256) (UInt8.ofNat (n % 256) :: acc)
   ByteArray.mk (go 32 w.toNat []).toArray
 
-/-- MSTORE: write `v` as 32 bytes at `addr`. -/
+/-- MSTORE: write `v` as 32 bytes at `addr`. The active-words high-water
+    mark is updated by the caller's `consumeMemExp`, not here. -/
 def mstore (μ : MachineState) (addr v : UInt256) : MachineState :=
-  let bs := wordBytes v
-  { μ with
-      memory := writeBytes μ.memory bs addr.toNat,
-      activeWords := UInt256.ofNat (activeWordsAfter μ.activeWords.toNat addr.toNat 32) }
+  { μ with memory := writeBytes μ.memory (wordBytes v) addr.toNat }
 
-/-- MSTORE8: write the low byte of `v` at `addr`. -/
+/-- MSTORE8: write the low byte of `v` at `addr`. Active-words update is
+    the caller's responsibility (`consumeMemExp`). -/
 def mstore8 (μ : MachineState) (addr v : UInt256) : MachineState :=
   let b : UInt8 := UInt8.ofNat (v.toNat % 256)
-  { μ with
-      memory := writeBytes μ.memory (ByteArray.mk #[b]) addr.toNat,
-      activeWords := UInt256.ofNat (activeWordsAfter μ.activeWords.toNat addr.toNat 1) }
+  { μ with memory := writeBytes μ.memory (ByteArray.mk #[b]) addr.toNat }
 
-/-- MCOPY: copy `sz` bytes from `src` to `dst` within memory. -/
+/-- MCOPY: copy `sz` bytes from `src` to `dst` within memory. Active-words
+    update is the caller's responsibility (`consumeMemExp2`). -/
 def mcopy (μ : MachineState) (dst src sz : UInt256) : MachineState :=
   let bytes := readPadded μ.memory src.toNat sz.toNat
-  { μ with
-      memory := writeBytes μ.memory bytes dst.toNat,
-      activeWords :=
-        UInt256.ofNat (activeWordsAfter
-          (activeWordsAfter μ.activeWords.toNat src.toNat sz.toNat)
-          dst.toNat sz.toNat) }
+  { μ with memory := writeBytes μ.memory bytes dst.toNat }
 
 /-- MSIZE: number of *bytes* currently considered active (= 32·activeWords). -/
 def msize (μ : MachineState) : UInt256 := UInt256.ofNat (32 * μ.activeWords.toNat)
