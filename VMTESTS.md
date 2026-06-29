@@ -42,9 +42,9 @@ pass=601 fail=0 incon=8 crash=0
 
 **StateTests `stCallCodes` (80 tests, run by `statetests`)**:
 ```
-pass_full=320 pass_core=0 fail=0 incon=2 crash=0
+pass_full=328 pass_core=0 fail=0 incon=0 crash=0
 ```
-The 322-test total comes from running *every* fork variant of every
+The 328-test total comes from running *every* fork variant of every
 file (Frontier / Homestead / EIP150 / EIP158 / Byzantium /
 Constantinople / ConstantinopleFix), not just one. The
 `State.finalizeTx` layer applies the SSTORE / SELFDESTRUCT refund
@@ -53,20 +53,14 @@ and pays the gas fee + per-fork block reward (5 / 3 / 2 ETH) to the
 coinbase. The runner also handles top-level OOG by reconstructing
 the rollback state (sender pays the full `gasLimit·gasPrice`, coinbase
 receives that fee + block reward, everything else is `preState`) so
-OOG tests can be compared against their expected `postState`. The 2
-remaining INCONs are wall-timeouts on Constantinople-with-EIP-1283
-deep-recursion tests (the net-metered SSTORE schedule lets the chain
-run ~30× deeper than other forks, pushing it past the 60s per-file
-CI cap).
-- `pass_core` = storage + nonce + code match (the CALL-semantics signal);
-  `pass_full` would additionally require exact balances — none reach this
-  because exact balances need full gas-refund modelling (SSTORE refunds
-  and cold/warm pricing). The 12 INCONs split into a single
-  `call_OOG_additionalGasCosts2` test that hits OOG at a different point
-  than the corpus across 5 forks, and 7 `ABCB_RECURSIVE` Constantinople
-  variants that wall-timeout (>60s — Constantinople's net-metered SSTORE
-  lets the recursion reach further than other forks, hitting the
-  per-file CI cap).
+OOG tests can be compared against their expected `postState`. The
+previously-INCON Constantinople-with-EIP-1283 deep-recursion tests
+now pass: `AccountMap` and `Storage` are backed by `Std.HashMap` via
+`@[implemented_by]` at runtime, replacing the O(N²) function-update
+chain that pushed those tests past the 60s CI cap.
+- `pass_full` = storage + nonce + code + balance match. Reaches the
+  full count because the `State.finalizeTx` refund pipeline + fork-aware
+  call surcharges line up with the corpus's accounting.
 - **fail=0** — every with-`post` test that matches the storage / return-data
   comparison also matches the expected remaining-`gas` value. The schedule
   currently covers: every fixed-cost op, SLOAD / SSTORE (pre-EIP-1283),

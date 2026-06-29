@@ -37,6 +37,7 @@ instance : OfNat UInt256 n := ⟨ofNat n⟩
 instance : Inhabited UInt256 := ⟨ofNat 0⟩
 instance : Repr UInt256 where reprPrec u _ := repr u.toNat
 instance : ToString UInt256 where toString u := toString u.toNat
+instance : Hashable UInt256 where hash u := hash u.val.val
 
 /-- Cast a byte to a 256-bit word. -/
 def ofUInt8 (b : UInt8) : UInt256 := ofNat b.toNat
