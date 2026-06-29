@@ -3,6 +3,7 @@ module
 public import EvmSemantics.EVM.Operation
 public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Data.UInt256
+public import EvmSemantics.EVM.State
 
 /-!
 `Gas` — gas-cost functions, parameterised by the EVM hard fork
@@ -256,6 +257,196 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
   else
     let perByte := match fork with | .Constantinople => 10 | .Cancun => 50
     perByte * (Nat.log2 exponent.toNat / 8 + 1)
+
+----------------------------------------------------------------------------
+-- Per-opcode total gas-cost functions.
+--
+-- Each `Gas.<opcode>Total` takes the pre-execution `State` and the
+-- opcode's stack arguments and returns the total gas charge: static
+-- `baseCost` + any memory-expansion delta + any per-word/per-byte
+-- dynamic cost.
+--
+-- `Step` constructors use the function twice — once in the
+-- gas-precondition hypothesis (`Gas.<opcode>Total s … ≤ s.gasAvailable`)
+-- and once (via `Nat.sub_add_eq`) in the post-state's `gasAvailable`.
+-- Sharing the name makes the rule Hoare-triple friendly: both sides
+-- refer to the same identifier rather than two appearances of a long
+-- arithmetic expression.
+----------------------------------------------------------------------------
+
+/-- Total gas cost of `KECCAK256` at `s` for stack args `offset, size`:
+    static base + memory-expansion delta for `[offset, offset+size)` +
+    per-word cost `6 · ⌈size/32⌉`. -/
+@[inline] def Gas.keccakTotal (s : State) (offset size : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .KECCAK256
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+  + Gas.keccakWordCost size
+
+/-- Total gas cost of `CALLDATACOPY` at `s` for stack args
+    `destOff, _srcOff, sz`: static base + memory-expansion delta for the
+    destination range `[destOff, destOff+sz)` + per-word copy cost
+    `3 · ⌈sz/32⌉`. Source offset doesn't affect cost (calldata is free
+    to read). -/
+@[inline] def Gas.calldatacopyTotal (s : State) (destOff sz : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .CALLDATACOPY
+  + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+  + Gas.copyWordCost sz
+
+/-- Total gas cost of `CODECOPY` at `s` for stack args
+    `destOff, _srcOff, sz`: static base + memory-expansion delta for the
+    destination range `[destOff, destOff+sz)` + per-word copy cost
+    `3 · ⌈sz/32⌉`. -/
+@[inline] def Gas.codecopyTotal (s : State) (destOff sz : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .CODECOPY
+  + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+  + Gas.copyWordCost sz
+
+/-- Total gas cost of `EXTCODECOPY` at `s` for stack args
+    `_addr, destOff, _srcOff, sz`: static base (which already absorbs the
+    `Constantinople`-era flat 700 access fee — see `Gas.baseCost`) +
+    memory-expansion delta for `[destOff, destOff+sz)` + per-word copy
+    cost `3 · ⌈sz/32⌉`. EIP-2929 cold/warm pricing is not yet modelled. -/
+@[inline] def Gas.extcodecopyTotal (s : State) (destOff sz : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .EXTCODECOPY
+  + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+  + Gas.copyWordCost sz
+
+/-- Total gas cost of `RETURNDATACOPY` at `s` for stack args
+    `destOff, _srcOff, sz`: static base + memory-expansion delta for the
+    destination range `[destOff, destOff+sz)` + per-word copy cost
+    `3 · ⌈sz/32⌉`. -/
+@[inline] def Gas.returndatacopyTotal (s : State) (destOff sz : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .RETURNDATACOPY
+  + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+  + Gas.copyWordCost sz
+
+/-- Total gas cost of `MLOAD` at `s` for stack arg `offset`: static base
+    + memory-expansion delta for the fixed 32-byte read range
+    `[offset, offset+32)`. -/
+@[inline] def Gas.mloadTotal (s : State) (offset : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .MLOAD
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat 32
+
+/-- Total gas cost of `MSTORE` at `s` for stack arg `offset`: static base
+    + memory-expansion delta for the fixed 32-byte write range
+    `[offset, offset+32)`. -/
+@[inline] def Gas.mstoreTotal (s : State) (offset : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .MSTORE
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat 32
+
+/-- Total gas cost of `MSTORE8` at `s` for stack arg `offset`: static base
+    + memory-expansion delta for the 1-byte write range
+    `[offset, offset+1)`. -/
+@[inline] def Gas.mstore8Total (s : State) (offset : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .MSTORE8
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat 1
+
+/-- Total gas cost of `MCOPY` at `s` for stack args `destOff, srcOff, sz`:
+    static base + memory-expansion delta for the union of read range
+    `[srcOff, srcOff+sz)` and write range `[destOff, destOff+sz)` +
+    per-word copy cost `3 · ⌈sz/32⌉`. -/
+@[inline] def Gas.mcopyTotal (s : State) (destOff srcOff sz : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .MCOPY
+  + MachineState.memExpansionDelta2 s.activeWords.toNat
+      destOff.toNat sz.toNat srcOff.toNat sz.toNat
+  + Gas.copyWordCost sz
+
+/-- Total gas cost of `SSTORE` at `s` for stack args `key, value`:
+    static base (0 in current schedules) + the EIP-2200 net-metered
+    dynamic cost `Gas.sstoreCost fork original current new`, where
+    `original` is the per-tx original value from `Substate.originalStorage`
+    and `current` is the live storage value. -/
+@[inline] def Gas.sstoreTotal (s : State) (key value : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .SSTORE
+  + Gas.sstoreCost s.executionEnv.fork
+      (s.substate.originalStorage s.executionEnv.codeOwner key)
+      ((s.accountMap s.executionEnv.codeOwner).storage key)
+      value
+
+/-- Total gas cost of `RETURN` at `s` for stack args `offset, size`:
+    static base + memory-expansion delta for the read range
+    `[offset, offset+size)`. -/
+@[inline] def Gas.returnTotal (s : State) (offset size : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .RETURN
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+
+/-- Total gas cost of `REVERT` at `s` for stack args `offset, size`:
+    static base + memory-expansion delta for the read range
+    `[offset, offset+size)`. -/
+@[inline] def Gas.revertTotal (s : State) (offset size : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .REVERT
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+
+/-- Gas charged to the parent frame before forwarding for a `CALL`:
+    static base + memory-expansion delta for the union of args and return
+    ranges + value/new-account surcharge. The forwarded gas (63/64 etc.) is
+    separately deducted from `s.gasAvailable - callCommitted` and given to
+    the callee. -/
+@[inline] def Gas.callCommitted (s : State) (value : UInt256)
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .CALL
+  + MachineState.memExpansionDelta2 s.activeWords.toNat
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+  + Gas.callSurcharge (value.toNat != 0)
+      (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
+
+/-- Gas charged to the parent frame before forwarding for a `CALLCODE`:
+    static base + memory-expansion delta + value-transfer surcharge.
+    CALLCODE never creates a new account, so `targetEmpty = false`. -/
+@[inline] def Gas.callcodeCommitted (s : State) (value : UInt256)
+    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .CALLCODE
+  + MachineState.memExpansionDelta2 s.activeWords.toNat
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+  + Gas.callSurcharge (value.toNat != 0) false
+
+/-- Gas charged to the parent frame before forwarding for a `DELEGATECALL`:
+    static base + memory-expansion delta. No value, so no surcharge. -/
+@[inline] def Gas.delegatecallCommitted (s : State)
+    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .DELEGATECALL
+  + MachineState.memExpansionDelta2 s.activeWords.toNat
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+
+/-- Gas charged to the parent frame before forwarding for a `STATICCALL`:
+    static base + memory-expansion delta. No value, so no surcharge. -/
+@[inline] def Gas.staticcallCommitted (s : State)
+    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .STATICCALL
+  + MachineState.memExpansionDelta2 s.activeWords.toNat
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+
+/-- Gas charged to the parent frame before forwarding for `CREATE`:
+    static base + memory-expansion delta for the init-code window. -/
+@[inline] def Gas.createCommitted (s : State) (offset size : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .CREATE
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+
+/-- Gas charged to the parent frame before forwarding for `CREATE2`:
+    static base + memory-expansion delta for the init-code window +
+    EIP-3860 per-word hashing cost on the init code. -/
+@[inline] def Gas.create2Committed (s : State) (offset size : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .CREATE2
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+  + Gas.create2HashCost size.toNat
+
+/-- Total gas cost of `SELFDESTRUCT` at `s` with `beneficiary`: static base
+    (`G_selfdestruct = 5000`) + the EIP-150/EIP-161 `25000` new-account
+    surcharge when the beneficiary is empty *and* self has a non-zero
+    balance. -/
+@[inline] def Gas.selfDestructTotal (s : State) (beneficiary : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .SELFDESTRUCT
+  + Gas.selfDestructSurcharge s.executionEnv.fork
+      ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
+      ((s.accountMap s.executionEnv.codeOwner).balance.toNat != 0)
+
+/-- Total gas cost of `LOG n` at `s` for stack args `offset, size`:
+    static base (`375 + 375·n`) + memory-expansion delta for the read range
+    `[offset, offset+size)` + per-byte log-data cost `8 · size`. -/
+@[inline] def Gas.logTotal (s : State) (n : Fin 5) (offset size : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork (.Log ⟨n⟩)
+  + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+  + Gas.logDataCost size
 
 end EVM
 end EvmSemantics

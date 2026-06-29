@@ -136,7 +136,16 @@ theorem stopArith_sound (s : State) (op : Operation.StopArithOps)
           -- `stepF` uses the fast modular-exponentiation `expFast`; the relation
           -- `StepRunning.exp` uses the `exp` specification. They agree (`expFast_eq_exp`).
           rw [UInt256.expFast_eq_exp]
-          exact .exp s a b rest h_dec h_gas h_stack h_dyn
+          -- Combine `h_gas` (base ≤ gas) and `h_dyn` (dyn ≤ gas - base)
+          -- into the single hypothesis `base + dyn ≤ gas` that the
+          -- record-update `.exp` rule expects.
+          have h_total :
+              Gas.baseCost s.fork (.StopArith .EXP) + Gas.expByteCost s.fork b
+                ≤ s.gasAvailable := by
+            unfold State.consumeGas at h_dyn
+            simp at h_dyn
+            omega
+          exact .exp s a b rest h_dec h_total h_stack
         · simp [h_dyn] at h
     | [], h           => nomatch h
     | [_], h          => nomatch h
@@ -245,7 +254,16 @@ theorem keccak_sound (s : State) (op : Operation.KeccakOps)
                             h_gas).consumeMemExp offset.toNat size.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
           cases h
-          exact .keccak256 s offset size rest h_dec h_gas h_stack h_mem h_dyn
+          -- Combine `h_gas` (base ≤ gas), `h_mem` (memDelta ≤ gas - base),
+          -- and `h_dyn` (kwc ≤ gas - base - memDelta) into the bundled
+          -- hypothesis `Gas.keccakTotal ≤ gas` the `.keccak256` rule expects.
+          have h_total : Gas.keccakTotal s offset size ≤ s.gasAvailable := by
+            show Gas.baseCost s.fork _ + _ + _ ≤ _
+            simp only [State.canExpandMemory, State.consumeGas,
+                       State.consumeMemExp, MachineState.memExpansionDelta]
+              at h_mem h_dyn
+            omega
+          exact .keccak256 s offset size rest h_dec h_stack h_total
         · simp [h_dyn] at h
       · simp [h_mem] at h
     | [], h           => nomatch h

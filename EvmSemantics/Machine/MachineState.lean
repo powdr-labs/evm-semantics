@@ -99,13 +99,24 @@ partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
     else acc
   go 0 padded
 
+/-- Decode a big-endian byte sequence as a `Nat`. Inverse of `wordBytes`
+    (modulo length). Shared by `mload` and `CALLDATALOAD`, which both
+    read a window of bytes (memory or calldata) and interpret it as a
+    256-bit word. -/
+def bytesToBigEndianNat (bs : ByteArray) : Nat :=
+  bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
+
+/-- Read a 32-byte big-endian word from `bs` at `offset`, zero-padding
+    past the end. Used by both `MLOAD` (over memory) and `CALLDATALOAD`
+    (over calldata). -/
+def readWord (bs : ByteArray) (offset : Nat) : UInt256 :=
+  UInt256.ofNat (bytesToBigEndianNat (readPadded bs offset 32))
+
 /-- MLOAD: read 32 bytes at `addr`, returning (word, μ'). -/
 def mload (μ : MachineState) (addr : UInt256) : UInt256 × MachineState :=
-  let bs := readPadded μ.memory addr.toNat 32
-  let word : Nat := bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
   let μ' := { μ with
                 activeWords := UInt256.ofNat (activeWordsAfter μ.activeWords.toNat addr.toNat 32) }
-  (UInt256.ofNat word, μ')
+  (readWord μ.memory addr.toNat, μ')
 
 /-- Decompose a 256-bit word into 32 big-endian bytes. -/
 def wordBytes (w : UInt256) : ByteArray :=
