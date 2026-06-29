@@ -1598,10 +1598,16 @@ inductive StepRunning : State → State → Prop
 inductive StepReturn : State → State → Prop
 
   /-- Child STOP/RETURN: resume the caller with success flag `1`, keeping the
-      child's world mutations and refunding its unspent gas. -/
+      child's world mutations and refunding its unspent gas.
+
+      The `h_kind : f.createAddr = none` premise discriminates this from
+      `createReturnSuccess`: with `f.createAddr = some _` the frame is a
+      CREATE child and must resume through the CREATE-family rule, not
+      this one (which pushes `1` and ignores `hReturn`). -/
   | callReturnSuccess (s : State) (f : Frame) (rest : List Frame)
         (h_halt  : s.halt = .Success ∨ s.halt = .Returned)
         (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = none)
       : StepReturn s (s.resumeSuccess f rest)
 
   /-- Child REVERT: resume the caller with failure flag `0`, roll the world
@@ -1609,6 +1615,7 @@ inductive StepReturn : State → State → Prop
   | callReturnRevert (s : State) (f : Frame) (rest : List Frame)
         (h_halt  : s.halt = .Reverted)
         (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = none)
       : StepReturn s (s.resumeRevert f rest)
 
   /-- Child exceptional halt: resume the caller with failure flag `0`, roll the
@@ -1617,6 +1624,7 @@ inductive StepReturn : State → State → Prop
         (e : ExecutionException)
         (h_halt  : s.halt = .Exception e)
         (h_stack : s.callStack = f :: rest)
+        (h_kind  : f.createAddr = none)
       : StepReturn s (s.resumeException f rest)
 
   /-- CREATE child STOP/RETURN: install the child's `hReturn` as the new

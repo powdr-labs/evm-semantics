@@ -991,13 +991,13 @@ theorem resume_sound (s : State) (f : Frame) (rest : List Frame)
   · -- `.Running`: ruled out by `h_nr`
     exact absurd ‹s.halt = .Running› h_nr
   · -- CALL-frame Success
-    exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack
+    exact .callReturnSuccess s f rest (Or.inl ‹_›) h_stack ‹_›
   · -- CALL-frame Returned
-    exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack
+    exact .callReturnSuccess s f rest (Or.inr ‹_›) h_stack ‹_›
   · -- CALL-frame Reverted
-    exact .callReturnRevert s f rest ‹_› h_stack
+    exact .callReturnRevert s f rest ‹_› h_stack ‹_›
   · -- CALL-frame Exception
-    exact .callReturnException s f rest _ ‹_› h_stack
+    exact .callReturnException s f rest _ ‹_› h_stack ‹_›
   · -- CREATE-frame Success
     exact .createReturnSuccess s f rest _ (Or.inl ‹_›) h_stack ‹_›
   · -- CREATE-frame Returned
