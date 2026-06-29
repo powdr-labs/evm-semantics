@@ -39,3 +39,8 @@ root = "StateTestRunner"
 name = "keccak_test"
 root = "KeccakTest"
 
+[[lean_exe]]
+name = "mpt_smoke"
+root = "MptSmoke"
+
+
