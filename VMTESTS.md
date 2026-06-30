@@ -51,13 +51,21 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(full=8 core+=7098) fail=0 incon=0 crash=0
+pass(full=7076 core+=30) fail=0 incon=0 crash=0
 ```
 - `pass_core` = storage + nonce + code match. `pass_full` additionally
-  requires exact balances (which are still off by the per-tx
-  `gasUsed·gasPrice` for tests where we don't credit the coinbase
-  precisely — only the eight passes that happen to net to zero match
-  fully today).
+  requires exact balances. With tx-level gas-refund accounting (YP §6.3
+  + EIP-3529 cap) and per-fork PoW block rewards in `Tx.execute`, 7076
+  of 7106 variants now match balances exactly.
+- The 30 `pass_core` stragglers are dominated by two patterns:
+  (i) contracts that invoke unimplemented precompiles (`0x01`
+  ECRECOVER, `0x02` SHA256, `0x03` RIPEMD160, `0x05` MODEXP, …) — we
+  treat the (empty) bytecode at those addresses as STOP rather than
+  applying the precompile's gas-cost OOG, so the value transfer that
+  the YP would have rolled back gets committed; (ii) repeated
+  `SELFDESTRUCT` of the same account, where our `selfDestructSet`
+  doesn't yet enforce "refund once per account" (the underlying
+  `AddressSet` is a `Prop` predicate without decidable membership).
 - **fail=0 / incon=0 / crash=0** — every variant in the 30 listed
   directories matches the corpus on storage / nonce / code.
 - **Corpus fork note.** Each test file ships a `network` field per variant
