@@ -129,7 +129,7 @@ def Transaction.targetAddress (tx : Transaction) (sender : Account) :
     AccountAddress :=
   match tx.recipient with
   | some a => a
-  | none   => (EvmSemantics.createAddress tx.sender sender.nonce.toNat).getD default
+  | none   => EvmSemantics.createAddress tx.sender sender.nonce
 
 /-- Build the initial execution `State`: bump sender nonce, debit
     upfront gas, transfer `value` to target, install the right code /

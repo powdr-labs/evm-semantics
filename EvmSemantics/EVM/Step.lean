@@ -98,29 +98,14 @@ instance (a : UInt256) : Decidable (UInt256.isTrue a) :=
 
 /-- The address of a contract created by `CREATE` from `sender` whose
     pre-bump nonce is `nonce`:
-    `AccountAddress.ofUInt256 (keccak256 (rlp [sender, nonce]))`.
-    Returns `none` only if `Rlp.encodeAddrNonce` does — in practice
-    never, since the encoded payload is `≤ 30` bytes (20-byte address
-    + ≤8-byte nonce + RLP overhead). -/
-def createAddress (sender : AccountAddress) (nonce : Nat) :
-    Option AccountAddress :=
-  (Rlp.encodeAddrNonce sender nonce).map (fun rlpBytes =>
-    AccountAddress.ofUInt256 (keccak256 rlpBytes))
-
-/-- `createAddress` is total for any EVM-bounded nonce (i.e. `nonce <
-    2^256` — the range of `UInt256`). Lets callers use `Option.get`
-    instead of carrying the `none` arm. The underlying RLP encoder
-    only fails for payloads `≥ 2^64` bytes, far above this input's
-    ≤ ~50-byte payload. -/
-theorem createAddress_isSome
-    (sender : AccountAddress) (nonce : Nat) (h_nonce : nonce < 2^256) :
-    (createAddress sender nonce).isSome := by
-  unfold createAddress
-  cases h : Rlp.encodeAddrNonce sender nonce with
-  | none =>
-    have := Rlp.encodeAddrNonce_isSome sender nonce h_nonce
-    rw [h] at this; simp at this
-  | some _ => simp
+    `AccountAddress.ofUInt256 (keccak256 (rlp [sender, nonce]))`. Since
+    `nonce : UInt256` is EVM-bounded, the underlying RLP encoder
+    payload is at most ~55 bytes — well below the encoder's 2^64-byte
+    cutoff — so the encoder always returns `some`, and `.get` is total. -/
+def createAddress (sender : AccountAddress) (nonce : UInt256) : AccountAddress :=
+  AccountAddress.ofUInt256 (keccak256
+    ((Rlp.encodeAddrNonce sender nonce.toNat).get
+      (Rlp.encodeAddrNonce_isSome sender nonce.toNat nonce.val.isLt)))
 
 /-- The address of a contract created by `CREATE2` from `sender`,
     `salt`, and the *pre-hashed* init-code hash (the keccak256 of the
@@ -1457,27 +1442,20 @@ inductive StepRunning : State → State → Prop
       EIP-150 still takes the forwarded amount on collision (the child
       "returns zero gas"), so this rule consumes `forwarded` from `s2`
       into `s3` before bumping the nonce — mirroring the no-collision
-      `create` rule.
-
-      `EvmSemantics.createAddress` returns `Option` only because of its
-      general signature (the underlying RLP encoder is `Option`-typed);
-      the `none` case is unreachable for EVM-bounded nonces. The
-      explicit `newAddr` / `h_addr` pair binds the derived address. -/
+      `create` rule. -/
   | createCollision (s : State)
         (value offset size : UInt256) (rest : List UInt256)
-        (forwarded : Nat) (newAddr : AccountAddress)
+        (forwarded : Nat)
         (h_op    : s.decodedOp = some .CREATE)
         (h_stack : s.stack = value :: offset :: size :: rest)
         (h_perm  : s.executionEnv.permitStateMutation = true)
         (h_gas   : Gas.createCommitted s offset size ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                         (s.accountMap s.executionEnv.address).balance < value))
-        (h_addr  : EvmSemantics.createAddress s.executionEnv.address
-                     (s.accountMap s.executionEnv.address).nonce.toNat
-                     = some newAddr)
         (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.createCommitted s offset size))
-        (h_coll  : (s.accountMap newAddr).isContract = true)
+        (h_coll  : (s.accountMap (EvmSemantics.createAddress s.executionEnv.address
+                     (s.accountMap s.executionEnv.address).nonce)).isContract = true)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.createCommitted s offset size - forwarded
@@ -1491,28 +1469,26 @@ inductive StepRunning : State → State → Prop
 
   /-- CREATE (taken): depth + balance check passes *and* the derived
       address is free. The remaining gas (after base + memory) has
-      63/64 forwarded to the init-code frame. See `createCollision`
-      for the `newAddr` / `h_addr` convention. -/
+      63/64 forwarded to the init-code frame. -/
   | create (s : State)
         (value offset size : UInt256) (rest : List UInt256)
-        (forwarded : Nat) (newAddr : AccountAddress)
+        (forwarded : Nat)
         (h_op     : s.decodedOp = some .CREATE)
         (h_stack  : s.stack = value :: offset :: size :: rest)
         (h_perm   : s.executionEnv.permitStateMutation = true)
         (h_gas    : Gas.createCommitted s offset size ≤ s.gasAvailable)
         (h_take   : ¬ (s.executionEnv.depth ≥ 1024 ∨
                          (s.accountMap s.executionEnv.address).balance < value))
-        (h_addr   : EvmSemantics.createAddress s.executionEnv.address
-                      (s.accountMap s.executionEnv.address).nonce.toNat
-                      = some newAddr)
         (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.createCommitted s offset size))
-        (h_nocoll : (s.accountMap newAddr).isContract = false)
+        (h_nocoll : (s.accountMap (EvmSemantics.createAddress s.executionEnv.address
+                      (s.accountMap s.executionEnv.address).nonce)).isContract = false)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable - Gas.createCommitted s offset size - forwarded
                 activeWords  := s.activeWordsAfterUInt256 offset.toNat size.toNat }
-           ).enterCreate rest newAddr value
+           ).enterCreate rest (EvmSemantics.createAddress s.executionEnv.address
+                                  (s.accountMap s.executionEnv.address).nonce) value
              (MachineState.readPadded s.memory offset.toNat size.toNat)
              forwarded)
 

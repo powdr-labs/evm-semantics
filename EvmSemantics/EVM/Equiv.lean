@@ -1087,90 +1087,97 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               h_perm' h_committed h_fail'
           · rename_i h_take
             split at h
-            · rename_i h_rlp_none; cases h
-            · rename_i newAddr h_rlp
+            · rename_i h_fw
+              have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
+                  (s.accountMap s.executionEnv.address).balance < value) := by
+                simpa [State.consumeGas, State.consumeMemExp] using h_take
+              -- `createAddress` is total now. Set `newAddr` to the
+              -- stepF-style expression (over the consumed state) so the
+              -- `set` abbreviation hits in the goal; `consumeGas` /
+              -- `consumeMemExp` leave `executionEnv.address` and
+              -- `accountMap` untouched, so the simplified form is equal.
+              set newAddr := EvmSemantics.createAddress
+                ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                  h_mem).executionEnv.address
+                (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                    h_mem).accountMap
+                  ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                    h_mem).executionEnv.address).nonce with hna
+              have hna_eq : newAddr = EvmSemantics.createAddress s.executionEnv.address
+                    (s.accountMap s.executionEnv.address).nonce := by
+                rw [hna]; simp [State.consumeGas, State.consumeMemExp]
               split at h
-              · rename_i h_fw
-                have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                    (s.accountMap s.executionEnv.address).balance < value) := by
-                  simpa [State.consumeGas, State.consumeMemExp] using h_take
-                have h_rlp' : EvmSemantics.createAddress s.executionEnv.address
-                    (s.accountMap s.executionEnv.address).nonce.toNat = some newAddr := by
-                  simpa [State.consumeGas, State.consumeMemExp] using h_rlp
-                split at h
-                · rename_i h_coll
-                  cases h
-                  have h_coll' : (s.accountMap newAddr).isContract = true := by
-                    simpa [State.consumeGas, State.consumeMemExp] using h_coll
-                  -- Bind the post-forward state to a local; the stepF output uses
-                  -- this state's `accountMap`/`executionEnv` projections, which are
-                  -- equal to `s`'s (since `consumeGas`/`consumeMemExp` leave them
-                  -- untouched). `grind` handles the rest.
-                  set s3 := ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                              h_mem).consumeGas
-                              (Gas.allButOneSixtyFourth s.fork
-                                ((s.consumeGas base h_gas).consumeMemExp
-                                  offset.toNat size.toNat h_mem).gasAvailable) h_fw
-                  have post_eq :
-                      ({ s3 with
-                          accountMap := s3.accountMap.set s3.executionEnv.address
-                            { s3.accountMap s3.executionEnv.address with
-                                nonce := (s3.accountMap s3.executionEnv.address).nonce
-                                          + (⟨1⟩ : UInt256) }
-                          returnData := .empty
-                        }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
-                      = ({ s with
+              · rename_i h_coll
+                cases h
+                have h_coll' : (s.accountMap newAddr).isContract = true := by
+                  simpa [State.consumeGas, State.consumeMemExp, hna] using h_coll
+                set s3 := ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                            h_mem).consumeGas
+                            (Gas.allButOneSixtyFourth s.fork
+                              ((s.consumeGas base h_gas).consumeMemExp
+                                offset.toNat size.toNat h_mem).gasAvailable) h_fw
+                have post_eq :
+                    ({ s3 with
+                        accountMap := s3.accountMap.set s3.executionEnv.address
+                          { s3.accountMap s3.executionEnv.address with
+                              nonce := (s3.accountMap s3.executionEnv.address).nonce
+                                        + (⟨1⟩ : UInt256) }
+                        returnData := .empty
+                      }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                    = ({ s with
+                        gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
+                          - Gas.allButOneSixtyFourth s.fork
+                              (s.gasAvailable - Gas.createCommitted s offset size)
+                        activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
+                        accountMap := s.accountMap.set s.executionEnv.address
+                          { s.accountMap s.executionEnv.address with
+                              nonce := (s.accountMap s.executionEnv.address).nonce + ⟨1⟩ }
+                        returnData := .empty
+                        stack := UInt256.ofNat 0 :: rest
+                        pc := s.pc.succ } : State) := by
+                  simp [s3, State.consumeGas, State.consumeMemExp,
+                        State.replaceStackAndIncrPC, State.activeWordsAfterUInt256,
+                        Gas.createCommitted, UInt256.succ, MachineState.memExpansionDelta,
+                        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+                  grind
+                rw [post_eq]
+                rw [hna_eq] at h_coll'
+                exact StepRunning.createCollision s value offset size rest _
+                  h_dec h_stack h_perm' h_committed h_take' rfl h_coll'
+              · rename_i h_nocoll
+                cases h
+                have h_nocoll' : (s.accountMap newAddr).isContract = false := by
+                  simpa [State.consumeGas, State.consumeMemExp, hna] using h_nocoll
+                have post_eq :
+                    (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                      h_mem).consumeGas
+                      (Gas.allButOneSixtyFourth s.fork ((s.consumeGas base h_gas).consumeMemExp
+                        offset.toNat size.toNat h_mem).gasAvailable) h_fw).enterCreate
+                      rest newAddr value
+                      (MachineState.readPadded
+                        (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                          h_mem).consumeGas _ h_fw).memory offset.toNat size.toNat)
+                      (Gas.allButOneSixtyFourth s.fork ((s.consumeGas base h_gas).consumeMemExp
+                        offset.toNat size.toNat h_mem).gasAvailable)
+                    = (({ s with
                           gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
                             - Gas.allButOneSixtyFourth s.fork
                                 (s.gasAvailable - Gas.createCommitted s offset size)
                           activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
-                          accountMap := s.accountMap.set s.executionEnv.address
-                            { s.accountMap s.executionEnv.address with
-                                nonce := (s.accountMap s.executionEnv.address).nonce + ⟨1⟩ }
-                          returnData := .empty
-                          stack := UInt256.ofNat 0 :: rest
-                          pc := s.pc.succ } : State) := by
-                    simp [s3, State.consumeGas, State.consumeMemExp,
-                          State.replaceStackAndIncrPC, State.activeWordsAfterUInt256,
-                          Gas.createCommitted, UInt256.succ, MachineState.memExpansionDelta,
-                          show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
-                    grind
-                  rw [post_eq]
-                  exact StepRunning.createCollision s value offset size rest _ newAddr
-                    h_dec h_stack h_perm' h_committed h_take' h_rlp' rfl h_coll'
-                · rename_i h_nocoll
-                  cases h
-                  have h_nocoll' : (s.accountMap newAddr).isContract = false := by
-                    simpa [State.consumeGas, State.consumeMemExp] using h_nocoll
-                  have post_eq :
-                      (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                        h_mem).consumeGas
-                        (Gas.allButOneSixtyFourth s.fork ((s.consumeGas base h_gas).consumeMemExp
-                          offset.toNat size.toNat h_mem).gasAvailable) h_fw).enterCreate
-                        rest newAddr value
-                        (MachineState.readPadded
-                          (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                            h_mem).consumeGas _ h_fw).memory offset.toNat size.toNat)
-                        (Gas.allButOneSixtyFourth s.fork ((s.consumeGas base h_gas).consumeMemExp
-                          offset.toNat size.toNat h_mem).gasAvailable)
-                      = (({ s with
-                            gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
-                              - Gas.allButOneSixtyFourth s.fork
-                                  (s.gasAvailable - Gas.createCommitted s offset size)
-                            activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat
-                          } : State).enterCreate rest newAddr value
-                            (MachineState.readPadded s.memory offset.toNat size.toNat)
-                            (Gas.allButOneSixtyFourth s.fork
-                              (s.gasAvailable - Gas.createCommitted s offset size))) := by
-                    simp [State.enterCreate, State.consumeGas, State.consumeMemExp,
-                          State.activeWordsAfterUInt256, Gas.createCommitted,
-                          MachineState.memExpansionDelta,
-                          show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
-                    grind
-                  rw [post_eq]
-                  exact StepRunning.create s value offset size rest _ newAddr
-                    h_dec h_stack h_perm' h_committed h_take' h_rlp' rfl h_nocoll'
-              · nomatch h
+                        } : State).enterCreate rest newAddr value
+                          (MachineState.readPadded s.memory offset.toNat size.toNat)
+                          (Gas.allButOneSixtyFourth s.fork
+                            (s.gasAvailable - Gas.createCommitted s offset size))) := by
+                  simp [hna, State.enterCreate, State.consumeGas, State.consumeMemExp,
+                        State.activeWordsAfterUInt256, Gas.createCommitted,
+                        MachineState.memExpansionDelta,
+                        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+                  grind
+                rw [post_eq]
+                rw [hna_eq] at h_nocoll' ⊢
+                exact StepRunning.create s value offset size rest _
+                  h_dec h_stack h_perm' h_committed h_take' rfl h_nocoll'
+            · nomatch h
         · simp [h_mem] at h
     | [], h               => nomatch h
     | [_], h              => nomatch h
@@ -3380,32 +3387,16 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
           split at h
           · cases h  -- depth/balance fail returns .ok
           · rename_i h_take
+            -- `createAddress` is total now; only the forwarded-OOG and
+            -- collision branches remain (the latter two are `.ok`).
             split at h
-            · -- createAddress = none: unreachable, discharge via the
-              -- `createAddress_isSome` totality lemma.
-              rename_i h_addr_none
-              exfalso
-              have h_is := EvmSemantics.createAddress_isSome
-                ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                  h_mem).executionEnv.address
-                (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                    h_mem).accountMap
-                  ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                    h_mem).executionEnv.address).nonce.toNat
-                (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                    h_mem).accountMap
-                  ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
-                    h_mem).executionEnv.address).nonce.val.isLt
-              rw [h_addr_none] at h_is; simp at h_is
-            · rename_i h_addr_some
-              split at h
-              · split at h
-                all_goals (first | cases h | skip)
-              · -- forwarded OOG
-                cases h
-                refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
-                · show base ≤ s.gasAvailable + 1; omega
-                · omega
+            · split at h
+              all_goals (first | cases h | skip)
+            · -- forwarded OOG
+              cases h
+              refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+              · show base ≤ s.gasAvailable + 1; omega
+              · omega
         · simp [h_mem] at h
           cases h
           set base := Gas.baseCost s.fork (.System .CREATE) with hbase
@@ -3868,11 +3859,15 @@ private theorem stepFE_sound_error' (s : State) (e : ExecutionException)
       `StepRunning.stackOverflow` premises in the outer wrapper.
     - `decoded_push_arg_some` (decoder invariant) closes the
       unreachable `(.Push p, none)` arm of `stepF.push`.
-    - `EvmSemantics.createAddress_isSome` (proved in `Step.lean` via
-      `Rlp.encodeAddrNonce_isSome`) discharges the unreachable
-      `createAddress = none` branch of `stepF.system .CREATE`: the
-      `none` arm collapses to `False` once the lemma is applied at
-      the call site's argument bounds.
+    - `EvmSemantics.createAddress` returns `AccountAddress` directly
+      (rather than `Option AccountAddress`) by taking a `UInt256`
+      nonce. Totality is provided internally by `Option.get` plus
+      `Rlp.encodeAddrNonce_isSome`. This removes the unreachable
+      `createAddress = none` branch from both `stepF.system .CREATE`
+      and the corresponding `StepRunning.create` / `createCollision`
+      constructors (which previously had a `h_addr : createAddress …
+      = some newAddr` premise; now `newAddr` is just the direct
+      `createAddress` application).
 
     Helpers: `mk_underflow`, `mk_outOfGas`, `mk_staticMode`,
     `mk_invalidOp`, `mk_invalidMem`, `mk_jumpBad`, `mk_jumpiBad`,
