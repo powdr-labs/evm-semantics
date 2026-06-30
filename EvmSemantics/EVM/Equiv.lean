@@ -562,8 +562,33 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                   grind
                 rw [post_eq]
+                -- `h_afford`: the stepF branch we're in already
+                -- discharged `forwarded ≤ s3.gasAvailable`, which equals
+                -- `s.gasAvailable - Gas.callCommitted …` after the
+                -- chained `consumeGas` calls are unfolded.
+                have h_afford :
+                    Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                        gasArg.toNat
+                      ≤ s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg := by
+                  have h := h_fw
+                  simp only [State.consumeGas, State.consumeMemExp2,
+                             ← h_surch_eq] at h
+                  show Gas.forwardGas s.fork _ _ ≤ _
+                  rw [show (s.gasAvailable -
+                              Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                          = s.gasAvailable - base - md - surch from by
+                        show _ = _
+                        rw [show Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                                  = base + md + surch from by
+                              simp [Gas.callCommitted, ← hbase, ← hmd, ← h_surch_eq,
+                                    MachineState.memExpansionDelta2]]
+                        omega]
+                  exact h
                 exact StepRunning.call s gasArg toArg value argsOff argsLen retOff retLen
-                  rest _ h_dec h_stack h_committed h_take' rfl
+                  rest _ h_dec h_stack h_committed h_take' rfl h_afford
               · nomatch h
           · nomatch h
         · simp [h_mem] at h
@@ -695,8 +720,29 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
+              have h_afford :
+                  Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen := by
+                have h := h_fw
+                simp only [State.consumeGas, State.consumeMemExp2] at h
+                show Gas.forwardGas s.fork _ _ ≤ _
+                have eq : (s.gasAvailable
+                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        = s.gasAvailable - base - md
+                          - Gas.callSurcharge s.fork (value.toNat != 0) false := by
+                  show _ = _
+                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                          = base + md + Gas.callSurcharge s.fork (value.toNat != 0) false from
+                        rfl]
+                  omega
+                rw [eq]
+                exact h
               exact StepRunning.callcode s gasArg toArg value argsOff argsLen retOff retLen
-                rest _ h_dec h_stack h_committed h_take' rfl
+                rest _ h_dec h_stack h_committed h_take' rfl h_afford
             · nomatch h
         · nomatch h
       · simp [h_mem] at h
@@ -817,8 +863,27 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
               grind
             rw [post_eq]
+            have h_afford :
+                Gas.forwardGas s.executionEnv.fork
+                    (s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                    gasArg.toNat
+                  ≤ s.gasAvailable
+                    - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
+              have h := h_fw
+              simp only [State.consumeGas, State.consumeMemExp2] at h
+              show Gas.forwardGas s.fork _ _ ≤ _
+              have eq : (s.gasAvailable
+                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                      = s.gasAvailable - base - md := by
+                show _ = _
+                rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                        = base + md from rfl]
+                omega
+              rw [eq]
+              exact h
             exact StepRunning.delegatecall s gasArg toArg argsOff argsLen retOff retLen
-              rest _ h_dec h_stack h_committed h_take' rfl
+              rest _ h_dec h_stack h_committed h_take' rfl h_afford
           · nomatch h
       · simp [h_mem] at h
     | [], h                            => nomatch h
@@ -922,8 +987,27 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
               grind
             rw [post_eq]
+            have h_afford :
+                Gas.forwardGas s.executionEnv.fork
+                    (s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                    gasArg.toNat
+                  ≤ s.gasAvailable
+                    - Gas.staticcallCommitted s argsOff argsLen retOff retLen := by
+              have h := h_fw
+              simp only [State.consumeGas, State.consumeMemExp2] at h
+              show Gas.forwardGas s.fork _ _ ≤ _
+              have eq : (s.gasAvailable
+                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                      = s.gasAvailable - base - md := by
+                show _ = _
+                rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                        = base + md from rfl]
+                omega
+              rw [eq]
+              exact h
             exact StepRunning.staticcall s gasArg toArg argsOff argsLen retOff retLen
-              rest _ h_dec h_stack h_committed h_take' rfl
+              rest _ h_dec h_stack h_committed h_take' rfl h_afford
           · nomatch h
       · simp [h_mem] at h
     | [], h                            => nomatch h

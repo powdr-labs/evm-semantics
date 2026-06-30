@@ -1144,6 +1144,12 @@ inductive StepRunning : State → State → Prop
                         (s.gasAvailable
                           - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
                         gasArg.toNat)
+        -- Pre-EIP-150 `forwardGas` returns `gasArg` verbatim, so a too-
+        -- large `gasArg` must OOG rather than enter the callee. This
+        -- premise rules out that case; post-EIP-150 it is implied by
+        -- the `g - g/64` cap.
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1208,6 +1214,8 @@ inductive StepRunning : State → State → Prop
                      (s.gasAvailable
                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
                      gasArg.toNat)
+        (h_afford : forwarded ≤ s.gasAvailable
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1274,6 +1282,8 @@ inductive StepRunning : State → State → Prop
                      (s.gasAvailable
                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
                      gasArg.toNat)
+        (h_afford : forwarded ≤ s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1326,6 +1336,8 @@ inductive StepRunning : State → State → Prop
                      (s.gasAvailable
                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
                      gasArg.toNat)
+        (h_afford : forwarded ≤ s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable

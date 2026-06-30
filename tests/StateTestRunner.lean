@@ -86,7 +86,10 @@ def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.
   for b in data do
     g := g + (if b == 0 then 4 else perNonZero)
   if isCreate then
-    g := g + 32000
+    -- `G_txcreate = 32000` was introduced by Homestead (EIP-2). Frontier
+    -- create transactions pay only the base 21000.
+    if fork.atLeast .Homestead then
+      g := g + 32000
     if fork.atLeast .Shanghai then
       -- EIP-3860 init-code word cost: 2 per 32-byte word.
       g := g + 2 * ((data.size + 31) / 32)
@@ -126,6 +129,25 @@ def parseFork (s : String) : Option Fork :=
     (the `to` field is empty / absent — the YP's `Tᵢ` flag). -/
 def isCreateTx (tx : Json) : Bool := (strField tx "to") = ""
 
+/-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
+    approximates `factor · e^(numerator / denominator)` using the
+    convergent series `Σ (numerator^i · factor) / (denominator^i · i!)`,
+    stopping as soon as a term contributes 0 (Nat arithmetic). The blob
+    base fee is `fake_exp(MIN_BLOB_BASE_FEE = 1, excessBlobGas,
+    BLOB_BASE_FEE_UPDATE_FRACTION = 3338477)` per EIP-4844 §5. -/
+partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
+  let rec go (i accum numAcc : Nat) (fuel : Nat) : Nat :=
+    if fuel = 0 then accum
+    else
+      let term := numAcc / (denominator * i)
+      if term = 0 then accum
+      else go (i + 1) (accum + term) (numAcc * numerator) (fuel - 1)
+  go 1 factor (factor * numerator) 64
+
+/-- EIP-4844 blob base fee derived from `excessBlobGas`. -/
+def blobBaseFeeOf (excessBlobGas : Nat) : Nat :=
+  fakeExponential 1 excessBlobGas 3338477
+
 /-- Build the EVM `BlockHeader` from the test block's `blockHeader` JSON
     (BlockchainTests format). Missing modern fields fall back to zero —
     a pre-London corpus has no `baseFeePerGas`, a pre-Cancun corpus has
@@ -140,10 +162,19 @@ def isCreateTx (tx : Json) : Bool := (strField tx "to") = ""
     * `baseFeePerGas` ← `baseFeePerGas` if present (London+), else 0.
     * `chainId` is *not* in the block header per se; we default to 1
       (mainnet) when not exposed by the test.
-    * `blobBaseFee` is derived from `excessBlobGas` (Cancun+); we read
-      it directly if the corpus puts it in the header (some recent
-      hive/eel tests do), else 0. -/
+    * `blobBaseFee` — preferred path: derive from `excessBlobGas` via
+      EIP-4844 `fake_exp(1, excessBlobGas, 3338477)`. If the corpus
+      provides an explicit `blobBaseFee` field that takes precedence
+      (some tooling emits it directly); otherwise we use the derivation
+      from `excessBlobGas`; otherwise 0. -/
 def decodeHeader (blockHeader : Json) : BlockHeader :=
+  let blobBaseFeeField    := strField blockHeader "blobBaseFee"
+  let excessBlobGasField  := strField blockHeader "excessBlobGas"
+  let blobBaseFee : UInt256 :=
+    if blobBaseFeeField ≠ "" then hexToUInt256 blobBaseFeeField
+    else if excessBlobGasField ≠ "" then
+      UInt256.ofNat (blobBaseFeeOf (hexToUInt256 excessBlobGasField).toNat)
+    else ⟨0⟩
   { coinbase      := hexToAddress (strField blockHeader "coinbase")
     timestamp     := hexToUInt256 (strField blockHeader "timestamp")
     number        := hexToUInt256 (strField blockHeader "number")
@@ -151,7 +182,7 @@ def decodeHeader (blockHeader : Json) : BlockHeader :=
     gasLimit      := hexToUInt256 (strField blockHeader "gasLimit")
     baseFeePerGas := hexToUInt256 (strField blockHeader "baseFeePerGas")
     chainId       := ⟨1⟩
-    blobBaseFee   := hexToUInt256 (strField blockHeader "blobBaseFee")
+    blobBaseFee   := blobBaseFee
     blockHash     := fun _ => ⟨0⟩ }
 
 /-- Read the EIP-4844 `blobVersionedHashes` list out of a tx JSON
@@ -403,10 +434,10 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
           -- runs the deploy-or-reject check.
           if isCreate then
             let hReturn := sf.hReturn
-            let depositCost := codeDepositPerByte * hReturn.size
+            let depositCost := State.codeDepositPerByte * hReturn.size
             let oversized   := sf.executionEnv.fork.atLeast .SpuriousDragon
-                                ∧ hReturn.size > maxCodeSize
-            let badPrefix   := isReservedCodePrefix sf.executionEnv.fork hReturn
+                                && decide (hReturn.size > State.maxCodeSize)
+            let badPrefix   := State.isReservedCodePrefix sf.executionEnv.fork hReturn
             if depositCost ≤ sf.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then
               let newAcc := sf.accountMap newAddr
               let map' := sf.accountMap.set newAddr { newAcc with code := hReturn }

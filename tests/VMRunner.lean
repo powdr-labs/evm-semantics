@@ -100,6 +100,20 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       depth     := 0
       permitStateMutation := true
       blobVersionedHashes := #[]
+      -- The `legacytests/Constantinople/VMTests` corpus is named for the
+      -- corpus revision (the *git tag* in ethereum/legacytests was
+      -- `constantinople`-era), but the actual VMTest bytecodes pre-date
+      -- the per-fork divergences: they were generated against the
+      -- Frontier gas schedule (e.g. `SLOAD = 50` rather than Tangerine
+      -- Whistle's 200, `EXP` per-byte 10 rather than Spurious Dragon's
+      -- 50, `SELFDESTRUCT` base 0 rather than 5000) and never reference
+      -- a post-Frontier opcode (no `DELEGATECALL` / `REVERT` /
+      -- `RETURNDATA*` / `SHL` / `SHR` / `SAR` / `EXTCODEHASH` /
+      -- `CREATE2`). We therefore tag the execution with
+      -- `Fork.Frontier`, which (i) picks the right gas schedule and
+      -- (ii) lets `Operation.availableInFork` reject any post-Frontier
+      -- byte that shouldn't be reachable in this corpus. The
+      -- `vmtests-baseline.txt` regression check pins this behaviour. -/
       fork                := .Frontier }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
