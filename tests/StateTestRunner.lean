@@ -168,8 +168,20 @@ def parseFork (s : String) : Option Fork :=
 ----------------------------------------------------------------------------
 
 inductive Outcome where
-  | passCore       -- storage + nonce + code match (balances not checked)
-  | passFull       -- core + balances also match
+  /-- Storage + nonce + code match, but balances don't. -/
+  | passCore
+  /-- `passCore` plus exact balances on every account in `postState`,
+      but the MPT `stateRoot` we compute doesn't equal the corpus's
+      (some account our run touched isn't in `postState`, or
+      vice-versa — usually a stale self-destructed account, an empty
+      account that EIP-161 should have pruned, or an extra coinbase
+      entry). -/
+  | passFull
+  /-- `passFull` plus the world MPT root matches the corpus's
+      `blockHeader.stateRoot` — the strongest tier, equivalent to
+      "every observable byte of the post-state is bit-identical to
+      what Geth would produce." -/
+  | passRoot
   | fail (msg : String)
   | incon (msg : String)
   deriving Repr
@@ -255,7 +267,16 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
         let post := objEntries testObj "postState"
         match cmpPost result.finalAccounts pre post false with
         | [] => match cmpPost result.finalAccounts pre post true with
-                | [] => .passFull
+                | [] =>
+                  -- All fields the test enumerates match. Try the
+                  -- strongest tier: world-state MPT root match.
+                  let expHex := strField (subObj block "blockHeader") "stateRoot"
+                  let expRoot := hexToUInt256 expHex
+                  match AccountMap.stateRoot result.finalAccounts fork with
+                  | some ourRoot =>
+                    if ourRoot.toNat == expRoot.toNat then .passRoot
+                    else .passFull
+                  | none => .passFull
                 | _  => .passCore
         | msgs => .fail (String.intercalate "; " (msgs.take 3))
     | [] => .incon "no transactions"
@@ -266,6 +287,7 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
 ----------------------------------------------------------------------------
 
 structure Tally where
+  passRoot : Nat := 0
   passFull : Nat := 0
   passCore : Nat := 0
   fail : Nat := 0
@@ -274,11 +296,13 @@ structure Tally where
   deriving Inhabited
 
 def Tally.add (t u : Tally) : Tally :=
-  { passFull := t.passFull + u.passFull, passCore := t.passCore + u.passCore
+  { passRoot := t.passRoot + u.passRoot
+    passFull := t.passFull + u.passFull
+    passCore := t.passCore + u.passCore
     fail := t.fail + u.fail, incon := t.incon + u.incon, crash := t.crash + u.crash }
 
 def Tally.total (t : Tally) : Nat :=
-  t.passFull + t.passCore + t.fail + t.incon + t.crash
+  t.passRoot + t.passFull + t.passCore + t.fail + t.incon + t.crash
 
 /-- Walk `dir` recursively, returning every `*.json` underneath, sorted. -/
 partial def collectJson (dir : System.FilePath) :
@@ -306,6 +330,7 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
       | none => continue
       | some fork =>
         let r := match runOne testObj fork with
+          | .passRoot => ("PASS_ROOT", name, "")
           | .passFull => ("PASS_FULL", name, "")
           | .passCore => ("PASS_CORE", name, "")
           | .fail m   => ("FAIL", name, m)
@@ -345,6 +370,7 @@ def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
       | .ok results =>
         for (tag, name, msg) in results do
           match tag with
+          | "PASS_ROOT" => t := { t with passRoot := t.passRoot + 1 }
           | "PASS_FULL" => t := { t with passFull := t.passFull + 1 }
           | "PASS_CORE" => t := { t with passCore := t.passCore + 1 }
           | "FAIL"      => t := { t with fail := t.fail + 1 }
@@ -421,8 +447,8 @@ def main (args : List String) : IO Unit := do
   let root : System.FilePath := rest.headD "."
   let files ← if (← root.isDir) then collectJson root else pure #[root]
   let t ← runFiles files jobs verbose timeoutMs
-  IO.println s!"pass(full={t.passFull} core+={t.passCore}) fail={t.fail} \
-incon={t.incon} crash={t.crash} (total {t.total})"
+  IO.println s!"pass(root={t.passRoot} full+={t.passFull} core+={t.passCore}) \
+fail={t.fail} incon={t.incon} crash={t.crash} (total {t.total})"
 
 end StateTests
 

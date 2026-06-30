@@ -242,6 +242,19 @@ def blockReward (fork : Fork) : Nat :=
   else if fork.atLeast .Byzantium then 3 * 10^18
   else 5 * 10^18
 
+/-- YP §6.1 end-of-tx cleanup: delete every account that
+    `SELFDESTRUCT`ed in this tx. Removing the entry from the
+    `HashMap` (rather than just setting it to `Account.empty`)
+    matters for fork variants where `stateRoot` doesn't run the
+    post-EIP-161 empty-account filter — pre-Spurious-Dragon
+    (`Frontier..TangerineWhistle`), an entry that's present-but-empty
+    still appears in the trie, whereas a deleted entry doesn't.
+    `Std.HashMap.erase` is a no-op if the key isn't there, so
+    duplicate `selfDestructed` entries are harmless. -/
+def applySelfDestructDeletions (map : AccountMap)
+    (selfDestructed : Array AccountAddress) : AccountMap :=
+  selfDestructed.foldl (fun m a => m.erase a) map
+
 /-- Credit the coinbase with the per-fork block reward, on top of the
     tx-level gas-fee accounting already applied to `map`. Called once
     per `Tx.execute` (= once per single-tx block in the legacy state
@@ -393,6 +406,15 @@ def execute (preMap : AccountMap) (header : BlockHeader)
                      tx.gasLimit sf.gasAvailable gasPrice
         { finalAccounts := withReward map, outcome := .exceptional }
       | _ =>
+        -- YP §6.1 end-of-tx cleanup: zero out every account that
+        -- `SELFDESTRUCT`ed in this tx. The post-EIP-161 empty-account
+        -- filter on `stateRoot` then drops the zeroed entry from the
+        -- world trie; pre-EIP-161 it stays as an explicit zero, which
+        -- happens to match the reference impl's "delete on
+        -- SELFDESTRUCT" pre-Spurious-Dragon behaviour in every
+        -- corpus variant we run.
+        let cleaned := applySelfDestructDeletions sf.accountMap
+                         sf.substate.selfDestructList
         if tx.isCreate then
           let hReturn := sf.hReturn
           let depositCost := State.codeDepositPerByte * hReturn.size
@@ -403,8 +425,8 @@ def execute (preMap : AccountMap) (header : BlockHeader)
             -- Deploy commits: install `hReturn` as the new account's
             -- code, then apply the gas-refund accounting with
             -- `gasRemaining = sf.gasAvailable - depositCost`.
-            let newAcc := sf.accountMap newAddr
-            let mapWithCode := sf.accountMap.set newAddr
+            let newAcc := cleaned newAddr
+            let mapWithCode := cleaned.set newAddr
                                  { newAcc with code := hReturn }
             let gasRemaining := sf.gasAvailable - depositCost
             let gasRefunded := refundedGasOnSuccess tx.gasLimit gasRemaining
@@ -419,7 +441,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
         else
           let gasRefunded := refundedGasOnSuccess tx.gasLimit sf.gasAvailable
                                sf.substate.refundBalance.toNat fork
-          let map' := applyTxGasAccounting sf.accountMap tx.sender coinbase
+          let map' := applyTxGasAccounting cleaned tx.sender coinbase
                         tx.gasLimit gasRefunded gasPrice
           { finalAccounts := withReward map', outcome := .success }
 

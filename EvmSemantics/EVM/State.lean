@@ -474,6 +474,7 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   let substate' : Substate :=
     { sc.substate with
         selfDestructSet := sc.substate.selfDestructSet.insert self
+        selfDestructList := sc.substate.selfDestructList.push self
         refundBalance   := sc.substate.refundBalance +
                              UInt256.ofNat refundDelta }
   { sc with

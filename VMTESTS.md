@@ -51,21 +51,36 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(full=7076 core+=30) fail=0 incon=0 crash=0
+pass(root=7037 full+=39 core+=30) fail=0 incon=0 crash=0
 ```
-- `pass_core` = storage + nonce + code match. `pass_full` additionally
-  requires exact balances. With tx-level gas-refund accounting (YP §6.3
-  + EIP-3529 cap) and per-fork PoW block rewards in `Tx.execute`, 7076
-  of 7106 variants now match balances exactly.
-- The 30 `pass_core` stragglers are dominated by two patterns:
-  (i) contracts that invoke unimplemented precompiles (`0x01`
-  ECRECOVER, `0x02` SHA256, `0x03` RIPEMD160, `0x05` MODEXP, …) — we
-  treat the (empty) bytecode at those addresses as STOP rather than
-  applying the precompile's gas-cost OOG, so the value transfer that
-  the YP would have rolled back gets committed; (ii) repeated
-  `SELFDESTRUCT` of the same account, where our `selfDestructSet`
-  doesn't yet enforce "refund once per account" (the underlying
-  `AddressSet` is a `Prop` predicate without decidable membership).
+Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
+- `pass_root` = world MPT `stateRoot` matches the corpus's
+  `blockHeader.stateRoot` (every byte of the post-state matches what
+  Geth would produce). 7037 of 7106.
+- `pass_full` = every field the test's `postState` enumerates matches
+  (storage, nonce, code, *and* balance), but the MPT root differs —
+  usually because some account our run touched isn't in the test's
+  enumerated `postState`, or some slot we wrote to isn't in the
+  enumerated storage. 39 of 7106.
+- `pass_core` = storage / nonce / code match but balance is off. 30 of
+  7106. Dominated by (i) contracts that invoke unimplemented
+  precompiles (`0x01` ECRECOVER, `0x02` SHA256, `0x03` RIPEMD160,
+  `0x05` MODEXP, …) — we treat the (empty) bytecode at those
+  addresses as STOP rather than applying the precompile's gas-cost
+  OOG, so the value transfer that the YP would have rolled back gets
+  committed; (ii) repeated `SELFDESTRUCT` of the same account, where
+  our `selfDestructSet` doesn't yet enforce "refund once per account"
+  (the underlying `AddressSet` is a `Prop` predicate without
+  decidable membership).
+
+The MPT comparison lives in `EvmSemantics.Data.Mpt`:
+`AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
+`[nonce, balance, storageRoot, codeHash]` keyed by `keccak256(address)`),
+applying EIP-161 empty-account pruning from Spurious Dragon onwards.
+End-of-tx cleanup in `Tx.execute` calls `applySelfDestructDeletions` to
+erase `SELFDESTRUCT`ed entries from the map outright (pre-EIP-161 forks
+don't run the empty-account filter, so a present-but-empty entry would
+otherwise stay in the trie).
 - **fail=0 / incon=0 / crash=0** — every variant in the 30 listed
   directories matches the corpus on storage / nonce / code.
 - **Corpus fork note.** Each test file ships a `network` field per variant

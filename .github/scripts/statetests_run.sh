@@ -3,7 +3,7 @@
 # Run the CALL state tests file-by-file with a per-file wall-clock cap, in
 # parallel, and emit raw output that `statetests_summary.sh` can parse:
 #   * per-test `FAIL <id>: …` / `INCON <id>: …` notes, and
-#   * a final aggregate `pass(full=A core+=B) fail=C incon=D crash=E (total N)`.
+#   * a final aggregate `pass(root=A full+=B core+=C) fail=D incon=E crash=F (total N)`.
 #
 # Why per-file with a cap rather than one whole-dir invocation: the evaluator
 # models world state as functional (closure-chained) maps, so deep-recursion
@@ -27,7 +27,7 @@ if [ "${1:-}" = "--one" ]; then
   out="$(timeout "$cap" "$BIN" -v "$f" 2>&1)"
   if [ $? -eq 124 ]; then
     echo "INCON $(basename "$f" .json)_Constantinople: wall-timeout (>${cap}s)"
-    echo "pass(full=0 core+=0) fail=0 incon=1 crash=0 (total 1)"
+    echo "pass(root=0 full+=0 core+=0) fail=0 incon=1 crash=0 (total 1)"
   else
     echo "$out"
   fi
@@ -50,8 +50,8 @@ find "$dir" -name '*.json' | sort \
 grep -E '^(FAIL|INCON|CRASH) ' "$work/raw" | sort || true
 
 # Fold the per-file aggregate lines into one total (portable sed + awk).
-grep 'pass(full=' "$work/raw" \
-  | sed -E 's/pass\(full=([0-9]+) core\+=([0-9]+)\) fail=([0-9]+) incon=([0-9]+) crash=([0-9]+).*/\1 \2 \3 \4 \5/' \
-  | awk '{pf+=$1; pc+=$2; f+=$3; ic+=$4; cr+=$5}
-         END { printf "pass(full=%d core+=%d) fail=%d incon=%d crash=%d (total %d)\n",
-                      pf, pc, f, ic, cr, pf+pc+f+ic+cr }'
+grep 'pass(root=' "$work/raw" \
+  | sed -E 's/pass\(root=([0-9]+) full\+=([0-9]+) core\+=([0-9]+)\) fail=([0-9]+) incon=([0-9]+) crash=([0-9]+).*/\1 \2 \3 \4 \5 \6/' \
+  | awk '{pr+=$1; pf+=$2; pc+=$3; f+=$4; ic+=$5; cr+=$6}
+         END { printf "pass(root=%d full+=%d core+=%d) fail=%d incon=%d crash=%d (total %d)\n",
+                      pr, pf, pc, f, ic, cr, pr+pf+pc+f+ic+cr }'

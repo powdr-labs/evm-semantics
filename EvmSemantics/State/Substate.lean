@@ -78,6 +78,14 @@ end StorageKeySet
 structure Substate where
   /-- `Aₛ` — addresses scheduled to be deleted at the end of the transaction. -/
   selfDestructSet     : AddressSet
+  /-- Iterable parallel to `selfDestructSet`: the list of addresses that
+      `SELFDESTRUCT`ed in this transaction, in insertion order. Used by
+      `Tx.execute`'s end-of-tx cleanup pass (the YP §6.1 deletion of
+      accounts in `Aₛ` from the world state), which can't iterate the
+      `Prop`-valued `selfDestructSet` directly. May contain duplicates
+      if `selfDestructTo` fires twice on the same account; the cleanup
+      is idempotent (set-to-empty), so duplicates are harmless. -/
+  selfDestructList    : Array AccountAddress
   /-- `Aₜ` — addresses that have been "touched" (read or written). -/
   touchedAccounts     : AddressSet
   /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
@@ -99,6 +107,7 @@ namespace Substate
     refunds, no accesses, no logs, all slots originally 0. -/
 def empty : Substate :=
   { selfDestructSet     := AddressSet.empty
+    selfDestructList    := #[]
     touchedAccounts     := AddressSet.empty
     refundBalance       := ⟨0⟩
     accessedAccounts    := AddressSet.empty
