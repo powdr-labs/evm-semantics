@@ -2285,7 +2285,7 @@ private theorem exchange_eq_none_iff {α : Type _} (s : List α) (i j : Nat) :
       simp
       have h_i_lt : i < s.length := by
         by_contra h
-        push_neg at h
+        push Not at h
         rw [List.getElem?_eq_none_iff.mpr h] at h₁
         cases h₁
       right
@@ -2294,12 +2294,12 @@ private theorem exchange_eq_none_iff {α : Type _} (s : List α) (i j : Nat) :
       simp
       have h_i_lt : i < s.length := by
         by_contra h
-        push_neg at h
+        push Not at h
         rw [List.getElem?_eq_none_iff.mpr h] at h₁
         cases h₁
       have h_j_lt : j < s.length := by
         by_contra h
-        push_neg at h
+        push Not at h
         rw [List.getElem?_eq_none_iff.mpr h] at h₂
         cases h₂
       omega
@@ -2408,50 +2408,90 @@ theorem stopArith_sound_error (s : State) (op : Operation.StopArithOps)
   | ADD =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | MUL =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | SUB =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | DIV =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | SDIV =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | MOD =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | SMOD =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | ADDMOD =>
     match h_stack : s.stack, h with
     | _ :: _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_, _],  h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_, _],  h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | MULMOD =>
     match h_stack : s.stack, h with
     | _ :: _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_, _],  h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_, _],  h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | EXP =>
     match h_stack : s.stack, h with
     | a :: b :: rest, h =>
@@ -2467,13 +2507,21 @@ theorem stopArith_sound_error (s : State) (op : Operation.StopArithOps)
         unfold State.consumeGas at h_dyn
         simp at h_dyn
         omega
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | SIGNEXTEND =>
     match h_stack : s.stack, h with
     | _ :: _ :: _, h => nomatch h
-    | [],      h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
-    | [_],     h => cases h; exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+    | [],      h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
+    | [_],     h => cases h
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
 
 /-- CompBit error path: every op is `StackUnderflow` only — pure
     register-to-register operations with no dynamic gas. -/
@@ -2492,7 +2540,8 @@ theorem compBit_sound_error (s : State) (op : Operation.CompareBitwiseOps)
     | (match h_stack : s.stack, h with
        | _ :: _ :: _, h => nomatch h
        | [],  h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
        | [_], h => cases h
                    exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length]))
     | (match h_stack : s.stack, h with
@@ -2514,12 +2563,14 @@ theorem block_sound_error (s : State) (op : Operation.BlockOps)
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [],  h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | BLOBHASH =>
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [],  h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | COINBASE | TIMESTAMP | NUMBER | PREVRANDAO | GASLIMIT | CHAINID
   | SELFBALANCE | BASEFEE | BLOBBASEFEE => nomatch h
 
@@ -2632,22 +2683,26 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | CALLDATALOAD =>
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | EXTCODESIZE =>
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | EXTCODEHASH =>
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
     | destOff :: srcOff :: sz :: rest, h =>
@@ -2672,8 +2727,7 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
             exact h_mem
           have h_dyn' : s.gasAvailable - base - md < cwc := by
-            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd,
-                       ← hcwc] at h_dyn
+            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd] at h_dyn
             omega
           refine mk_outOfGas h_dec h_stack (base + md + cwc) ?_ ?_
           · show base ≤ base + md + cwc; omega
@@ -2691,11 +2745,14 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
   | CODECOPY =>
     match h_stack : s.stack, h with
     | destOff :: srcOff :: sz :: rest, h =>
@@ -2720,8 +2777,7 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
             exact h_mem
           have h_dyn' : s.gasAvailable - base - md < cwc := by
-            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd,
-                       ← hcwc] at h_dyn
+            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd] at h_dyn
             omega
           refine mk_outOfGas h_dec h_stack (base + md + cwc) ?_ ?_
           · show base ≤ base + md + cwc; omega
@@ -2739,11 +2795,14 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
   | EXTCODECOPY =>
     match h_stack : s.stack, h with
     | a :: destOff :: srcOff :: sz :: rest, h =>
@@ -2768,8 +2827,7 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
             exact h_mem
           have h_dyn' : s.gasAvailable - base - md < cwc := by
-            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd,
-                       ← hcwc] at h_dyn
+            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd] at h_dyn
             omega
           refine mk_outOfGas h_dec h_stack (base + md + cwc) ?_ ?_
           · show base ≤ base + md + cwc; omega
@@ -2787,13 +2845,17 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
     | [_, _, _], h => cases h
-                      exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                      exact mk_underflow h_dec h_stack
+                        (by simp [Operation.popArity, List.length])
   | RETURNDATACOPY =>
     match h_stack : s.stack, h with
     | destOff :: srcOff :: sz :: rest, h =>
@@ -2824,8 +2886,7 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
                          MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
               exact h_mem
             have h_dyn' : s.gasAvailable - base - md < cwc := by
-              simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd,
-                         ← hcwc] at h_dyn
+              simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd] at h_dyn
               omega
             refine mk_outOfGas h_dec h_stack (base + md + cwc) ?_ ?_
             · show base ≤ base + md + cwc; omega
@@ -2843,11 +2904,14 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
           refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
           omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
 
 /-- Keccak error path: stack underflow (`[]` or `[_]`), memory-expansion
     `OutOfGas` (the `chargeMem` arm), and per-word `OutOfGas` (the
@@ -2888,8 +2952,7 @@ theorem keccak_sound_error (s : State) (op : Operation.KeccakOps)
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
             exact h_mem
           have h_dyn' : s.gasAvailable - base - md < kwc := by
-            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd,
-                       ← hkwc] at h_dyn
+            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd] at h_dyn
             omega
           refine mk_outOfGas h_dec h_stack (base + md + kwc) ?_ ?_
           · show base ≤ base + md + kwc; omega
@@ -2907,9 +2970,11 @@ theorem keccak_sound_error (s : State) (op : Operation.KeccakOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
 
 /-- Decoder invariant: `decodeAt` never produces `(.Push p, none)`. The
     `.Push` arm of `decodeAt` always returns `some (UInt256.ofNat n, w)`
@@ -3064,8 +3129,7 @@ theorem log_sound_error (s : State) (op : Operation.LogOp)
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
             exact h_mem
           have h_dyn' : s.gasAvailable - base - md < ldc := by
-            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd,
-                       ← hldc] at h_dyn
+            simp only [State.consumeGas, State.consumeMemExp, ← hbase, ← hmd] at h_dyn
             omega
           refine mk_outOfGas h_dec h_stack (base + md + ldc) ?_ ?_
           · show base ≤ base + md + ldc; omega
@@ -3083,9 +3147,11 @@ theorem log_sound_error (s : State) (op : Operation.LogOp)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
 
 /-- System error path. The most error-dense helper.
 
@@ -3140,9 +3206,11 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | REVERT =>
     match h_stack : s.stack, h with
     | offset :: size :: rest, h =>
@@ -3164,9 +3232,11 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | INVALID =>
     cases h
     exact mk_invalidOp h_dec rfl
@@ -3233,19 +3303,26 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
           refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
           omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
     | [_, _, _], h => cases h
-                      exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                      exact mk_underflow h_dec h_stack
+                        (by simp [Operation.popArity, List.length])
     | [_, _, _, _], h => cases h
-                         exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                         exact mk_underflow h_dec h_stack
+                           (by simp [Operation.popArity, List.length])
     | [_, _, _, _, _], h => cases h
-                            exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                            exact mk_underflow h_dec h_stack
+                              (by simp [Operation.popArity, List.length])
     | [_, _, _, _, _, _], h => cases h
-                               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                               exact mk_underflow h_dec h_stack
+                                 (by simp [Operation.popArity, List.length])
   | CALLCODE =>
     match h_stack : s.stack, h with
     | gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest, h =>
@@ -3277,19 +3354,26 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show base ≤ s.gasAvailable + 1; omega
         · omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
     | [_, _, _], h => cases h
-                      exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                      exact mk_underflow h_dec h_stack
+                        (by simp [Operation.popArity, List.length])
     | [_, _, _, _], h => cases h
-                         exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                         exact mk_underflow h_dec h_stack
+                           (by simp [Operation.popArity, List.length])
     | [_, _, _, _, _], h => cases h
-                            exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                            exact mk_underflow h_dec h_stack
+                              (by simp [Operation.popArity, List.length])
     | [_, _, _, _, _, _], h => cases h
-                               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                               exact mk_underflow h_dec h_stack
+                                 (by simp [Operation.popArity, List.length])
   | DELEGATECALL =>
     match h_stack : s.stack, h with
     | gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest, h =>
@@ -3314,17 +3398,23 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show base ≤ s.gasAvailable + 1; omega
         · omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
     | [_, _, _], h => cases h
-                      exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                      exact mk_underflow h_dec h_stack
+                        (by simp [Operation.popArity, List.length])
     | [_, _, _, _], h => cases h
-                         exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                         exact mk_underflow h_dec h_stack
+                           (by simp [Operation.popArity, List.length])
     | [_, _, _, _, _], h => cases h
-                            exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                            exact mk_underflow h_dec h_stack
+                              (by simp [Operation.popArity, List.length])
   | STATICCALL =>
     match h_stack : s.stack, h with
     | gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest, h =>
@@ -3349,17 +3439,23 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show base ≤ s.gasAvailable + 1; omega
         · omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
     | [_, _, _], h => cases h
-                      exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                      exact mk_underflow h_dec h_stack
+                        (by simp [Operation.popArity, List.length])
     | [_, _, _, _], h => cases h
-                         exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                         exact mk_underflow h_dec h_stack
+                           (by simp [Operation.popArity, List.length])
     | [_, _, _, _, _], h => cases h
-                            exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                            exact mk_underflow h_dec h_stack
+                              (by simp [Operation.popArity, List.length])
   | SELFDESTRUCT =>
     match h_stack : s.stack, h with
     | beneficiary :: rest, h =>
@@ -3379,7 +3475,8 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
           · show base ≤ s.gasAvailable + 1; omega
           · omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | CREATE =>
     match h_stack : s.stack, h with
     | value :: offset :: size :: rest, h =>
@@ -3426,7 +3523,7 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
             · rename_i h_addr_some
               split at h
               · split at h
-                all_goals (first | cases h | skip)
+                all_goals try cases h
               · -- forwarded OOG
                 cases h
                 refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
@@ -3439,11 +3536,14 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
           · show base ≤ s.gasAvailable + 1; omega
           · omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
   | CREATE2 =>
     match h_stack : s.stack, h with
     | value :: offset :: size :: salt :: rest, h =>
@@ -3466,7 +3566,7 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
             · cases h  -- depth/balance fail returns .ok
             · split at h
               · split at h
-                all_goals (first | cases h | skip)
+                all_goals try cases h
               · -- forwarded OOG
                 cases h
                 refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
@@ -3484,13 +3584,17 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
           · show base ≤ s.gasAvailable + 1; omega
           · omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
     | [_, _, _], h => cases h
-                      exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                      exact mk_underflow h_dec h_stack
+                        (by simp [Operation.popArity, List.length])
 
 /-- StackMemFlow error path. The largest helper. Sites:
     * `POP`/`SLOAD`/`TLOAD`: 1-arg underflow.
@@ -3516,17 +3620,20 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | SLOAD =>
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | TLOAD =>
     match h_stack : s.stack, h with
     | _ :: _, h => nomatch h
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | MLOAD =>
     match h_stack : s.stack, h with
     | offset :: rest, h =>
@@ -3548,7 +3655,8 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | MSTORE =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
@@ -3570,9 +3678,11 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | MSTORE8 =>
     match h_stack : s.stack, h with
     | offset :: value :: rest, h =>
@@ -3594,9 +3704,11 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | SSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
     · simp [h_perm] at h
@@ -3640,14 +3752,16 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
                   (s.substate.originalStorage s.executionEnv.address key)
                   ((s.accountMap s.executionEnv.address).storage key) value with hscost
             have h_cost' : ¬ scost ≤ s.gasAvailable - base := by
-              simp only [State.consumeGas, ← hbase, ← hscost] at h_cost
+              simp only [State.consumeGas, ← hbase] at h_cost
               exact h_cost
             refine mk_outOfGas h_dec h_stack (base + scost) (Nat.le_add_right _ _) ?_
             omega
         | [], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
         | [_], h => cases h
-                    exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                    exact mk_underflow h_dec h_stack
+                      (by simp [Operation.popArity, List.length])
   | JUMP =>
     match h_stack : s.stack, h with
     | dest :: rest, h =>
@@ -3659,7 +3773,8 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
         simp at h_valid
         exact h_valid
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
   | JUMPI =>
     match h_stack : s.stack, h with
     | dest :: cond :: rest, h =>
@@ -3674,9 +3789,11 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
           · show cond.toNat ≠ 0; exact h_cond
           · simp at h_valid; exact h_valid
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
   | PC | JUMPDEST | MSIZE | GAS => nomatch h
   | TSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -3690,9 +3807,11 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
       match h_stack : s.stack, h with
       | _ :: _ :: _, h => nomatch h
       | [], h => cases h
-                 exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                 exact mk_underflow h_dec h_stack
+                   (by simp [Operation.popArity, List.length])
       | [_], h => cases h
-                  exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                  exact mk_underflow h_dec h_stack
+                    (by simp [Operation.popArity, List.length])
   | MCOPY =>
     match h_stack : s.stack, h with
     | destOff :: srcOff :: sz :: rest, h =>
@@ -3719,8 +3838,7 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
                        MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem
             exact h_mem
           have h_dyn' : s.gasAvailable - base - md < cwc := by
-            simp only [State.consumeGas, State.consumeMemExp2, ← hbase, ← hmd,
-                       ← hcwc] at h_dyn
+            simp only [State.consumeGas, State.consumeMemExp2, ← hbase, ← hmd] at h_dyn
             omega
           refine mk_outOfGas h_dec h_stack (base + md + cwc) ?_ ?_
           · show base ≤ base + md + cwc; omega
@@ -3739,11 +3857,14 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
         refine mk_outOfGas h_dec h_stack (base + md) (Nat.le_add_right _ _) ?_
         omega
     | [], h => cases h
-               exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+               exact mk_underflow h_dec h_stack
+                 (by simp [Operation.popArity, List.length])
     | [_], h => cases h
-                exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                exact mk_underflow h_dec h_stack
+                  (by simp [Operation.popArity, List.length])
     | [_, _], h => cases h
-                   exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
+                   exact mk_underflow h_dec h_stack
+                     (by simp [Operation.popArity, List.length])
 
 end stepF
 
@@ -3757,7 +3878,7 @@ private theorem Operation.pushArity_le_1024 (op : Operation) :
   cases op with
   | StopArith op => cases op <;> decide
   | CompBit op => cases op <;> decide
-  | Keccak op => cases op <;> decide
+  | Keccak op => cases op; decide
   | Env op => cases op <;> decide
   | Block op => cases op <;> decide
   | StackMemFlow op => cases op <;> decide
