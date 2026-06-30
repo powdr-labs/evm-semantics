@@ -1474,6 +1474,26 @@ inductive StepRunning : State → State → Prop
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ }
 
+  /-- CREATE with `createAddress = none`. `createAddress`'s `Option`
+      return reflects `Rlp.encodeAddrNonce`'s `Option` return: the RLP
+      encoder is total in practice for the (≤20-byte address, ≤32-byte
+      nonce) payload, so this case is unreachable for EVM-bounded
+      inputs. The constructor exists for the relational semantics to
+      mirror `stepF`'s total behaviour; `stepF_sound`'s exception
+      direction discharges this branch by construction. -/
+  | createInvalidAddr (s : State)
+        (value offset size : UInt256) (rest : List UInt256)
+        (h_op    : s.decodedOp = some .CREATE)
+        (h_stack : s.stack = value :: offset :: size :: rest)
+        (h_perm  : s.executionEnv.permitStateMutation = true)
+        (h_gas   : Gas.createCommitted s offset size ≤ s.gasAvailable)
+        (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
+                        (s.accountMap s.executionEnv.address).balance < value))
+        (h_addr  : EvmSemantics.createAddress s.executionEnv.address
+                     (s.accountMap s.executionEnv.address).nonce.toNat
+                     = none)
+      : StepRunning s ({ s with halt := .Exception .InvalidInstruction })
+
   /-- CREATE (taken): depth + balance check passes *and* the derived
       address is free. The remaining gas (after base + memory) has
       63/64 forwarded to the init-code frame. See `createCollision`

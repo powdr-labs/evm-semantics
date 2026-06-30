@@ -182,5 +182,85 @@ def encodeInt (n : Nat) : Option ByteArray := encodeNat n
 def encodeAddrNonce (addr : AccountAddress) (nonce : Nat) : Option ByteArray :=
   encodeList [.ofAddress addr, .ofNat nonce]
 
+----------------------------------------------------------------------------
+-- Totality lemmas for the encoder on bounded inputs. Used in
+-- `Equiv.lean` to close `createAddress`'s unreachable `none` arm.
+----------------------------------------------------------------------------
+
+/-- `intToBytesAux n acc` produces a list whose length is at most
+    `acc.length + k` where `k` is any integer satisfying `n < 256^k`.
+    Used to bound `intToBytes`'s output size. -/
+theorem intToBytesAux_length_le (k : Nat) :
+    ∀ (n : Nat) (acc : List UInt8), n < 256^k →
+      (intToBytesAux n acc).length ≤ k + acc.length := by
+  induction k with
+  | zero =>
+    intro n acc h
+    have h_n : n = 0 := by simp [Nat.pow_zero] at h; omega
+    subst h_n
+    unfold intToBytesAux
+    simp
+  | succ k' ih =>
+    intro n acc h
+    unfold intToBytesAux
+    split
+    · omega
+    · rename_i h_nz
+      have h_div : n / 256 < 256^k' := by
+        rw [Nat.pow_succ] at h
+        exact Nat.div_lt_iff_lt_mul (by decide) |>.mpr h
+      have := ih (n / 256) (UInt8.ofNat (n % 256) :: acc) h_div
+      simp [List.length_cons] at this
+      omega
+
+/-- `intToBytes n` has size ≤ `k` whenever `n < 256^k`. -/
+theorem intToBytes_size_le (n k : Nat) (h : n < 256^k) :
+    (intToBytes n).size ≤ k := by
+  show (intToBytesAux n []).toArray.size ≤ k
+  rw [List.size_toArray]
+  have := intToBytesAux_length_le k n [] h
+  simp at this
+  exact this
+
+/-- `intToBytes n` has size ≤ 32 whenever `n < 2^256`. The case used by
+    `createAddress`: nonces are drawn from `UInt256`, so `n < 2^256`. -/
+theorem intToBytes_size_le_32 (n : Nat) (h : n < 2^256) :
+    (intToBytes n).size ≤ 32 := by
+  apply intToBytes_size_le n 32
+  have h_eq : (256 : Nat)^32 = 2^256 := by decide
+  omega
+
+/-- `lengthPrefix` returns `some` whenever the payload fits in 2^64 bytes. -/
+theorem lengthPrefix_isSome {tagSmall tagLarge : UInt8} {n : Nat}
+    (h : n < 2^64) : (lengthPrefix tagSmall tagLarge n).isSome := by
+  unfold lengthPrefix
+  by_cases h_small : n ≤ 55
+  · simp [h_small]
+  · simp [h_small]; exact h
+
+/-- `encodeBytes bs` returns `some` whenever `bs.size < 2^64`. -/
+theorem encodeBytes_isSome {bs : ByteArray} (h : bs.size < 2^64) :
+    (encodeBytes bs).isSome := by
+  unfold encodeBytes
+  split
+  · simp
+  · have h_lp := lengthPrefix_isSome (tagSmall := 0x80) (tagLarge := 0xb7) h
+    cases h_lp_eq : lengthPrefix 0x80 0xb7 bs.size with
+    | none => rw [h_lp_eq] at h_lp; simp at h_lp
+    | some _ => simp
+
+/-- `encodeRawList` returns `some` whenever the concatenated payload
+    fits in 2^64 bytes. -/
+theorem encodeRawList_isSome {items : List ByteArray}
+    (h : (items.foldl (· ++ ·) ByteArray.empty).size < 2^64) :
+    (encodeRawList items).isSome := by
+  unfold encodeRawList
+  set payload := items.foldl (· ++ ·) ByteArray.empty with h_pay
+  have h_lp := lengthPrefix_isSome (tagSmall := 0xc0) (tagLarge := 0xf7) (n := payload.size) h
+  cases h_lp_eq : lengthPrefix 0xc0 0xf7 payload.size with
+  | none => rw [h_lp_eq] at h_lp; simp at h_lp
+  | some _ => simp [h_lp_eq]
+
+
 end Rlp
 end EvmSemantics
