@@ -132,6 +132,21 @@ def fib : Nat → Nat
   | 1     => 1
   | n + 2 => fib (n + 1) + fib n
 
+/-- `fib n ≤ fib (n + 1)` — used to propagate "no overflow" through the loop. -/
+theorem fib_le_succ (n : Nat) : fib n ≤ fib (n + 1) := by
+  match n with
+  | 0     => decide
+  | 1     => decide
+  | m + 2 => show fib (m + 2) ≤ fib (m + 2) + fib (m + 1); omega
+
+/-- `fib m ≤ fib (m + k)` — fib is monotone in its argument. -/
+theorem fib_le_add (m k : Nat) : fib m ≤ fib (m + k) := by
+  induction k with
+  | zero => exact Nat.le_refl _
+  | succ k' ih =>
+    have : m + k' + 1 = m + (k' + 1) := by omega
+    exact this ▸ Nat.le_trans ih (fib_le_succ (m + k'))
+
 /-- Decode a 32-byte big-endian `ByteArray` to a `Nat`. -/
 def bytesToNat (bs : ByteArray) : Nat :=
   bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
@@ -806,6 +821,576 @@ theorem fib_correct (n : Nat) (h_n : n ≤ 1000)
     ∃ sf : State, Steps (initState n) sf ∧ sf.halt = .Returned :=
   ((init_triple n h_n h_calldata).seq <| (loop_triple n h_n).seq end_triple)
     _ rfl
+
+----------------------------------------------------------------------------
+-- Value-correctness: the program returns the encoded `fib n`.
+--
+-- The termination claim `fib_correct` above doesn't say what the program
+-- returned. The theorems below strengthen the chain to carry the
+-- Fibonacci invariant through the loop and the memory/`hReturn`
+-- equations through the end block. They culminate in `fib_returns`,
+-- which asserts that the halted state's `hReturn` is exactly
+-- `readPadded (writeBytes empty (wordBytes (ofNat (fib n))) 0) 0 32`
+-- — i.e. the 32-byte big-endian encoding of `fib n` (modulo `2^256`
+-- when `fib (n+1)` overflows, but we guard that with `h_fib_size`).
+----------------------------------------------------------------------------
+
+/-- Local memory-tracking wrappers — same pattern as the per-opcode
+    wrappers above, but each takes/produces an extra `s.memory = m`
+    conjunct so we can thread memory through the end block. -/
+theorem calldataload_triple_mem {env : ExecutionEnv} {pc_n : Nat} {i : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.CALLDATALOAD, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (i :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1)
+                  (MachineState.readWord env.calldata i.toNat :: rest)
+                  (gas_in - 3) active s ∧ s.memory = m) :=
+  Hoare.calldataload_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem jumpdest_triple_mem {env : ExecutionEnv} {pc_n : Nat}
+    {stack : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.JUMPDEST, none))
+    (h_gas : 1 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n stack gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) stack (gas_in - 1) active s ∧ s.memory = m) :=
+  Hoare.jumpdest_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem pop_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.POP, none))
+    (h_gas : 2 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) rest (gas_in - 2) active s ∧ s.memory = m) :=
+  Hoare.pop_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem push1_triple_mem {env : ExecutionEnv} {pc_n : Nat} {data : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 2 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.Push ⟨1, by decide⟩, some (data, 1)))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n rest gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 2) (data :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) :=
+  Hoare.push1_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem mstore_triple_mem {env : ExecutionEnv} {pc_n : Nat} {value : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.MSTORE, none))
+    (h_gas : 6 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (UInt256.ofNat 0 :: value :: rest) gas_in
+                  (UInt256.ofNat 0) s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) rest (gas_in - 6) (UInt256.ofNat 1) s
+                ∧ s.memory =
+                  MachineState.writeBytes m (MachineState.wordBytes value) 0) :=
+  Hoare.mstore_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem return_triple_mem {env : ExecutionEnv} {pc_n : Nat}
+    {rest : List UInt256} {gas_in : Nat} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_dec : decodeFib pc_n = some (.RETURN, none)) :
+    Triple
+      (fun s => StateAt env pc_n (UInt256.ofNat 0 :: UInt256.ofNat 0x20 :: rest)
+                  gas_in (UInt256.ofNat 1) s ∧ s.memory = m)
+      (fun sf => sf.halt = .Returned ∧
+        sf.hReturn = MachineState.readPadded m 0 32) :=
+  Hoare.return_triple_mem (decodeAt_of_decodeFib h_code h_dec)
+
+theorem dup_triple_mem {env : ExecutionEnv} {pc_n : Nat} {n : Fin 16} {v : UInt256}
+    {stack : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.Dup ⟨n⟩, none))
+    (h_get : stack[n.val]? = some v)
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n stack gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) (v :: stack) (gas_in - 3) active s ∧ s.memory = m) :=
+  Hoare.dup_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_get h_gas
+
+theorem iszero_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.ISZERO, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) (UInt256.isZero a :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) :=
+  Hoare.iszero_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem swap_triple_mem {env : ExecutionEnv} {pc_n : Nat} {n : Fin 16}
+    {stack stack' : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.Swap ⟨n⟩, none))
+    (h_sw : stack.exchange 0 (n.val + 1) = some stack')
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n stack gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) stack' (gas_in - 3) active s ∧ s.memory = m) :=
+  Hoare.swap_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_sw h_gas
+
+theorem add_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a b : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.ADD, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: b :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) ((a + b) :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) :=
+  Hoare.add_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem sub_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a b : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.SUB, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: b :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) ((a - b) :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) :=
+  Hoare.sub_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_gas
+
+theorem jump_triple_mem {env : ExecutionEnv} {pc_n : Nat} {dest : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_dec : decodeFib pc_n = some (.JUMP, none))
+    (h_valid : Decode.isValidJumpDest env.code dest.toNat = true)
+    (h_gas : 8 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (dest :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env dest.toNat rest (gas_in - 8) active s ∧ s.memory = m) :=
+  Hoare.jump_triple_mem (decodeAt_of_decodeFib h_code h_dec) h_valid h_gas
+
+theorem jumpi_taken_triple_mem {env : ExecutionEnv} {pc_n : Nat} {dest cond : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_dec : decodeFib pc_n = some (.JUMPI, none))
+    (h_cond : UInt256.isTrue cond)
+    (h_valid : Decode.isValidJumpDest env.code dest.toNat = true)
+    (h_gas : 10 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (dest :: cond :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env dest.toNat rest (gas_in - 10) active s ∧ s.memory = m) :=
+  Hoare.jumpi_taken_triple_mem (decodeAt_of_decodeFib h_code h_dec) h_cond h_valid h_gas
+
+theorem jumpi_notTaken_triple_mem {env : ExecutionEnv} {pc_n : Nat} {dest cond : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_code : env.code = code)
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : decodeFib pc_n = some (.JUMPI, none))
+    (h_cond : ¬ UInt256.isTrue cond)
+    (h_gas : 10 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (dest :: cond :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) rest (gas_in - 10) active s ∧ s.memory = m) :=
+  Hoare.jumpi_notTaken_triple_mem h_pcb (decodeAt_of_decodeFib h_code h_dec) h_cond h_gas
+
+/-- Memory-tracking variant of `loop_check_taken_via_opcodes`. Same proof
+    structure but uses the `_mem` per-opcode wrappers so `s.memory = m`
+    threads through to the post-condition. -/
+theorem loop_check_taken_via_opcodes_mem {env : ExecutionEnv}
+    {b a : UInt256} {rest : List UInt256} {gas_in : Nat} {active : UInt256}
+    {m : ByteArray}
+    (h_code : env.code = code) (h_gas : 20 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env 7 (b :: a :: UInt256.ofNat 0 :: rest) gas_in active s
+                ∧ s.memory = m)
+      (fun s => StateAt env 25 (b :: a :: UInt256.ofNat 0 :: rest) (gas_in - 20)
+                  active s ∧ s.memory = m) := by
+  have step1 := jumpdest_triple_mem (env := env) (pc_n := 7) (gas_in := gas_in)
+    (active := active) (stack := b :: a :: UInt256.ofNat 0 :: rest) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step2 := dup_triple_mem (env := env) (pc_n := 8) (n := ⟨2, by decide⟩)
+    (v := UInt256.ofNat 0) (gas_in := gas_in - 1) (active := active)
+    (stack := b :: a :: UInt256.ofNat 0 :: rest) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step3 := iszero_triple_mem (env := env) (pc_n := 9) (a := UInt256.ofNat 0)
+    (gas_in := gas_in - 1 - 3) (active := active)
+    (rest := b :: a :: UInt256.ofNat 0 :: rest) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step4 := push1_triple_mem (env := env) (pc_n := 10) (data := UInt256.ofNat 0x19)
+    (gas_in := gas_in - 1 - 3 - 3) (active := active)
+    (rest := UInt256.isZero (UInt256.ofNat 0) :: b :: a :: UInt256.ofNat 0 :: rest)
+    (m := m)
+    h_code (by decide) rfl (by omega)
+  have step5 := jumpi_taken_triple_mem (env := env) (pc_n := 12)
+    (dest := UInt256.ofNat 0x19) (cond := UInt256.isZero (UInt256.ofNat 0))
+    (gas_in := gas_in - 1 - 3 - 3 - 3) (active := active)
+    (rest := b :: a :: UInt256.ofNat 0 :: rest) (m := m)
+    h_code rfl (by decide) (by rw [h_code]; rfl) (by omega)
+  have chain := step1.seq <| step2.seq <| step3.seq <| step4.seq step5
+  intro s h_s
+  obtain ⟨sf, hs, hf, h_mem⟩ := chain s h_s
+  refine ⟨sf, hs, ⟨hf.env_eq, ?_, hf.halt, hf.stack_eq, ?_, hf.active_eq⟩, h_mem⟩
+  · show sf.pc.toNat = 25; rw [hf.pc]; rfl
+  · show sf.gasAvailable = gas_in - 20; rw [hf.gas_eq]; omega
+
+/-- Memory-tracking variant of `loop_check_continue_via_opcodes`. -/
+theorem loop_check_continue_via_opcodes_mem {env : ExecutionEnv}
+    {b a i : UInt256} {rest : List UInt256} {gas_in : Nat} {active : UInt256}
+    {m : ByteArray}
+    (h_code : env.code = code) (h_i_nz : i.toNat ≠ 0) (h_gas : 20 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env 7 (b :: a :: i :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env 13 (b :: a :: i :: rest) (gas_in - 20) active s
+                ∧ s.memory = m) := by
+  have step1 := jumpdest_triple_mem (env := env) (pc_n := 7) (gas_in := gas_in)
+    (active := active) (stack := b :: a :: i :: rest) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step2 := dup_triple_mem (env := env) (pc_n := 8) (n := ⟨2, by decide⟩)
+    (v := i) (gas_in := gas_in - 1) (active := active)
+    (stack := b :: a :: i :: rest) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step3 := iszero_triple_mem (env := env) (pc_n := 9) (a := i)
+    (gas_in := gas_in - 1 - 3) (active := active)
+    (rest := b :: a :: i :: rest) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step4 := push1_triple_mem (env := env) (pc_n := 10) (data := UInt256.ofNat 0x19)
+    (gas_in := gas_in - 1 - 3 - 3) (active := active)
+    (rest := UInt256.isZero i :: b :: a :: i :: rest) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step5 := jumpi_notTaken_triple_mem (env := env) (pc_n := 12)
+    (dest := UInt256.ofNat 0x19) (cond := UInt256.isZero i)
+    (gas_in := gas_in - 1 - 3 - 3 - 3) (active := active)
+    (rest := b :: a :: i :: rest) (m := m)
+    h_code (by decide) rfl
+    (by simp [UInt256.isTrue, UInt256.isZero, h_i_nz]; rfl) (by omega)
+  have chain := step1.seq <| step2.seq <| step3.seq <| step4.seq step5
+  intro s h_s
+  obtain ⟨sf, hs, hf, h_mem⟩ := chain s h_s
+  refine ⟨sf, hs, ⟨hf.env_eq, ?_, hf.halt, hf.stack_eq, ?_, hf.active_eq⟩, h_mem⟩
+  · show sf.pc.toNat = 13; rw [hf.pc]
+  · show sf.gasAvailable = gas_in - 20; rw [hf.gas_eq]; omega
+
+/-- Memory-tracking variant of `loop_body_via_opcodes`. -/
+theorem loop_body_via_opcodes_mem {env : ExecutionEnv}
+    {b a i : UInt256} {rest : List UInt256} {gas_in : Nat} {active : UInt256}
+    {m : ByteArray}
+    (h_code : env.code = code) (h_gas : 35 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env 13 (b :: a :: i :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env 7 ((b + a) :: b :: (i - UInt256.ofNat 1) :: rest)
+                  (gas_in - 35) active s ∧ s.memory = m) := by
+  have step1 := swap_triple_mem (env := env) (pc_n := 13) (n := ⟨0, by decide⟩)
+    (stack := b :: a :: i :: rest) (stack' := a :: b :: i :: rest)
+    (gas_in := gas_in) (active := active) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step2 := dup_triple_mem (env := env) (pc_n := 14) (n := ⟨1, by decide⟩)
+    (v := b) (stack := a :: b :: i :: rest)
+    (gas_in := gas_in - 3) (active := active) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step3 := add_triple_mem (env := env) (pc_n := 15) (a := b) (b := a)
+    (rest := b :: i :: rest) (gas_in := gas_in - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step4 := swap_triple_mem (env := env) (pc_n := 16) (n := ⟨1, by decide⟩)
+    (stack := (b + a) :: b :: i :: rest) (stack' := i :: b :: (b + a) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step5 := push1_triple_mem (env := env) (pc_n := 17) (data := UInt256.ofNat 1)
+    (rest := i :: b :: (b + a) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step6 := swap_triple_mem (env := env) (pc_n := 19) (n := ⟨0, by decide⟩)
+    (stack := UInt256.ofNat 1 :: i :: b :: (b + a) :: rest)
+    (stack' := i :: UInt256.ofNat 1 :: b :: (b + a) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3 - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step7 := sub_triple_mem (env := env) (pc_n := 20) (a := i) (b := UInt256.ofNat 1)
+    (rest := b :: (b + a) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3 - 3 - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step8 := swap_triple_mem (env := env) (pc_n := 21) (n := ⟨1, by decide⟩)
+    (stack := (i - UInt256.ofNat 1) :: b :: (b + a) :: rest)
+    (stack' := (b + a) :: b :: (i - UInt256.ofNat 1) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3 - 3 - 3 - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl rfl (by omega)
+  have step9 := push1_triple_mem (env := env) (pc_n := 22) (data := UInt256.ofNat 7)
+    (rest := (b + a) :: b :: (i - UInt256.ofNat 1) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3 - 3 - 3 - 3 - 3 - 3) (active := active) (m := m)
+    h_code (by decide) rfl (by omega)
+  have step10 := jump_triple_mem (env := env) (pc_n := 24) (dest := UInt256.ofNat 7)
+    (rest := (b + a) :: b :: (i - UInt256.ofNat 1) :: rest)
+    (gas_in := gas_in - 3 - 3 - 3 - 3 - 3 - 3 - 3 - 3 - 3)
+    (active := active) (m := m)
+    h_code rfl (by rw [h_code]; rfl) (by omega)
+  have chain := step1.seq <| step2.seq <| step3.seq <| step4.seq <| step5.seq <|
+                step6.seq <| step7.seq <| step8.seq <| step9.seq step10
+  intro s h_s
+  obtain ⟨sf, hs, hf, h_mem⟩ := chain s h_s
+  refine ⟨sf, hs, ⟨hf.env_eq, ?_, hf.halt, hf.stack_eq, ?_, hf.active_eq⟩, h_mem⟩
+  · show sf.pc.toNat = 7; rw [hf.pc]; rfl
+  · show sf.gasAvailable = gas_in - 35; rw [hf.gas_eq]; omega
+/-- Strengthened loop: from PC 7 with the Fibonacci-pair invariant
+    `[ofNat (fib (j+1)), ofNat (fib j), ofNat k, rest]` and `k`
+    iterations to run, reach PC 25 with stack
+    `[ofNat (fib (j+k+1)), ofNat (fib (j+k)), 0, rest]`. The two
+    side-conditions `h_size` and `h_fib_size` keep all intermediate
+    `ofNat (·)` values below `2^256` so the loop body's modular
+    `UInt256.add` agrees with `Nat.add`. -/
+theorem loop_total_fib (j k : Nat)
+    (h_size : j + k + 1 < UInt256.size)
+    (h_fib_size : fib (j + k + 1) < UInt256.size)
+    {env : ExecutionEnv} {rest : List UInt256} {gas_in : Nat} {m : ByteArray}
+    (h_code : env.code = code) (h_gas : 55 * k + 20 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env 7
+        (UInt256.ofNat (fib (j+1)) :: UInt256.ofNat (fib j) ::
+          UInt256.ofNat k :: rest)
+        gas_in (UInt256.ofNat 0) s ∧ s.memory = m)
+      (fun s => StateAt env 25
+        (UInt256.ofNat (fib (j+k+1)) :: UInt256.ofNat (fib (j+k)) ::
+          UInt256.ofNat 0 :: rest)
+        (gas_in - (55 * k + 20)) (UInt256.ofNat 0) s ∧ s.memory = m) := by
+  induction k generalizing j gas_in with
+  | zero =>
+    intro s h_pre
+    have step := loop_check_taken_via_opcodes_mem (env := env)
+      (b := UInt256.ofNat (fib (j+1))) (a := UInt256.ofNat (fib j))
+      (rest := rest) (gas_in := gas_in) (active := UInt256.ofNat 0) (m := m)
+      h_code (by omega) s h_pre
+    have h1 : j + 0 + 1 = j + 1 := by omega
+    have h2 : j + 0 = j := by omega
+    rw [h1, h2]
+    exact step
+  | succ k' ih =>
+    intro s h_pre
+    have h_i_nz : (UInt256.ofNat (k'+1)).toNat ≠ 0 := by
+      rw [Hoare.ofNat_toNat (k'+1) (by omega)]; omega
+    obtain ⟨s1, hs1, hf1⟩ := loop_check_continue_via_opcodes_mem (env := env)
+      (b := UInt256.ofNat (fib (j+1))) (a := UInt256.ofNat (fib j))
+      (i := UInt256.ofNat (k'+1))
+      (rest := rest) (gas_in := gas_in) (active := UInt256.ofNat 0) (m := m)
+      h_code h_i_nz (by omega) s h_pre
+    obtain ⟨s2, hs2, hf2⟩ := loop_body_via_opcodes_mem (env := env)
+      (b := UInt256.ofNat (fib (j+1))) (a := UInt256.ofNat (fib j))
+      (i := UInt256.ofNat (k'+1)) (rest := rest) (gas_in := gas_in - 20)
+      (active := UInt256.ofNat 0) (m := m)
+      h_code (by omega) s1 hf1
+    have h_add : UInt256.ofNat (fib (j+1)) + UInt256.ofNat (fib j)
+                 = UInt256.ofNat (fib (j+2)) := by
+      have h_bound : fib (j+1) + fib j < UInt256.size := by
+        have h_def : fib (j+1) + fib j = fib (j+2) := rfl
+        rw [h_def]
+        have h_le : fib (j+2) ≤ fib (j + (k'+1) + 1) := by
+          have h_idx : j + (k'+1) + 1 = (j + 2) + k' := by omega
+          rw [h_idx]; exact fib_le_add (j+2) k'
+        omega
+      rw [Hoare.ofNat_add (fib (j+1)) (fib j) h_bound]
+      rfl
+    have h_sub : UInt256.ofNat (k'+1) - UInt256.ofNat 1 = UInt256.ofNat k' :=
+      Hoare.ofNat_sub_one k' (by omega)
+    have hf2' :
+        StateAt env 7
+          (UInt256.ofNat (fib (j+2)) :: UInt256.ofNat (fib (j+1)) ::
+            UInt256.ofNat k' :: rest)
+          (gas_in - 20 - 35) (UInt256.ofNat 0) s2
+        ∧ s2.memory = m := by
+      have h_stack :
+          (UInt256.ofNat (fib (j+1)) + UInt256.ofNat (fib j)) ::
+            UInt256.ofNat (fib (j+1)) ::
+            (UInt256.ofNat (k'+1) - UInt256.ofNat 1) :: rest
+          = UInt256.ofNat (fib (j+2)) ::
+            UInt256.ofNat (fib (j+1)) ::
+            UInt256.ofNat k' :: rest := by
+        rw [h_add, h_sub]
+      exact ⟨h_stack ▸ hf2.1, hf2.2⟩
+    have h_idx_size : (j + 1) + k' + 1 < UInt256.size := by omega
+    have h_idx_fib : fib ((j+1) + k' + 1) < UInt256.size := by
+      have : (j+1) + k' + 1 = j + (k'+1) + 1 := by omega
+      rw [this]; exact h_fib_size
+    obtain ⟨sf, hs3, hf3⟩ :=
+      ih (j := j+1) (gas_in := gas_in - 20 - 35) h_idx_size h_idx_fib
+         (by omega) s2 hf2'
+    refine ⟨sf, hs1.append (hs2.append hs3), ?_⟩
+    have h_idx1 : (j + 1) + k' + 1 = j + (k' + 1) + 1 := by omega
+    have h_idx2 : (j + 1) + k' = j + (k' + 1) := by omega
+    have h_gas_eq : gas_in - 20 - 35 - (55 * k' + 20) = gas_in - (55 * (k'+1) + 20) := by
+      omega
+    rw [← h_idx1, ← h_idx2, ← h_gas_eq]
+    exact hf3
+
+/-- Loop as a triple, with the Fibonacci invariant: starting from
+    `[ofNat 1, ofNat 0, ofNat n]` at PC 7 (i.e. `[fib 1, fib 0, n]`),
+    reach `[ofNat (fib (n+1)), ofNat (fib n), 0]` at PC 25. -/
+theorem loop_fib_triple (n : Nat) (h_n : n ≤ 1000)
+    (h_fib_size : fib (n + 1) < UInt256.size)
+    {env : ExecutionEnv} {rest : List UInt256} {gas_in : Nat} {m : ByteArray}
+    (h_code : env.code = code) (h_gas : 55 * n + 20 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env 7
+        (UInt256.ofNat 1 :: UInt256.ofNat 0 :: UInt256.ofNat n :: rest)
+        gas_in (UInt256.ofNat 0) s ∧ s.memory = m)
+      (fun s => StateAt env 25
+        (UInt256.ofNat (fib (n+1)) :: UInt256.ofNat (fib n) ::
+          UInt256.ofNat 0 :: rest)
+        (gas_in - (55 * n + 20)) (UInt256.ofNat 0) s ∧ s.memory = m) := by
+  have h_size : 0 + n + 1 < UInt256.size := by
+    have : UInt256.size = 2^256 := by decide
+    omega
+  have h_fib : fib (0 + n + 1) < UInt256.size := by
+    have h : 0 + n + 1 = n + 1 := by omega
+    rw [h]; exact h_fib_size
+  have h_pre_eq :
+      UInt256.ofNat 1 :: UInt256.ofNat 0 :: UInt256.ofNat n :: rest
+    = UInt256.ofNat (fib (0+1)) :: UInt256.ofNat (fib 0) ::
+      UInt256.ofNat n :: rest := rfl
+  have h_post_eq :
+      UInt256.ofNat (fib (0+n+1)) :: UInt256.ofNat (fib (0+n)) ::
+      UInt256.ofNat 0 :: rest
+    = UInt256.ofNat (fib (n+1)) :: UInt256.ofNat (fib n) ::
+      UInt256.ofNat 0 :: rest := by
+    have h1 : 0 + n + 1 = n + 1 := by omega
+    have h2 : 0 + n = n := by omega
+    rw [h1, h2]
+  rw [h_pre_eq, ← h_post_eq]
+  exact loop_total_fib 0 n h_size h_fib h_code h_gas
+
+/-- End-block with value tracking — chained from the 5 memory-tracking
+    per-opcode triples via `Triple.seq`. From PC 25 with stack
+    `[b, a, 0, rest]` and `memory = memIn`, reach `halt = .Returned`
+    with `sf.hReturn = readPadded (writeBytes memIn (wordBytes a) 0) 0 32`. -/
+theorem end_block_value_via_opcodes {env : ExecutionEnv}
+    {b a : UInt256} {rest : List UInt256} {gas_in : Nat} {memIn : ByteArray}
+    (h_code : env.code = code) (h_gas : 18 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env 25 (b :: a :: UInt256.ofNat 0 :: rest) gas_in
+                  (UInt256.ofNat 0) s ∧ s.memory = memIn)
+      (fun sf => sf.halt = .Returned ∧
+        sf.hReturn = MachineState.readPadded
+          (MachineState.writeBytes memIn (MachineState.wordBytes a) 0) 0 32) := by
+  have step1 := jumpdest_triple_mem (env := env) (pc_n := 25)
+    (stack := b :: a :: UInt256.ofNat 0 :: rest) (gas_in := gas_in)
+    (active := UInt256.ofNat 0) (m := memIn)
+    h_code (by decide) rfl (by omega)
+  have step2 := pop_triple_mem (env := env) (pc_n := 26) (a := b)
+    (rest := a :: UInt256.ofNat 0 :: rest) (gas_in := gas_in - 1)
+    (active := UInt256.ofNat 0) (m := memIn)
+    h_code (by decide) rfl (by omega)
+  have step3 := push1_triple_mem (env := env) (pc_n := 27)
+    (data := UInt256.ofNat 0)
+    (rest := a :: UInt256.ofNat 0 :: rest) (gas_in := gas_in - 1 - 2)
+    (active := UInt256.ofNat 0) (m := memIn)
+    h_code (by decide) rfl (by omega)
+  have step4 := mstore_triple_mem (env := env) (pc_n := 29) (value := a)
+    (rest := UInt256.ofNat 0 :: rest) (gas_in := gas_in - 1 - 2 - 3) (m := memIn)
+    h_code (by decide) rfl (by omega)
+  let memOut := MachineState.writeBytes memIn (MachineState.wordBytes a) 0
+  have step5 := push1_triple_mem (env := env) (pc_n := 30)
+    (data := UInt256.ofNat 0x20)
+    (rest := UInt256.ofNat 0 :: rest) (gas_in := gas_in - 12)
+    (active := UInt256.ofNat 1) (m := memOut)
+    h_code (by decide) rfl (by omega)
+  have step6 := push1_triple_mem (env := env) (pc_n := 32)
+    (data := UInt256.ofNat 0)
+    (rest := UInt256.ofNat 0x20 :: UInt256.ofNat 0 :: rest)
+    (gas_in := gas_in - 12 - 3) (active := UInt256.ofNat 1) (m := memOut)
+    h_code (by decide) rfl (by omega)
+  have step7 := return_triple_mem (env := env) (pc_n := 34)
+    (rest := UInt256.ofNat 0 :: rest)
+    (gas_in := gas_in - 12 - 3 - 3) (m := memOut)
+    h_code rfl
+  exact step1.seq <| step2.seq <| step3.seq <| step4.seq <|
+        step5.seq <| step6.seq step7
+
+/-- Init triple, value version: from `initState n` (with the
+    calldata-decoding side condition), reach PC 7 with stack
+    `[ofNat 1, ofNat 0, ofNat n]` and memory `ByteArray.empty`. The
+    chain uses memory-tracking triples so `s.memory = ByteArray.empty`
+    threads through automatically. -/
+theorem init_value_triple (n : Nat) (_h_n : n ≤ 1000)
+    (h_calldata : calldataN (calldataFor n) = UInt256.ofNat n) :
+    Triple (fun s => s = initState n)
+      (fun s =>
+        StateAt (initState n).executionEnv 7
+          (UInt256.ofNat 1 :: UInt256.ofNat 0 :: UInt256.ofNat n :: [])
+          (100000 - 12) (UInt256.ofNat 0) s
+        ∧ s.memory = ByteArray.empty) := by
+  set env := (initState n).executionEnv with h_env_def
+  have h_envcode : env.code = code := rfl
+  have step1 := push1_triple_mem (env := env) (pc_n := 0) (data := UInt256.ofNat 4)
+    (rest := []) (gas_in := 100000) (active := UInt256.ofNat 0)
+    (m := ByteArray.empty)
+    h_envcode (by decide) rfl (by decide)
+  have step2 := calldataload_triple_mem (env := env) (pc_n := 2)
+    (i := UInt256.ofNat 4) (rest := []) (gas_in := 100000 - 3)
+    (active := UInt256.ofNat 0) (m := ByteArray.empty)
+    h_envcode (by decide) rfl (by decide)
+  have step3 := push1_triple_mem (env := env) (pc_n := 3) (data := UInt256.ofNat 0)
+    (rest := [MachineState.readWord env.calldata (UInt256.ofNat 4).toNat])
+    (gas_in := 100000 - 6) (active := UInt256.ofNat 0)
+    (m := ByteArray.empty)
+    h_envcode (by decide) rfl (by decide)
+  have step4 := push1_triple_mem (env := env) (pc_n := 5) (data := UInt256.ofNat 1)
+    (rest := [UInt256.ofNat 0,
+              MachineState.readWord env.calldata (UInt256.ofNat 4).toNat])
+    (gas_in := 100000 - 9) (active := UInt256.ofNat 0)
+    (m := ByteArray.empty)
+    h_envcode (by decide) rfl (by decide)
+  intro s h_s
+  subst h_s
+  obtain ⟨sf, hs, hf, h_mem⟩ :=
+    (step1.seq <| step2.seq <| step3.seq step4)
+    (initState n) ⟨⟨rfl, rfl, rfl, rfl, rfl, rfl⟩, rfl⟩
+  refine ⟨sf, hs, ⟨hf.env_eq, hf.pc, hf.halt, ?_, hf.gas_eq, hf.active_eq⟩, h_mem⟩
+  rw [hf.stack_eq]
+  show [UInt256.ofNat 1, UInt256.ofNat 0,
+        MachineState.readWord env.calldata (UInt256.ofNat 4).toNat] =
+       [UInt256.ofNat 1, UInt256.ofNat 0, UInt256.ofNat n]
+  have : MachineState.readWord env.calldata (UInt256.ofNat 4).toNat
+       = calldataN (calldataFor n) := rfl
+  rw [this, h_calldata]
+
+/-- **Headline theorem.** From `initState n` (with `n ≤ 1000` for the
+    gas/PC bounds and `fib (n+1) < 2^256` so the loop's modular
+    `UInt256.add` matches `Nat.add`), the program halts in `.Returned`
+    with `hReturn` equal to the 32-byte big-endian encoding of
+    `ofNat (fib n)`. -/
+theorem fib_returns (n : Nat) (h_n : n ≤ 1000)
+    (h_fib_size : fib (n + 1) < UInt256.size)
+    (h_calldata : calldataN (calldataFor n) = UInt256.ofNat n) :
+    ∃ sf : State,
+      Steps (initState n) sf ∧
+      sf.halt = .Returned ∧
+      sf.hReturn = MachineState.readPadded
+        (MachineState.writeBytes ByteArray.empty
+          (MachineState.wordBytes (UInt256.ofNat (fib n))) 0) 0 32 := by
+  set env := (initState n).executionEnv with h_env_def
+  have h_code : env.code = code := rfl
+  -- Compose `init_value_triple`, `loop_fib_triple`, and `end_block_value_via_opcodes`,
+  -- threading `memory = ByteArray.empty` through the whole chain via the
+  -- memory-tracking variants.
+  obtain ⟨s1, hs1, hf1, hmem1⟩ :=
+    init_value_triple n h_n h_calldata (initState n) rfl
+  obtain ⟨s2, hs2, hf2, hmem2⟩ :=
+    loop_fib_triple n h_n h_fib_size (rest := []) (gas_in := 100000 - 12)
+      (m := ByteArray.empty)
+      h_code (by omega) s1 ⟨hf1, hmem1⟩
+  obtain ⟨sf, hs3, h_halt, h_hReturn⟩ :=
+    end_block_value_via_opcodes (env := env)
+      (b := UInt256.ofNat (fib (n+1))) (a := UInt256.ofNat (fib n))
+      (rest := []) (gas_in := 100000 - 12 - (55 * n + 20)) (memIn := ByteArray.empty)
+      h_code (by omega) s2 ⟨hf2, hmem2⟩
+  exact ⟨sf, hs1.append (hs2.append hs3), h_halt, h_hReturn⟩
 
 def main : IO Unit := do
   IO.println "FibDemo — iterative Fibonacci in EVM bytecode"

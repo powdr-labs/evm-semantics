@@ -64,6 +64,15 @@ theorem ofNat_toNat (k : Nat) (h : k < UInt256.size) :
 theorem uint256_eq_of_toNat (i j : UInt256) (h : i.toNat = j.toNat) : i = j := by
   cases i; cases j; congr 1; exact Fin.ext h
 
+/-- `UInt256.ofNat a + UInt256.ofNat b = UInt256.ofNat (a + b)` when `a + b < 2^256`. -/
+theorem ofNat_add (a b : Nat) (h : a + b < UInt256.size) :
+    UInt256.ofNat a + UInt256.ofNat b = UInt256.ofNat (a + b) := by
+  apply uint256_eq_of_toNat
+  rw [ofNat_toNat _ h]
+  have := pc_add (UInt256.ofNat a) b
+    (by rw [ofNat_toNat a (by omega)]; omega)
+  rw [this, ofNat_toNat a (by omega)]
+
 /-- `UInt256.ofNat (k+1) - UInt256.ofNat 1 = UInt256.ofNat k` when `k+1 < 2^256`. -/
 theorem ofNat_sub_one (k : Nat) (h : k + 1 < UInt256.size) :
     UInt256.ofNat (k + 1) - UInt256.ofNat 1 = UInt256.ofNat k := by
@@ -473,6 +482,370 @@ theorem return_triple {env : ExecutionEnv} {pc_n : Nat}
   refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
     (StepRunning.return_ s (UInt256.ofNat 0) (UInt256.ofNat 0x20) rest
       h_op h_stack h_total)), rfl⟩
+
+----------------------------------------------------------------------------
+-- Memory-tracking triples.
+--
+-- A few demos (e.g. proving a program returns a specific byte sequence)
+-- need to track the `memory` field through the chain so the final
+-- `RETURN`'s `hReturn = readPadded memory 0 32` can be related to a
+-- known byte string. The five triples below carry an extra
+-- `s.memory = m` conjunct in both pre- and post-condition. JUMPDEST,
+-- POP, and PUSH1 leave `m` unchanged; MSTORE writes `wordBytes value`
+-- at offset 0 (specialised to the case `activeWords = 0`, the most
+-- common shape in demos that compute one 32-byte result);
+-- RETURN-with-memory exposes the final `hReturn` as a readPadded of
+-- the carried memory.
+----------------------------------------------------------------------------
+
+/-- `CALLDATALOAD` with memory tracking. -/
+theorem calldataload_triple_mem {env : ExecutionEnv} {pc_n : Nat} {i : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.CALLDATALOAD, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (i :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1)
+                  (MachineState.readWord env.calldata i.toNat :: rest)
+                  (gas_in - 3) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .CALLDATALOAD :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .CALLDATALOAD ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.calldataload s i rest h_op h_gas_bd h_stack)),
+    ⟨h_env, ?_, h_halt, ?_, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show MachineState.readWord s.executionEnv.calldata _ :: rest = _
+    rw [h_env]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `JUMPDEST` with memory tracking. -/
+theorem jumpdest_triple_mem {env : ExecutionEnv} {pc_n : Nat}
+    {stack : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.JUMPDEST, none))
+    (h_gas : 1 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n stack gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) stack (gas_in - 1) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .JUMPDEST :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .JUMPDEST ≤ s.gasAvailable := by
+    show 1 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.jumpdest s h_op h_gas_bd)), ⟨h_env, ?_, h_halt, h_stack, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 1 = gas_in - 1
+    rw [h_g]
+
+/-- `POP` with memory tracking. -/
+theorem pop_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.POP, none))
+    (h_gas : 2 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) rest (gas_in - 2) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .POP :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .POP ≤ s.gasAvailable := by
+    show 2 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.pop s a rest h_op h_gas_bd h_stack)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 2 = gas_in - 2
+    rw [h_g]
+
+/-- `PUSH1` with memory tracking. -/
+theorem push1_triple_mem {env : ExecutionEnv} {pc_n : Nat} {data : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 2 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n =
+              some (.Push ⟨1, by decide⟩, some (data, 1)))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n rest gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 2) (data :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have hd : s.decoded = some (.Push ⟨1, by decide⟩, some (data, 1)) :=
+    decoded_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork (.Push ⟨1, by decide⟩) ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.pushN s ⟨1, by decide⟩ data 1 (by decide) hd h_gas_bd)),
+    ⟨h_env, ?_, h_halt, ?_, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 2).toNat = pc_n + 2
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show data :: s.stack = data :: rest
+    rw [h_stack]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `MSTORE` with memory tracking, specialised to `offset = 0` and
+    `activeWords = 0` (the demo's only MSTORE shape). The carried memory
+    is updated from `m` to `writeBytes m (wordBytes value) 0`. -/
+theorem mstore_triple_mem {env : ExecutionEnv} {pc_n : Nat} {value : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.MSTORE, none))
+    (h_gas : 6 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (UInt256.ofNat 0 :: value :: rest) gas_in
+                  (UInt256.ofNat 0) s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) rest (gas_in - 6) (UInt256.ofNat 1) s
+                ∧ s.memory =
+                  MachineState.writeBytes m (MachineState.wordBytes value) 0) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .MSTORE :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_active_nat : s.activeWords.toNat = 0 := by rw [h_active]; rfl
+  have h_total : Gas.mstoreTotal s (UInt256.ofNat 0) ≤ s.gasAvailable := by
+    show Gas.baseCost s.fork .MSTORE + MachineState.memExpansionDelta _ _ _ ≤ _
+    rw [h_active_nat, h_g]
+    show 3 + 3 ≤ gas_in
+    omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.mstore s (UInt256.ofNat 0) value rest h_op h_stack h_total)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, ?_⟩, ?_⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - Gas.mstoreTotal s (UInt256.ofNat 0) = gas_in - 6
+    show s.gasAvailable - (Gas.baseCost s.fork .MSTORE +
+         MachineState.memExpansionDelta _ _ _) = gas_in - 6
+    rw [h_active_nat, h_g]
+    show gas_in - (3 + 3) = gas_in - 6
+    rfl
+  · show s.activeWordsAfterUInt256 (UInt256.ofNat 0).toNat 32 = UInt256.ofNat 1
+    show UInt256.ofNat (MachineState.activeWordsAfter _ _ _) = UInt256.ofNat 1
+    rw [h_active_nat]; rfl
+  · show MachineState.writeBytes s.memory (MachineState.wordBytes value) 0
+       = MachineState.writeBytes m (MachineState.wordBytes value) 0
+    rw [h_mem]
+
+/-- `DUPn` with memory tracking. -/
+theorem dup_triple_mem {env : ExecutionEnv} {pc_n : Nat} {n : Fin 16} {v : UInt256}
+    {stack : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.Dup ⟨n⟩, none))
+    (h_get : stack[n.val]? = some v)
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n stack gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) (v :: stack) (gas_in - 3) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some (.Dup ⟨n⟩) :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork (.Dup ⟨n⟩) ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  have h_get_s : s.stack[n.val]? = some v := by rw [h_stack]; exact h_get
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.dup s n v h_op h_gas_bd h_get_s)),
+    ⟨h_env, ?_, h_halt, ?_, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show v :: s.stack = v :: stack
+    rw [h_stack]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `ISZERO` with memory tracking. -/
+theorem iszero_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.ISZERO, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) (UInt256.isZero a :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .ISZERO :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .ISZERO ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.iszero s a rest h_op h_gas_bd h_stack)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `SWAPn` with memory tracking. -/
+theorem swap_triple_mem {env : ExecutionEnv} {pc_n : Nat} {n : Fin 16}
+    {stack stack' : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.Swap ⟨n⟩, none))
+    (h_sw : stack.exchange 0 (n.val + 1) = some stack')
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n stack gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) stack' (gas_in - 3) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some (.Swap ⟨n⟩) :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork (.Swap ⟨n⟩) ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  have h_sw_s : s.stack.exchange 0 (n.val + 1) = some stack' := by
+    rw [h_stack]; exact h_sw
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.swap s n stack' h_op h_gas_bd h_sw_s)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `ADD` with memory tracking. -/
+theorem add_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a b : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.ADD, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: b :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) ((a + b) :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .ADD :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .ADD ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.add s a b rest h_op h_gas_bd h_stack)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `SUB` with memory tracking. -/
+theorem sub_triple_mem {env : ExecutionEnv} {pc_n : Nat} {a b : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.SUB, none))
+    (h_gas : 3 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (a :: b :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) ((a - b) :: rest) (gas_in - 3) active s
+                ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .SUB :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .SUB ≤ s.gasAvailable := by
+    show 3 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.sub s a b rest h_op h_gas_bd h_stack)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 3 = gas_in - 3
+    rw [h_g]
+
+/-- `JUMP` with memory tracking. -/
+theorem jump_triple_mem {env : ExecutionEnv} {pc_n : Nat} {dest : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_dec : Decode.decodeAt env.code pc_n = some (.JUMP, none))
+    (h_valid : Decode.isValidJumpDest env.code dest.toNat = true)
+    (h_gas : 8 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (dest :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env dest.toNat rest (gas_in - 8) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .JUMP :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable := by
+    show 8 ≤ _; rw [h_g]; omega
+  have h_valid_s : Decode.isValidJumpDest s.executionEnv.code dest.toNat = true := by
+    rw [h_env]; exact h_valid
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.jump s dest rest h_op h_gas_bd h_stack h_valid_s)),
+    ⟨h_env, rfl, h_halt, rfl,
+     by show s.gasAvailable - 8 = gas_in - 8; rw [h_g], h_active⟩, h_mem⟩
+
+/-- `JUMPI` (taken) with memory tracking. -/
+theorem jumpi_taken_triple_mem {env : ExecutionEnv} {pc_n : Nat} {dest cond : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_dec : Decode.decodeAt env.code pc_n = some (.JUMPI, none))
+    (h_cond : UInt256.isTrue cond)
+    (h_valid : Decode.isValidJumpDest env.code dest.toNat = true)
+    (h_gas : 10 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (dest :: cond :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env dest.toNat rest (gas_in - 10) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .JUMPI :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable := by
+    show 10 ≤ _; rw [h_g]; omega
+  have h_valid_s : Decode.isValidJumpDest s.executionEnv.code dest.toNat = true := by
+    rw [h_env]; exact h_valid
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.jumpi_taken s dest cond rest h_op h_gas_bd h_stack h_cond h_valid_s)),
+    ⟨h_env, rfl, h_halt, rfl,
+     by show s.gasAvailable - 10 = gas_in - 10; rw [h_g], h_active⟩, h_mem⟩
+
+/-- `JUMPI` (not-taken) with memory tracking. -/
+theorem jumpi_notTaken_triple_mem {env : ExecutionEnv} {pc_n : Nat} {dest cond : UInt256}
+    {rest : List UInt256} {gas_in : Nat} {active : UInt256} {m : ByteArray}
+    (h_pcb : pc_n + 1 < UInt256.size)
+    (h_dec : Decode.decodeAt env.code pc_n = some (.JUMPI, none))
+    (h_cond : ¬ UInt256.isTrue cond)
+    (h_gas : 10 ≤ gas_in) :
+    Triple
+      (fun s => StateAt env pc_n (dest :: cond :: rest) gas_in active s ∧ s.memory = m)
+      (fun s => StateAt env (pc_n + 1) rest (gas_in - 10) active s ∧ s.memory = m) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .JUMPI :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_gas_bd : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable := by
+    show 10 ≤ _; rw [h_g]; omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.jumpi_notTaken s dest cond rest h_op h_gas_bd h_stack h_cond)),
+    ⟨h_env, ?_, h_halt, rfl, ?_, h_active⟩, h_mem⟩
+  · show (s.pc + UInt256.ofNat 1).toNat = pc_n + 1
+    rw [pc_add _ _ (by rw [h_pc]; omega), h_pc]
+  · show s.gasAvailable - 10 = gas_in - 10
+    rw [h_g]
+
+/-- `RETURN` with memory tracking — exposes the final `hReturn` as a
+    `readPadded` of the carried memory. -/
+theorem return_triple_mem {env : ExecutionEnv} {pc_n : Nat}
+    {rest : List UInt256} {gas_in : Nat} {m : ByteArray}
+    (h_dec : Decode.decodeAt env.code pc_n = some (.RETURN, none)) :
+    Triple
+      (fun s => StateAt env pc_n (UInt256.ofNat 0 :: UInt256.ofNat 0x20 :: rest)
+                  gas_in (UInt256.ofNat 1) s ∧ s.memory = m)
+      (fun sf => sf.halt = .Returned ∧
+        sf.hReturn = MachineState.readPadded m 0 32) := by
+  intro s ⟨⟨h_env, h_pc, h_halt, h_stack, _h_g, h_active⟩, h_mem⟩
+  have h_op : s.decodedOp = some .RETURN :=
+    decodedOp_of_decodeAt h_env h_pc h_dec
+  have h_active_nat : s.activeWords.toNat = 1 := by rw [h_active]; rfl
+  have h_total : Gas.returnTotal s (UInt256.ofNat 0) (UInt256.ofNat 0x20)
+                 ≤ s.gasAvailable := by
+    show Gas.baseCost s.fork .RETURN + MachineState.memExpansionDelta _ _ _ ≤ _
+    rw [h_active_nat]
+    show 0 + MachineState.memExpansionDelta 1 0 32 ≤ _
+    show 0 ≤ _
+    omega
+  refine ⟨_, Steps.refl s |>.snoc (Step.running h_halt
+    (StepRunning.return_ s (UInt256.ofNat 0) (UInt256.ofNat 0x20) rest
+      h_op h_stack h_total)), rfl, ?_⟩
+  show MachineState.readPadded s.memory 0 32 = MachineState.readPadded m 0 32
+  rw [h_mem]
 
 end Hoare
 end EvmSemantics
