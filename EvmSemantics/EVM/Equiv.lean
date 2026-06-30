@@ -2125,8 +2125,9 @@ theorem resume_sound (s : State) (f : Frame) (rest : List Frame)
     `h_running` hypothesis is consumed exactly once here, at the
     `Step.running` wrap site — not threaded through the ninety
     `StepRunning` constructors. -/
-theorem stepF_sound (s s' : State) (h : stepF s = .ok s') : Step s s' := by
-  unfold stepF at h
+theorem stepFE_sound (s s' : State) (h_nd : ¬ s.isDone) (h : stepFE s = .ok s') :
+    Step s s' := by
+  unfold stepFE at h
   simp only [Id.run] at h
   -- Split on s.halt.
   split at h
@@ -2191,16 +2192,48 @@ theorem stepF_sound (s s' : State) (h : stepF s = .ok s') : Step s s' := by
               (stepF.system_sound s op (State.decoded_to_op h_dec) h_gas h)
         · -- gas < cost
           nomatch h
-  -- Non-Running halts: `stepF` either reports `.error` (empty call stack —
-  -- the execution is done) or resumes the top caller (`.ok`, via the
-  -- `callReturn*` rules). Discharge both for each halt kind.
+  -- Non-Running halts: `stepFE` resumes the top caller (`.ok`, via the
+  -- `callReturn*` rules) when the call stack is non-empty, otherwise it
+  -- returns the state unchanged (the YP-empty case — no transition is
+  -- defined). The `¬ s.isDone` precondition rules out the latter:
+  -- `isDone = isHalted ∧ callStack.isEmpty`, so a halted state with an
+  -- empty call stack would be done.
   all_goals
     split at h
-    · nomatch h
+    · rename_i h_cs
+      exfalso
+      apply h_nd
+      simp [State.isDone, State.isHalted, State.isRunning, h_cs]
     · rename_i f rest h_cs
       injection h with h_eq
       subst h_eq
       exact .returning (resume_sound s f rest (by simp_all) h_cs)
+
+/-- Soundness of `stepF` *on the success path*: when `stepFE s = .ok s'`
+    (no in-frame exception), `stepF s = s'` and the transition is a
+    valid `Step`. A direct corollary of `stepFE_sound` plus the
+    definitional reduction of `stepF`. -/
+theorem stepF_sound_ok (s s' : State) (h_nd : ¬ s.isDone)
+    (h : stepFE s = .ok s') : stepF s = s' ∧ Step s s' := by
+  refine ⟨?_, stepFE_sound s s' h_nd h⟩
+  show (match stepFE s with
+         | .ok s'   => s'
+         | .error e => { s with halt := .Exception e }) = s'
+  rw [h]
+
+/-- Soundness of the public total `stepF` for non-done states:
+    `stepF s` is always a valid `Step` successor.
+
+    *Stated, not yet proven*. The success path is `stepF_sound_ok`.
+    The exception path requires, for each top-level error
+    (`decode = none`, stack overflow, `gas < cost`) and each per-helper
+    `.error e` (one lemma per group: stopArith/compBit/…/system),
+    pointing at the matching `StepRunning.<exception>` constructor in
+    `Step.lean §1660+`. The constructors (`decodeFailure`, `outOfGas`,
+    `stackOverflow`, `stackUnderflow`, `staticModeViolation`,
+    `jumpBadDest`, `invalidOpcode`, `invalidMemoryAccess`) already
+    exist; the work is the per-helper bridge. -/
+axiom stepF_sound (s : State) (h_nd : ¬ s.isDone) : Step s (stepF s)
 
 end EVM
 end EvmSemantics

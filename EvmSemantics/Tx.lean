@@ -109,28 +109,16 @@ def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.
     if fork.atLeast .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
 
-/-- One step of the executable EVM, but **total** in the in-frame
-    exception sense: every `Except.error e` `stepF` would have returned
-    is folded into `halt := .Exception e` on the active frame. That
-    makes exceptions look exactly like a `REVERT` from `stepF`'s
-    perspective — `halt` is set, `isDone` decides whether the loop is
-    over, and the next iteration's `stepF` routes the halted state
-    through `resumeByHalt` (which dispatches CALL vs CREATE frames).
-
-    Net result: `run` becomes a one-liner — *no special handling at
-    all*. REVERT and OOG flow through the exact same path; the
-    surface-level distinction belongs to the caller, which can inspect
-    `s.halt` after the loop exits via `isDone`. -/
-@[inline] def step (s : State) : State :=
-  match stepF s with
-  | .ok s'  => s'
-  | .error e => { s with halt := .Exception e }
-
-/-- The fueled small-step loop. Just iterate `step` until `isDone`. -/
+/-- The fueled small-step loop. `stepF` is already total (it folds
+    in-frame exceptions into `halt := .Exception e` and is the identity
+    on done states) so the loop is just "iterate until `isDone`". REVERT
+    and OOG flow through the exact same path: `halt` is set, the next
+    iteration's `stepF` resumes the caller via `resumeByHalt`, and the
+    loop exits via `isDone` when the top frame is done. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
   if fuel = 0 then .error .OutOfFuel
   else if s.isDone then .ok s
-  else run (step s) (fuel - 1)
+  else run (stepF s) (fuel - 1)
 
 /-- Compute the target address for a transaction: the explicit `to` for a
     call tx, or the YP `keccak256(rlp [sender, sender_nonce])` derivation

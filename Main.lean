@@ -35,18 +35,9 @@ def initState (code : ByteArray) (gas : Nat) : State :=
     `callReturnException` rule. Only a fault at the top frame (empty call
     stack) aborts the whole run. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
-  if fuel = 0 then .error .OutOfFuel else
-    -- Loop until the whole execution is *done* (halted with an empty call
-    -- stack); a nested CALL leaves the active frame halted with callers still
-    -- suspended, and `stepF` resumes them.
-    if s.isDone then .ok s else
-      match stepF s with
-      | .ok s'   => run s' (fuel - 1)
-      | .error e =>
-        match s.callStack with
-        | []        => .error e
-        | f :: rest =>
-          run (({ s with halt := .Exception e }).resumeException f rest) (fuel - 1)
+  if fuel = 0 then .error .OutOfFuel
+  else if s.isDone then .ok s
+  else run (stepF s) (fuel - 1)
 
 /-- The demo program: `PUSH1 0x05 PUSH1 0x03 ADD STOP`. -/
 def demoCode : ByteArray := ⟨#[0x60, 0x05, 0x60, 0x03, 0x01, 0x00]⟩

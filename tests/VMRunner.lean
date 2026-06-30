@@ -136,25 +136,9 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
     End-of-code implicit STOP is handled by `Decode.decodeAt` (and thus the
     evaluator itself), so no harness compensation is needed here. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
-  if fuel = 0 then .error .OutOfFuel else
-    -- A nested CALL/CREATE leaves the active frame halted while
-    -- `callStack` is non-empty; `stepF` then resumes the caller. So we
-    -- loop until the whole execution is *done* (halted with an empty
-    -- call stack), not merely until the active frame halts.
-    if s.isDone then .ok s else
-      match stepF s with
-      | .ok s'   => run s' (fuel - 1)
-      | .error e =>
-        -- A `stepF` error inside a sub-frame (callStack non-empty) is
-        -- the executable mirror of `StepReturn.{call,create}ReturnException`:
-        -- mark the active frame as `.Exception e`, then resume the
-        -- caller through `resumeByHalt` (which dispatches to
-        -- `resumeException` for CALL frames or `resumeCreateException`
-        -- for CREATE frames). Only a fault at the top frame aborts.
-        match s.callStack with
-        | []        => .error e
-        | f :: rest =>
-          run (({ s with halt := .Exception e }).resumeByHalt f rest) (fuel - 1)
+  if fuel = 0 then .error .OutOfFuel
+  else if s.isDone then .ok s
+  else run (stepF s) (fuel - 1)
 
 ----------------------------------------------------------------------------
 -- Outcome + comparison
@@ -207,27 +191,38 @@ def runTest (testObj : Json) : Outcome :=
   match run s0 2000000 with
   | .error .OutOfFuel => .incon "fuel exhausted"
   | .error e =>
+    -- `run` no longer surfaces in-frame exceptions via `Except.error`
+    -- since `stepF` is total — they appear as `.ok sf` with
+    -- `sf.halt = .Exception e`. This arm is kept for `Except` totality
+    -- but is unreachable in normal flows.
     if hasPost then .fail s!"expected success, got {repr e}"
-    else .pass                              -- exception expected, got exception
+    else .pass
   | .ok sf =>
     if !hasPost then
+      -- Test has no `post`: an exception or REVERT is the expected
+      -- outcome. A normal `.Success`/`.Returned` halt is wrong.
       match sf.halt with
-      | .Reverted => .pass                  -- REVERT counts as expected failure
+      | .Reverted | .Exception _ => .pass
       | h =>
         let extra := if sf.stack.length > 1024 then " (overflow-suspected)" else ""
         .incon s!"expected exception, got {repr h}{extra}"
     else
-      match cmpAccounts sf testObj with
-      | some msg => .fail msg
-      | none =>
-        let outExp := hexToBytes (strField testObj "out")
-        if sf.hReturn.toList != outExp.toList then
-          .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
-        else
-          let expGas := hexToNat (strField testObj "gas")
-          if sf.gasAvailable != expGas then
-            .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
-          else .pass
+      -- Test has a `post`: a successful halt is expected.
+      match sf.halt with
+      | .Exception e => .fail s!"expected success, got {repr e}"
+      | .Reverted    => .fail "expected success, got revert"
+      | _ =>
+        match cmpAccounts sf testObj with
+        | some msg => .fail msg
+        | none =>
+          let outExp := hexToBytes (strField testObj "out")
+          if sf.hReturn.toList != outExp.toList then
+            .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
+          else
+            let expGas := hexToNat (strField testObj "gas")
+            if sf.gasAvailable != expGas then
+              .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
+            else .pass
 
 ----------------------------------------------------------------------------
 -- Tally + file walking
