@@ -191,27 +191,38 @@ def runTest (testObj : Json) : Outcome :=
   match run s0 2000000 with
   | .error .OutOfFuel => .incon "fuel exhausted"
   | .error e =>
+    -- `run` no longer surfaces in-frame exceptions via `Except.error`
+    -- since `stepF` is total — they appear as `.ok sf` with
+    -- `sf.halt = .Exception e`. This arm is kept for `Except` totality
+    -- but is unreachable in normal flows.
     if hasPost then .fail s!"expected success, got {repr e}"
-    else .pass                              -- exception expected, got exception
+    else .pass
   | .ok sf =>
     if !hasPost then
+      -- Test has no `post`: an exception or REVERT is the expected
+      -- outcome. A normal `.Success`/`.Returned` halt is wrong.
       match sf.halt with
-      | .Reverted => .pass                  -- REVERT counts as expected failure
+      | .Reverted | .Exception _ => .pass
       | h =>
         let extra := if sf.stack.length > 1024 then " (overflow-suspected)" else ""
         .incon s!"expected exception, got {repr h}{extra}"
     else
-      match cmpAccounts sf testObj with
-      | some msg => .fail msg
-      | none =>
-        let outExp := hexToBytes (strField testObj "out")
-        if sf.hReturn.toList != outExp.toList then
-          .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
-        else
-          let expGas := hexToNat (strField testObj "gas")
-          if sf.gasAvailable != expGas then
-            .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
-          else .pass
+      -- Test has a `post`: a successful halt is expected.
+      match sf.halt with
+      | .Exception e => .fail s!"expected success, got {repr e}"
+      | .Reverted    => .fail "expected success, got revert"
+      | _ =>
+        match cmpAccounts sf testObj with
+        | some msg => .fail msg
+        | none =>
+          let outExp := hexToBytes (strField testObj "out")
+          if sf.hReturn.toList != outExp.toList then
+            .fail s!"out mismatch ({sf.hReturn.size}B vs {outExp.size}B)"
+          else
+            let expGas := hexToNat (strField testObj "gas")
+            if sf.gasAvailable != expGas then
+              .fail s!"gas mismatch: got {sf.gasAvailable} exp {expGas}"
+            else .pass
 
 ----------------------------------------------------------------------------
 -- Tally + file walking

@@ -2,6 +2,7 @@ module
 
 public import Lean.Data.Json
 public import EvmSemantics
+public import EvmSemantics.Data.Hex
 
 /-!
 `StateTestRunner` — JSON driver around `EvmSemantics.Tx.execute`.
