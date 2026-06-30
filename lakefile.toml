@@ -42,3 +42,7 @@ root = "KeccakTest"
 [[lean_exe]]
 name = "fib_demo"
 root = "FibDemo"
+
+[[lean_exe]]
+name = "block_fib_demo"
+root = "BlockFibDemo"
