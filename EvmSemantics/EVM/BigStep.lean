@@ -96,11 +96,14 @@ that is halted (`halt ≠ .Running`) *and* has an empty call stack
 
 theorem Step.not_from_done {s s' : State}
     (h : Step s s') (h_h : s.halt ≠ .Running) (h_cs : s.callStack = []) : False := by
-  -- `running` contradicts `h_h` via its `s.halt = .Running` precondition;
+  -- `running` / `precompileSuccess` / `precompileOog` all carry an
+  -- explicit `s.halt = .Running` premise that contradicts `h_h`;
   -- `returning` contradicts `h_cs` via the inner `h_stack : callStack = _ :: _`.
   cases h with
-  | running hr _ => exact h_h hr
-  | returning sr => cases sr <;> simp_all
+  | running hr _ _              => exact h_h hr
+  | precompileSuccess _ _ hr _  => exact h_h hr
+  | precompileOog hr _          => exact h_h hr
+  | returning sr                => cases sr <;> simp_all
 
 end EVM
 end EvmSemantics

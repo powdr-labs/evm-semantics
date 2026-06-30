@@ -372,23 +372,50 @@ the surrounding CALL applied) and pushes `0`. On `.notAPrecompile`
 (any address not in the implemented set, including non-precompiles)
 the normal bytecode dispatch runs as before.
 
-**Spec side.** The relation `Step.lean` mirrors this with **two**
-generic rules — `precompileSuccess` and `precompileOog` — each with
-minimal premises (`s.halt = .Running` plus a `Precompile.run … =
-.success/.outOfGas …` witness). The four CALL-family `StepRunning`
-constructors (`call`, `callcode`, `delegatecall`, `staticcall`)
-remain unchanged: they push the frame the usual way, and the next
-small step fires the precompile rule. This is the user-suggested
-factoring — an intermediate layer between the caller's execution
-step and the callee's first step — and it collapses what would have
-been eight op-specific precompile constructors into two generic ones.
+**Spec side.** The dispatch lives at the `Step` layer (not inside
+`StepRunning`), as **three top-level constructors**:
+
+* `Step.running` — the bytecode arm. Carries `s.halt = .Running`
+  *and* an explicit gate
+  `Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr
+  = false` so a precompile-frame state can never derive a bytecode
+  transition.
+* `Step.precompileSuccess` / `Step.precompileOog` — the precompile
+  arms. Each takes `s.halt = .Running` plus a positive
+  `Precompile.isPrecompile … = true` witness plus a
+  `Precompile.run … h_isPrec = .success/.outOfGas …` outcome witness.
+  Note that `Precompile.run` itself takes the `isPrecompile` proof as
+  a precondition — it has no `.notAPrecompile` arm, because the
+  precondition rules that case out by construction.
+
+The gate is what gives the relation **exclusivity** between the two
+sides: without it `Step` would over-derive (e.g. a precompile address
+has empty bytecode that decodes to `STOP`, so `StepRunning.stop`
+would also fire alongside `Step.precompileSuccess`). With the gate,
+exactly one of the three arms is derivable for any running state.
+The Bool predicate `Precompile.isPrecompile : Fork → AccountAddress
+→ Bool` is the single source of truth for "is this address a
+precompile we model?" — used by `Step.running`, the precompile
+arms, *and* `stepFE`'s dispatch, so the three stay in lockstep by
+referencing the same definition.
+
+The four CALL-family `StepRunning` constructors (`call`, `callcode`,
+`delegatecall`, `staticcall`) are unchanged: they push the frame the
+usual way, and the next small step fires either the precompile arm
+or the bytecode arm depending on the new frame's `codeAddr`. This is
+the user-suggested factoring — an intermediate layer between the
+caller's execution step and the callee's first step — and it
+collapses what would have been eight op-specific precompile
+constructors into two generic ones.
 
 The proof of `stepFE_sound` adds a single `split at h` on
 `Precompile.run` at the top of the running branch, dispatching the
-three arms to the two new rules and (for `.notAPrecompile`) to the
-existing per-operation logic. **`Tx.execute` needs no precompile
-special-case at all** — the generic frame-entry rule handles tx-to-
-precompile transactions on the first step of the `stepF` loop.
+three arms to the two precompile rules and (for `.notAPrecompile`)
+to the existing per-operation logic — passing the
+`.notAPrecompile` witness as `Step.running`'s gate premise.
+**`Tx.execute` needs no precompile special-case at all** — the
+generic frame-entry rule handles tx-to-precompile transactions on
+the first step of the `stepF` loop.
 
 ## SELFDESTRUCT
 

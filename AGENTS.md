@@ -143,12 +143,16 @@ Dispatch happens at the *frame entry* layer — every `ExecutionEnv`
 carries a `codeAddr` (the borrowed-from address, distinct from
 `address` for `CALLCODE` / `DELEGATECALL`), and a single arm at the
 top of `stepF`'s running branch fires the precompile whenever
-`codeAddr` is in the implemented set. The same arm covers tx-to-
-precompile transactions (where `Tx.buildInitState` sets
-`codeAddr := tx.recipient`) without any special case in `Tx.execute`.
-The spec side mirrors this with two generic Step rules
-(`precompileSuccess` / `precompileOog`) — one each for success and
-OOG, regardless of which CALL kind entered the frame. **Not yet
+`Precompile.isPrecompile fork codeAddr` is `true`. The same arm
+covers tx-to-precompile transactions (where `Tx.buildInitState`
+sets `codeAddr := tx.recipient`) without any special case in
+`Tx.execute`. The spec side mirrors this with two generic Step
+rules (`Step.precompileSuccess` / `precompileOog`) plus an
+exclusivity gate on `Step.running` (`isPrecompile fork codeAddr =
+false`) so the bytecode rules and precompile rules are mutually
+exclusive at the relation level. `Precompile.run` takes the
+`isPrecompile` proof as a precondition, so its `Result` only has
+`.success` / `.outOfGas` — no `.notAPrecompile` arm. **Not yet
 implemented:** block validation, the eight unimplemented precompiles
 (`0x01 ecrecover` / `0x02 sha256` / `0x03 ripemd160` / `0x05 modexp` /
 `0x06–0x09` BN254 + BLAKE2F), full RLP.

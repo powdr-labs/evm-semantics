@@ -2,10 +2,11 @@ module
 
 public import EvmSemantics.Data.UInt256
 public import EvmSemantics.State.Account
+public import EvmSemantics.EVM.Fork
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
-addresses `0x01..0x09`.
+addresses `0x01..0x09` (and beyond, fork-dependent).
 
 When a CALL-family opcode targets one of these addresses, the EVM does
 *not* execute bytecode (there is no code stored at the address);
@@ -14,24 +15,34 @@ caller's view, the call returns either successfully (with an output
 byte string and a known gas cost) or out-of-gas (no output, all
 forwarded gas consumed).
 
-`Precompile.run` is the dispatch entry point. It returns:
+This module is a closed pair:
 
-* `.notAPrecompile` — the target isn't a precompile; the caller falls
-  through to the normal `enterCall` / frame-push path.
-* `.success output gasUsed` — the precompile ran; `output` is the
-  return bytes (to be written to the caller's `retOff:retLen` window
-  by the resume machinery) and `gasUsed ≤ childGas`.
-* `.outOfGas` — the precompile would have run but its gas requirement
-  exceeded `childGas`; the entire `childGas` is forfeited, no output.
+* **`isPrecompile fork addr`** — decides, per fork, whether `addr` is
+  a precompile we model. The set is fork-dependent in YP terms
+  (Byzantium added ECADD/ECMUL/ECPAIRING/MODEXP; Istanbul added
+  BLAKE2F; Cancun added KZG point evaluation; Prague added the
+  BLS12-381 set) and is the gate `Step.running` uses to decide
+  bytecode-vs-precompile dispatch.
 
-Extending with a new precompile is a two-step edit:
+* **`run fork addr input childGas h`** — total on the subset
+  `isPrecompile fork addr = true`. The proof `h` discharges
+  totality: the body's branches must cover every address for which
+  `isPrecompile` returns `true`, and we hold both definitions in
+  lockstep. Result is either `.success output gasUsed` (with
+  `gasUsed ≤ childGas`) or `.outOfGas` (precompile cost exceeded
+  `childGas`). There is **no** `.notAPrecompile` arm — the precondition
+  has ruled it out.
+
+Extending with a new precompile is a synchronized three-line edit:
 
 1. Add a `runFoo : ByteArray → Nat → Result` implementing the
    operation's behaviour and gas cost.
-2. Add the address → handler entry to the dispatch table in `run`.
+2. Add `addr = fooAddress` (gated by `fork.atLeast …` if the
+   precompile is fork-conditional) to `isPrecompile`.
+3. Add a `if addr = fooAddress then runFoo …` branch in `run`.
 
-This file currently implements only `0x04 IDENTITY`; the dispatch
-table has explicit fall-through cases ready for the rest.
+This file currently implements only `0x04 IDENTITY` (available from
+Frontier onwards).
 -/
 
 @[expose] public section
@@ -40,12 +51,8 @@ namespace EvmSemantics
 namespace EVM
 namespace Precompile
 
-/-- Outcome of a precompile dispatch attempt. See module docstring. -/
+/-- Outcome of a precompile invocation. -/
 inductive Result where
-  /-- The target address is not assigned to any precompile in the
-      currently modelled set. Callers should fall through to the
-      normal `enterCall` code path. -/
-  | notAPrecompile
   /-- The precompile ran successfully. `output` is the return bytes;
       `gasUsed ≤ childGas` is the amount consumed (the caller refunds
       `childGas - gasUsed` to itself). -/
@@ -56,14 +63,6 @@ inductive Result where
       transfer (if any) is rolled back via the resume-time snapshot. -/
   | outOfGas
   deriving Inhabited
-
-/-- True iff `addr` is one of the YP §9 precompile addresses
-    (`0x01..0x09`). Used as the gating predicate by `run` and by the
-    no-precompile branch of the existing `StepRunning.call` rules
-    (so a non-precompile target falls through). -/
-def isPrecompile (addr : AccountAddress) : Bool :=
-  let n := addr.toUInt256.toNat
-  decide (1 ≤ n ∧ n ≤ 9)
 
 ----------------------------------------------------------------------------
 -- 0x04 IDENTITY — return calldata unchanged.
@@ -85,19 +84,41 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
   if cost ≤ childGas then .success input cost else .outOfGas
 
 ----------------------------------------------------------------------------
--- Dispatch.
+-- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
-/-- Dispatch `addr` to the corresponding precompile. Returns
-    `.notAPrecompile` for any address not yet implemented (including
-    the precompile range `0x01..0x09` minus the entries below). Add
-    new precompiles as further arms here. -/
-def run (addr : AccountAddress) (input : ByteArray) (childGas : Nat) : Result :=
-  if addr = identityAddress then runIdentity input childGas
-  -- 0x01 ECRECOVER, 0x02 SHA256, 0x03 RIPEMD160, 0x05 MODEXP,
-  -- 0x06 ECADD, 0x07 ECMUL, 0x08 ECPAIRING, 0x09 BLAKE2F — not yet
-  -- implemented; fall through to `.notAPrecompile`.
-  else .notAPrecompile
+/-- True iff `addr` is one of the precompile addresses *we model* in
+    `fork`. Currently: just IDENTITY (`0x04`), available since
+    Frontier. As we add precompiles, this function grows in lockstep
+    with `run`'s branches; `run`'s totality proof tracks that they stay
+    aligned.
+
+    The `fork` argument is part of the signature because the YP set
+    is fork-dependent — ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
+    BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague —
+    even though the only modelled entry today (`identity`) is
+    available in every fork. -/
+def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
+  addr = identityAddress
+
+/-- Run a precompile. Total only on the subset
+    `isPrecompile fork addr = true`; the hypothesis `h` discharges
+    totality by guaranteeing one of the branches below matches.
+
+    The body's branch coverage must stay in lockstep with
+    `isPrecompile` — if you add a precompile in one, add it in the
+    other (and the `else` discharge will keep working). -/
+def run (fork : Fork) (addr : AccountAddress)
+        (input : ByteArray) (childGas : Nat)
+        (h : isPrecompile fork addr = true) : Result :=
+  if h_id : addr = identityAddress then
+    runIdentity input childGas
+  -- Add new precompiles here as further branches.
+  else
+    -- Unreachable: every `addr` for which `isPrecompile fork addr =
+    -- true` is matched by a branch above. `absurd h …` discharges
+    -- this case from `h` plus the negated branch guards.
+    absurd h (by simp [isPrecompile, h_id])
 
 end Precompile
 end EVM

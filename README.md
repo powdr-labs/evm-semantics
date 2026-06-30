@@ -84,24 +84,31 @@ trivial program.
   the world back to the pre-tx state with full gas charged to the
   coinbase.
 - **Precompiled contracts (YP §9):** `EvmSemantics.EVM.Precompile`
-  implements the precompile dispatch (`run : AccountAddress → ByteArray
-  → Nat → Result`) keyed off each frame's `ExecutionEnv.codeAddr` —
-  the borrowed-from address recorded at frame entry. The same dispatch
-  arm at the top of `stepF`'s running branch fires for every entry
-  path: `CALL` / `STATICCALL` (where `codeAddr = tgt = address`),
-  `CALLCODE` / `DELEGATECALL` (where `codeAddr = tgt ≠ address`), and a
-  transaction whose `to` is itself a precompile address (where
-  `Tx.buildInitState` sets `codeAddr := tx.recipient`). Currently
-  implemented: **0x04 `identity`** (gas `15 + 3·⌈|input|/32⌉`). The
-  dispatcher's other arms (`0x01 ecrecover`, `0x02 sha256`, `0x03
-  ripemd160`, `0x05 modexp`, `0x06–0x09` BN254 + BLAKE2F) return
-  `.notAPrecompile`, so a call into one of those targets falls through
-  to its (empty) bytecode and STOPs — adding a new precompile is a
-  self-contained edit to `Precompile.run`. The spec side in `Step.lean`
-  exposes the same dispatch via two generic rules
-  (`precompileSuccess` / `precompileOog`); the rules mutate the
-  frame's `halt` so the existing `resumeByHalt` machinery (success
-  copy, exception snapshot-rollback) handles the rest.
+  exports two definitions held in lockstep:
+  `isPrecompile : Fork → AccountAddress → Bool` (the per-fork
+  membership predicate) and
+  `run : (fork) → (addr) → (input) → (childGas) → (h : isPrecompile
+  fork addr = true) → Result` (total only on the subset
+  `isPrecompile` accepts — no `.notAPrecompile` arm, because the
+  precondition rules that case out). Dispatch keys off each frame's
+  `ExecutionEnv.codeAddr` (the borrowed-from address recorded at
+  frame entry), and covers every entry path: `CALL` / `STATICCALL`
+  (where `codeAddr = tgt = address`), `CALLCODE` / `DELEGATECALL`
+  (where `codeAddr = tgt ≠ address`), and a transaction whose `to`
+  is itself a precompile address (where `Tx.buildInitState` sets
+  `codeAddr := tx.recipient`). Currently implemented: **0x04
+  `identity`** (gas `15 + 3·⌈|input|/32⌉`); the YP precompile set
+  beyond that (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`,
+  `0x05 modexp`, `0x06–0x09` BN254 + BLAKE2F, plus the Cancun KZG
+  and Prague BLS12-381 set) is not yet in `isPrecompile`'s `true`
+  case, so a call into those addresses falls through to their
+  (empty) bytecode and STOPs — adding a new precompile is a
+  synchronized edit to `isPrecompile` and `run` (the totality proof
+  enforces they stay aligned). The spec side in `Step.lean` exposes
+  the same dispatch via two generic rules (`Step.precompileSuccess`
+  / `precompileOog`); the rules mutate the frame's `halt` so the
+  existing `resumeByHalt` machinery (success copy, exception
+  snapshot-rollback) handles the rest.
 - **Not yet implemented:** block validation, the eight unimplemented
   precompiles listed above, full RLP (only `[address, nonce]` is
   encodable), and ECDSA-recovered tx senders (the runner uses a

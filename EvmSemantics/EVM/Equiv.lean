@@ -2118,25 +2118,25 @@ theorem stepFE_sound (s s' : State) (h_nd : ¬ s.isDone) (h : stepFE s = .ok s')
   split at h
   · -- s.halt = .Running
     rename_i h_running
-    -- Precompile dispatch: `stepFE` first checks whether the current
-    -- frame's `codeAddr` is a precompile. The three arms of
-    -- `Precompile.run` either close the goal directly (success / OOG)
-    -- or fall through to the normal bytecode dispatch
-    -- (`.notAPrecompile`).
+    -- Precompile dispatch: `stepFE` first matches on
+    -- `Precompile.isPrecompile fork codeAddr`. The `true` arm runs
+    -- the precompile (which then further splits on its `.success` /
+    -- `.outOfGas` result); the `false` arm falls through to the
+    -- standard bytecode dispatch.
     split at h
-    · -- `.success out gasUsed`
-      rename_i out gasUsed h_prec
-      cases h
-      exact .running h_running
-        (StepRunning.precompileSuccess s out gasUsed h_running h_prec)
-    · -- `.outOfGas`
-      rename_i h_prec
-      cases h
-      exact .running h_running
-        (StepRunning.precompileOog s h_running h_prec)
-    · -- `.notAPrecompile`: fall through to the standard bytecode
-      -- dispatch.
-      rename_i h_prec
+    · -- `Precompile.isPrecompile … = true`
+      rename_i h_isPrec
+      split at h
+      · -- `Precompile.run … = .success out gasUsed`
+        rename_i out gasUsed h_prec
+        cases h
+        exact Step.precompileSuccess s out gasUsed h_running h_isPrec h_prec
+      · -- `Precompile.run … = .outOfGas`
+        rename_i h_prec
+        cases h
+        exact Step.precompileOog s h_running h_isPrec h_prec
+    · -- `Precompile.isPrecompile … = false`: standard bytecode dispatch.
+      rename_i h_isPrec
       -- Split on s.decoded.
       split at h
       · -- decoded = none
@@ -2154,45 +2154,46 @@ theorem stepFE_sound (s s' : State) (h_nd : ¬ s.isDone) (h : stepFE s = .ok s')
             -- Split on the operation kind.
             cases op with
             | StopArith op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.stopArith_sound s op (State.decoded_to_op h_dec) h_gas h)
             | CompBit op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.compBit_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Keccak op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.keccak_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Env op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.env_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Block op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.block_sound s op (State.decoded_to_op h_dec) h_gas h)
             | StackMemFlow op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.stackMemFlow_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Push op =>
-              exact .running h_running (stepF.push_sound s op argOpt h_dec h_gas h)
+              exact .running h_running h_isPrec
+                (stepF.push_sound s op argOpt h_dec h_gas h)
             | Dup op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.dup_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Swap op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.swap_sound s op (State.decoded_to_op h_dec) h_gas h)
             | DupN op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.dupN_sound s op (State.decoded_to_op h_dec) h_gas h)
             | SwapN op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.swapN_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Exchange op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.exchange_sound s op (State.decoded_to_op h_dec) h_gas h)
             | Log op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.log_sound s op (State.decoded_to_op h_dec) h_gas h)
             | System op =>
-              exact .running h_running
+              exact .running h_running h_isPrec
                 (stepF.system_sound s op (State.decoded_to_op h_dec) h_gas h)
           · -- gas < cost
             nomatch h

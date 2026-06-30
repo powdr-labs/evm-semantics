@@ -1382,69 +1382,12 @@ inductive StepRunning : State → State → Prop
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 
-  ----------------------------------------------------------------------------
-  -- Precompile dispatch (YP §9). When the *currently-executing frame*
-  -- has a `codeAddr` in `0x01..0x09`, the EVM doesn't execute bytecode
-  -- — it invokes the precompile natively. We split the work into two
-  -- layers:
-  --
-  --   1. The four CALL-family rules (`call`, `callcode`, `delegatecall`,
-  --      `staticcall`) above are unchanged: they push the callee frame
-  --      via `enterCall` / `enterCallFor` in the usual way. The frame
-  --      records `codeAddr` (the borrowed-from address) — equal to the
-  --      callee `address` for `CALL`/`STATICCALL`, distinct for
-  --      `CALLCODE`/`DELEGATECALL` (those keep the caller's `address`).
-  --
-  --   2. A pair of generic precompile rules below — `precompileSuccess`
-  --      and `precompileOog` — fires once the new frame is in place,
-  --      mutating its `halt` / `hReturn` / `gasAvailable` fields. The
-  --      next iteration of the small-step loop then pops the halted
-  --      frame via `resumeByHalt` (success → copy `hReturn` to the
-  --      caller's return window; OOG → world-snapshot rollback). The
-  --      same two rules also fire for a *transaction* whose recipient
-  --      is a precompile address: `buildInitState` produces a depth-0
-  --      frame with `codeAddr = recipient`, and the first `stepF`
-  --      iteration dispatches the precompile.
-  --
-  -- The rules' premises are minimal — running halt + `Precompile.run`
-  -- returning the matching arm — because the gas, value transfer, and
-  -- frame snapshot were already handled by the surrounding CALL rule
-  -- (or by `buildInitState` at tx level). This factoring shrinks the
-  -- spec from eight op-specific constructors to two generic ones.
-  ----------------------------------------------------------------------------
-
-  /-- The current frame is a precompile that runs to completion.
-      `output` / `gasUsed` come from `Precompile.run`; the post-state
-      flips `halt` to `.Returned`, writes `output` to `hReturn`, and
-      sets `gasAvailable := s.gasAvailable - gasUsed`. -/
-  | precompileSuccess (s : State) (output : ByteArray) (gasUsed : Nat)
-        (h_running : s.halt = .Running)
-        (h_prec    : Precompile.run s.executionEnv.codeAddr
-                      s.executionEnv.calldata s.gasAvailable
-                    = .success output gasUsed)
-      : StepRunning s
-          { s with
-              halt         := .Returned
-              hReturn      := output
-              gasAvailable := s.gasAvailable - gasUsed }
-
-  /-- The current frame is a precompile whose gas requirement exceeds
-      its `gasAvailable`. The post-state forfeits the entire balance:
-      `halt := .Exception .OutOfGas`, `hReturn := empty`,
-      `gasAvailable := 0`. The next iteration's `resumeByHalt` rolls
-      back the world to the frame's snapshot via `resumeException`
-      (undoing the value transfer that the surrounding CALL applied)
-      and pushes `0` on the caller's stack. -/
-  | precompileOog (s : State)
-        (h_running : s.halt = .Running)
-        (h_prec    : Precompile.run s.executionEnv.codeAddr
-                      s.executionEnv.calldata s.gasAvailable
-                    = .outOfGas)
-      : StepRunning s
-          { s with
-              halt         := .Exception .OutOfGas
-              hReturn      := ByteArray.empty
-              gasAvailable := 0 }
+  -- (Precompile dispatch lives one layer up, in `Step` — see
+  -- `Step.precompileSuccess` / `Step.precompileOog` below. Lifting it
+  -- out of `StepRunning` is what makes the regular bytecode rules
+  -- *exclusive*: `Step.running` carries the gate `Precompile.run … =
+  -- .notAPrecompile`, so a precompile-frame state cannot also derive
+  -- a STOP-from-empty-code transition via `StepRunning.stop`.)
 
 
   ----------------------------------------------------------------------------
@@ -1901,10 +1844,63 @@ inductive StepReturn : State → State → Prop
     directly, and the headline `stepF_sound` wraps them via `.running` /
     `.returning` after dispatching on `s.halt`. -/
 inductive Step : State → State → Prop
-  /-- A running-state transition: the per-opcode logic encoded by
-      `StepRunning`, plus the explicit `s.halt = .Running` guard that lets
-      `not_from_done` rule out successors from done states. -/
-  | running : ∀ {s s' : State}, s.halt = .Running → StepRunning s s' → Step s s'
+  /-- A running-state transition that executes the frame's bytecode: the
+      per-opcode logic encoded by `StepRunning`, plus the explicit
+      `s.halt = .Running` guard (so `not_from_done` rules out successors
+      from done states) and the **precompile gate**
+      `Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr
+      = false` (so a precompile-frame state cannot derive a bytecode
+      transition — only the `precompile*` constructors below fire for
+      it). The gate is what makes the bytecode and precompile sides
+      exclusive at the relation level, mirroring `stepF`'s "if
+      `isPrecompile` then dispatch precompile, else decode bytecode"
+      shape. -/
+  | running : ∀ {s s' : State},
+                s.halt = .Running →
+                Precompile.isPrecompile s.executionEnv.fork
+                    s.executionEnv.codeAddr = false →
+                StepRunning s s' → Step s s'
+  /-- YP §9 precompile dispatch (success arm). Fires when the frame's
+      `codeAddr` is a precompile whose gas requirement fits — i.e.
+      `Precompile.run … = .success output gasUsed`. The post-state
+      flips `halt` to `.Returned`, writes `output` to `hReturn`, and
+      consumes `gasUsed` of the frame's gas. The next outer step (via
+      `resumeByHalt → resumeSuccess` if `callStack ≠ []`, or by
+      `Eval.halted` at depth 0) handles caller return-window write and
+      gas refund. -/
+  | precompileSuccess (s : State) (output : ByteArray) (gasUsed : Nat)
+        (h_running : s.halt = .Running)
+        (h_isPrec  : Precompile.isPrecompile s.executionEnv.fork
+                        s.executionEnv.codeAddr = true)
+        (h_prec    : Precompile.run s.executionEnv.fork
+                      s.executionEnv.codeAddr s.executionEnv.calldata
+                      s.gasAvailable h_isPrec
+                    = .success output gasUsed)
+      : Step s
+          { s with
+              halt         := .Returned
+              hReturn      := output
+              gasAvailable := s.gasAvailable - gasUsed }
+  /-- YP §9 precompile dispatch (out-of-gas arm). Fires when the frame's
+      `codeAddr` is a precompile whose gas requirement exceeds
+      `s.gasAvailable` — i.e. `Precompile.run … = .outOfGas`. The
+      frame forfeits all its gas and `hReturn`; the next outer step's
+      `resumeException` rolls back the world via the frame's snapshot
+      (undoing the value transfer the surrounding CALL applied) and
+      pushes `0` on the caller's stack. -/
+  | precompileOog (s : State)
+        (h_running : s.halt = .Running)
+        (h_isPrec  : Precompile.isPrecompile s.executionEnv.fork
+                        s.executionEnv.codeAddr = true)
+        (h_prec    : Precompile.run s.executionEnv.fork
+                      s.executionEnv.codeAddr s.executionEnv.calldata
+                      s.gasAvailable h_isPrec
+                    = .outOfGas)
+      : Step s
+          { s with
+              halt         := .Exception .OutOfGas
+              hReturn      := ByteArray.empty
+              gasAvailable := 0 }
   /-- A call-return transition: the inner `StepReturn` already implies
       `s.halt ≠ .Running` (each constructor pins the halt kind) and
       `s.callStack ≠ []` (each carries `h_stack : callStack = _ :: _`). -/

@@ -949,29 +949,30 @@ def stepFE (s : State) : Except ExecutionException State := Id.run do
   match s.halt with
   | .Running =>
     -- YP §9 precompile dispatch.  If the *currently-executing frame*
-    -- borrows code from a precompile address (`0x01..0x09`), run the
-    -- precompile in place of decoding `s.code`.  This single arm covers
-    -- every entry path: `CALL` / `STATICCALL` (where `codeAddr =
-    -- address`), `CALLCODE` / `DELEGATECALL` (where `codeAddr` is the
+    -- borrows code from a precompile address (per the per-fork
+    -- predicate `Precompile.isPrecompile`), invoke the precompile in
+    -- place of decoding `s.code`.  This single arm covers every
+    -- entry path: `CALL` / `STATICCALL` (where `codeAddr = address`),
+    -- `CALLCODE` / `DELEGATECALL` (where `codeAddr` is the
     -- borrowed-from address ≠ `address`), and a transaction whose
     -- `to` is itself a precompile (where `buildInitState` sets
-    -- `codeAddr := tx.recipient`).  `Precompile.run` returns
-    -- `.notAPrecompile` for anything outside the implemented set, so
-    -- we don't need a separate `isPrecompile` gate — that arm just
-    -- falls through to the standard bytecode dispatch.
-    match Precompile.run s.executionEnv.codeAddr s.executionEnv.calldata
-            s.gasAvailable with
-    | .success out gasUsed =>
-      .ok { s with
-              halt         := .Returned
-              hReturn      := out
-              gasAvailable := s.gasAvailable - gasUsed }
-    | .outOfGas =>
-      .ok { s with
-              halt         := .Exception .OutOfGas
-              hReturn      := ByteArray.empty
-              gasAvailable := 0 }
-    | .notAPrecompile =>
+    -- `codeAddr := tx.recipient`).
+    match h_isPrec : Precompile.isPrecompile s.executionEnv.fork
+                       s.executionEnv.codeAddr with
+    | true =>
+      match Precompile.run s.executionEnv.fork s.executionEnv.codeAddr
+              s.executionEnv.calldata s.gasAvailable h_isPrec with
+      | .success out gasUsed =>
+        .ok { s with
+                halt         := .Returned
+                hReturn      := out
+                gasAvailable := s.gasAvailable - gasUsed }
+      | .outOfGas =>
+        .ok { s with
+                halt         := .Exception .OutOfGas
+                hReturn      := ByteArray.empty
+                gasAvailable := 0 }
+    | false =>
     match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
