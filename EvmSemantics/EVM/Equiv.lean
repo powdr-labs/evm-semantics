@@ -1832,12 +1832,20 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
               omega
             have h_perm' : s.executionEnv.permitStateMutation = true := by
               simp at h_perm; exact h_perm
+            let δ := Gas.sstoreRefund s.fork
+                       (s.substate.originalStorage s.executionEnv.address key)
+                       ((s.accountMap s.executionEnv.address).storage key) value
+            let rb : Int := (s.substate.refundBalance.toNat : Int) + δ
+            let sub' : Substate :=
+              { s.substate with
+                  refundBalance := UInt256.ofNat (if rb < 0 then 0 else rb.toNat) }
             have post_eq :
                 ({ (s.consumeGas base h_gas).consumeGas dyn h_dyn with
                     accountMap := s.accountMap.set s.executionEnv.address
                       { s.accountMap s.executionEnv.address with
                           storage := (s.accountMap s.executionEnv.address).storage.set
-                                       key value } }.replaceStackAndIncrPC rest)
+                                       key value }
+                    substate := sub' }.replaceStackAndIncrPC rest)
                 = ({ s with
                     stack := rest
                     pc := s.pc.succ
@@ -1845,7 +1853,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                     accountMap := s.accountMap.set s.executionEnv.address
                       { s.accountMap s.executionEnv.address with
                           storage := (s.accountMap s.executionEnv.address).storage.set
-                                       key value } } : State) := by
+                                       key value }
+                    substate := sub' } : State) := by
               simp [State.consumeGas, State.replaceStackAndIncrPC, Gas.sstoreTotal,
                     UInt256.succ,
                     show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]

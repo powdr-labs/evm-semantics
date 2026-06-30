@@ -967,7 +967,15 @@ inductive StepRunning : State → State → Prop
               accountMap   := s.accountMap.set s.executionEnv.address
                                 { s.accountMap s.executionEnv.address with
                                     storage := (s.accountMap s.executionEnv.address).storage.set
-                                                 key value } }
+                                                 key value }
+              substate     :=
+                { s.substate with
+                    refundBalance :=
+                      let δ := Gas.sstoreRefund s.fork
+                                 (s.substate.originalStorage s.executionEnv.address key)
+                                 ((s.accountMap s.executionEnv.address).storage key) value
+                      let rb : Int := (s.substate.refundBalance.toNat : Int) + δ
+                      UInt256.ofNat (if rb < 0 then 0 else rb.toNat) } }
 
   /-- TLOAD: like SLOAD but reads from transient storage. -/
   | tload (s : State) (key : UInt256) (rest : List UInt256)

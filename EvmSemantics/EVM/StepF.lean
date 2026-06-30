@@ -436,7 +436,20 @@ def stackMemFlow (s s' : State) :
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
-        .ok ({ (s'.consumeGas cost h) with accountMap := σ' }.replaceStackAndIncrPC rest)
+        -- Accumulate the EIP-1283 / EIP-2200 / EIP-3529 refund delta into
+        -- `Substate.refundBalance`. `Gas.sstoreRefund` returns a signed
+        -- `Int` (the delta is negative on the "un-clear" path), so we
+        -- saturate at 0: `refundBalance` is a `UInt256` and the YP caps
+        -- the *applied* refund at `gas_used / refundDenom` anyway, so
+        -- intermediate negatives are bounded by the positives the same
+        -- transaction accrued earlier.
+        let refDelta := Gas.sstoreRefund s.fork original current value
+        let rb : Int := (s.substate.refundBalance.toNat : Int) + refDelta
+        let rb' : Nat := if rb < 0 then 0 else rb.toNat
+        let sub' : Substate :=
+          { s.substate with refundBalance := UInt256.ofNat rb' }
+        .ok ({ (s'.consumeGas cost h) with
+                 accountMap := σ', substate := sub' }.replaceStackAndIncrPC rest)
       else .error .OutOfGas
     | _ => underflow
   | .JUMP => match s.stack with
