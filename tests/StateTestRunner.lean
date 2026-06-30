@@ -76,16 +76,66 @@ def decodeTx (tx : Json) : EvmSemantics.Tx.Transaction :=
     gasLimit  := hexToNat     (strField tx "gasLimit")
     gasPrice  := hexToUInt256 (strField tx "gasPrice") }
 
-/-- Decode the block-header subset that influences EVM execution from a
-    test's `env` JSON. -/
-def decodeHeader (env : Json) : BlockHeader :=
-  { coinbase      := hexToAddress (strField env "currentCoinbase")
-    timestamp     := hexToUInt256 (strField env "currentTimestamp")
-    number        := hexToUInt256 (strField env "currentNumber")
-    prevRandao    := hexToUInt256 (strField env "currentDifficulty")
-    gasLimit      := hexToUInt256 (strField env "currentGasLimit")
-    baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
+/-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
+    approximates `factor · e^(numerator / denominator)` using the
+    convergent series `Σ (numerator^i · factor) / (denominator^i · i!)`,
+    stopping as soon as a term contributes 0 (Nat arithmetic). The blob
+    base fee is `fake_exp(MIN_BLOB_BASE_FEE = 1, excessBlobGas,
+    BLOB_BASE_FEE_UPDATE_FRACTION = 3338477)` per EIP-4844 §5. -/
+partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
+  let rec go (i accum numAcc : Nat) (fuel : Nat) : Nat :=
+    if fuel = 0 then accum
+    else
+      let term := numAcc / (denominator * i)
+      if term = 0 then accum
+      else go (i + 1) (accum + term) (numAcc * numerator) (fuel - 1)
+  go 1 factor (factor * numerator) 64
+
+/-- EIP-4844 blob base fee derived from `excessBlobGas`. -/
+def blobBaseFeeOf (excessBlobGas : Nat) : Nat :=
+  fakeExponential 1 excessBlobGas 3338477
+
+/-- Decode the EVM-relevant subset of the BlockchainTests block header.
+    The corpus stores these in `blocks[i].blockHeader` with the same
+    field names the YP uses (`coinbase`, `timestamp`, `number`,
+    `difficulty`, `gasLimit`, plus modern additions `baseFeePerGas`,
+    `excessBlobGas`); missing fields fall back to zero.
+
+    * `prevRandao` ← `difficulty` (the YP renamed the field at the
+      Merge; pre-Merge `DIFFICULTY` reads `difficulty`, post-Merge
+      `PREVRANDAO` reads `mixHash` — the corpus is pre-Merge so
+      `difficulty` is what's populated).
+    * `chainId` is *not* in the block header per se; mainnet = 1.
+    * `blobBaseFee` — preferred path: derive from `excessBlobGas` via
+      EIP-4844 `fake_exp(1, excessBlobGas, 3338477)`. If the corpus
+      provides an explicit `blobBaseFee` field that takes precedence
+      (some tooling emits it directly); otherwise we use the derivation
+      from `excessBlobGas`; otherwise 0. -/
+def decodeHeader (blockHeader : Json) : BlockHeader :=
+  let blobBaseFeeField   := strField blockHeader "blobBaseFee"
+  let excessBlobGasField := strField blockHeader "excessBlobGas"
+  let blobBaseFee : UInt256 :=
+    if blobBaseFeeField ≠ "" then hexToUInt256 blobBaseFeeField
+    else if excessBlobGasField ≠ "" then
+      UInt256.ofNat (blobBaseFeeOf (hexToUInt256 excessBlobGasField).toNat)
+    else ⟨0⟩
+  { coinbase      := hexToAddress (strField blockHeader "coinbase")
+    timestamp     := hexToUInt256 (strField blockHeader "timestamp")
+    number        := hexToUInt256 (strField blockHeader "number")
+    prevRandao    := hexToUInt256 (strField blockHeader "difficulty")
+    gasLimit      := hexToUInt256 (strField blockHeader "gasLimit")
+    baseFeePerGas := hexToUInt256 (strField blockHeader "baseFeePerGas")
+    chainId       := ⟨1⟩
+    blobBaseFee   := blobBaseFee
     blockHash     := fun _ => ⟨0⟩ }
+
+/-- Read the EIP-4844 `blobVersionedHashes` list out of a tx JSON
+    (Cancun-era blob-typed transactions). Pre-Cancun tests have no such
+    field and we return `#[]`. -/
+def decodeBlobHashes (tx : Json) : Array UInt256 :=
+  match (tx.getObjVal? "blobVersionedHashes").toOption.getD Json.null with
+  | .arr a => a.map (fun j => hexToUInt256 ((j.getStr?).toOption.getD ""))
+  | _      => #[]
 
 /-- Map a BlockchainTest variant suffix (the bit after the last `_` in the
     test object's key, e.g. `_Constantinople`, `_Berlin`) to a `Fork`. -/
@@ -188,14 +238,15 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
     match txs with
     | tx :: _ =>
       let txObj  := decodeTx tx
-      let header := decodeHeader (subObj testObj "env")
+      let header := decodeHeader (subObj block "blockHeader")
+      let blobHashes := decodeBlobHashes tx
       -- Fuel: every non-halting opcode costs ≥1 gas and every CALL
       -- resume step is bounded by the # of CALLs (≥700 gas each), so
       -- `2·gasLimit + 100_000` cannot pre-empt a genuine OOG; it is
       -- purely a backstop against an evaluator bug producing a 0-gas
       -- non-halting step.
       let fuel := 2 * txObj.gasLimit + 100_000
-      let result := EvmSemantics.Tx.execute preMap header txObj fork fuel
+      let result := EvmSemantics.Tx.execute preMap header txObj fork fuel blobHashes
       match result.outcome with
       | .fuelExhausted => .incon "fuel exhausted"
       | _ =>
