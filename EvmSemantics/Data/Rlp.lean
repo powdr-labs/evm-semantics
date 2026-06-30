@@ -261,6 +261,88 @@ theorem encodeRawList_isSome {items : List ByteArray}
   | none => rw [h_lp_eq] at h_lp; simp at h_lp
   | some _ => simp [h_lp_eq]
 
+/-- `addressBytes addr` has size 20 — the fixed-width 20-byte big-endian
+    encoding of the address. The `Std.Range.forIn` in `natToBytesPadded`
+    reduces (for the concrete `width = 20`) to a 20-element
+    `Array UInt8` literal regardless of `addr.val`. -/
+theorem addressBytes_size (addr : AccountAddress) :
+    (addressBytes addr).size = 20 := by
+  unfold addressBytes natToBytesPadded
+  simp [Id.run, List.range']
+  rfl
+
+/-- `lengthPrefix` outputs at most 9 bytes (a single 1-byte tag, or a
+    tag + up to 8 length bytes when the payload exceeds 55 bytes). -/
+theorem lengthPrefix_size_le {tagSmall tagLarge : UInt8} {n : Nat} {p : ByteArray}
+    (h_lp : lengthPrefix tagSmall tagLarge n = some p) : p.size ≤ 9 := by
+  unfold lengthPrefix at h_lp
+  split at h_lp
+  · cases h_lp; show 1 ≤ 9; decide
+  · split at h_lp
+    · cases h_lp
+      rw [ByteArray.size_append]
+      have h_lt : n < 256^8 := by
+        have : (256 : Nat)^8 = 2^64 := by decide
+        rename_i hh; omega
+      have := intToBytes_size_le n 8 h_lt
+      show 1 + (intToBytes n).size ≤ 9
+      omega
+    · cases h_lp
+
+/-- `encodeBytes bs` outputs at most `bs.size + 9` bytes. -/
+theorem encodeBytes_size_le {bs ebs : ByteArray} (h : encodeBytes bs = some ebs) :
+    ebs.size ≤ bs.size + 9 := by
+  unfold encodeBytes at h
+  split at h
+  · cases h; omega
+  · cases h_lp : lengthPrefix 0x80 0xb7 bs.size with
+    | none => rw [h_lp] at h; simp at h
+    | some p =>
+      rw [h_lp] at h; simp at h; rw [← h, ByteArray.size_append]
+      have := lengthPrefix_size_le h_lp
+      omega
+
+/-- `Rlp.encodeAddrNonce` returns `some` for any address and any nonce
+    that fits in 256 bits — the payload (20-byte address + ≤32-byte
+    stripped-Nat encoding of the nonce) is far below the `2^64`-byte
+    cutoff of the RLP encoder. -/
+theorem encodeAddrNonce_isSome (addr : AccountAddress) (nonce : Nat)
+    (h_nonce : nonce < 2^256) :
+    (encodeAddrNonce addr nonce).isSome := by
+  have h_addr_sz : (addressBytes addr).size = 20 := addressBytes_size addr
+  have h_nonce_sz : (intToBytes nonce).size ≤ 32 := intToBytes_size_le_32 nonce h_nonce
+  have h_enc_addr : (encodeBytes (addressBytes addr)).isSome := by
+    apply encodeBytes_isSome; rw [h_addr_sz]; decide
+  have h_enc_nonce : (encodeBytes (intToBytes nonce)).isSome := by
+    apply encodeBytes_isSome; omega
+  obtain ⟨ea, h_ea⟩ := Option.isSome_iff_exists.mp h_enc_addr
+  obtain ⟨en, h_en⟩ := Option.isSome_iff_exists.mp h_enc_nonce
+  have h_ea_le : ea.size ≤ 29 := by
+    have := encodeBytes_size_le h_ea
+    rw [h_addr_sz] at this; omega
+  have h_en_le : en.size ≤ 41 := by
+    have := encodeBytes_size_le h_en
+    omega
+  unfold encodeAddrNonce encodeList Item.encode Item.ofAddress Item.ofNat
+  show (List.mapM Item.encode [.bytes (addressBytes addr), .bytes (intToBytes nonce)] >>=
+        encodeRawList).isSome
+  rw [show List.mapM Item.encode
+            [Item.bytes (addressBytes addr), Item.bytes (intToBytes nonce)]
+        = some [ea, en] from by
+    unfold List.mapM
+    unfold List.mapM.loop
+    simp [Item.encode, h_ea]
+    unfold List.mapM.loop
+    simp [Item.encode, h_en]
+    unfold List.mapM.loop
+    simp]
+  show (encodeRawList [ea, en]).isSome
+  apply encodeRawList_isSome
+  show (List.foldl (· ++ ·) ByteArray.empty [ea, en]).size < 2^64
+  simp [List.foldl, ByteArray.size_append]
+  omega
+
+
 
 end Rlp
 end EvmSemantics
