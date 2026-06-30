@@ -95,6 +95,9 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       weiValue  := hexToUInt256 (strField exec "value")
       calldata  := hexToBytes   (strField exec "data")
       code      := hexToBytes   (strField exec "code")
+      -- The VMTests corpus runs a single bytecode on its own address;
+      -- there is no enclosing CALL, so `codeAddr` equals `address`.
+      codeAddr  := hexToAddress (strField exec "address")
       gasPrice  := hexToUInt256 (strField exec "gasPrice")
       header    := header
       depth     := 0

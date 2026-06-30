@@ -138,12 +138,17 @@ marked by `Frame.createAddr := some newAddr`, with a dedicated
 minimal RLP encoder (`EvmSemantics.Rlp`) for CREATE and a raw keccak
 preimage for CREATE2. Transaction processing (YP `Υ`) lives in
 `EvmSemantics.Tx`. The YP §9 precompile dispatcher lives in
-`EvmSemantics.EVM.Precompile`; **0x04 `identity`** is implemented and
-hooked into all four CALL-family opcodes (via eight new
-`*PrecompileSuccess` / `*PrecompileOog` Step rules + a phantom-frame
-encoding in `stepF` that mutates `enterCall`'s halt field so the
-existing `resumeByHalt` paths handle the rest) and into `Tx.execute`
-for transactions whose recipient is a precompile address. **Not yet
+`EvmSemantics.EVM.Precompile`; **0x04 `identity`** is implemented.
+Dispatch happens at the *frame entry* layer — every `ExecutionEnv`
+carries a `codeAddr` (the borrowed-from address, distinct from
+`address` for `CALLCODE` / `DELEGATECALL`), and a single arm at the
+top of `stepF`'s running branch fires the precompile whenever
+`codeAddr` is in the implemented set. The same arm covers tx-to-
+precompile transactions (where `Tx.buildInitState` sets
+`codeAddr := tx.recipient`) without any special case in `Tx.execute`.
+The spec side mirrors this with two generic Step rules
+(`precompileSuccess` / `precompileOog`) — one each for success and
+OOG, regardless of which CALL kind entered the frame. **Not yet
 implemented:** block validation, the eight unimplemented precompiles
 (`0x01 ecrecover` / `0x02 sha256` / `0x03 ripemd160` / `0x05 modexp` /
 `0x06–0x09` BN254 + BLAKE2F), full RLP.

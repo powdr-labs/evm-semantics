@@ -85,18 +85,23 @@ trivial program.
   coinbase.
 - **Precompiled contracts (YP §9):** `EvmSemantics.EVM.Precompile`
   implements the precompile dispatch (`run : AccountAddress → ByteArray
-  → Nat → Result`) used by both the EVM `CALL`/`CALLCODE`/`DELEGATECALL`/
-  `STATICCALL` opcodes and by `Tx.execute` for transactions whose
-  recipient is itself a precompile address. Currently implemented:
-  **0x04 `identity`** (gas `15 + 3·⌈|input|/32⌉`). The dispatcher's other
-  arms (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`, `0x05 modexp`,
-  `0x06–0x09` BN254 + BLAKE2F) are stubbed with `.notAPrecompile`, so a
-  call into one of those targets currently falls through to its empty
-  bytecode and STOPs — adding a new precompile is a self-contained
-  edit to `Precompile.run`. The four `*PrecompileSuccess` / `*PrecompileOog`
-  rules in `Step.lean` reuse `enterCall` then mutate the frame's `halt`
-  field, so the existing `resumeByHalt` machinery (success copy,
-  exception snapshot-rollback) handles the rest.
+  → Nat → Result`) keyed off each frame's `ExecutionEnv.codeAddr` —
+  the borrowed-from address recorded at frame entry. The same dispatch
+  arm at the top of `stepF`'s running branch fires for every entry
+  path: `CALL` / `STATICCALL` (where `codeAddr = tgt = address`),
+  `CALLCODE` / `DELEGATECALL` (where `codeAddr = tgt ≠ address`), and a
+  transaction whose `to` is itself a precompile address (where
+  `Tx.buildInitState` sets `codeAddr := tx.recipient`). Currently
+  implemented: **0x04 `identity`** (gas `15 + 3·⌈|input|/32⌉`). The
+  dispatcher's other arms (`0x01 ecrecover`, `0x02 sha256`, `0x03
+  ripemd160`, `0x05 modexp`, `0x06–0x09` BN254 + BLAKE2F) return
+  `.notAPrecompile`, so a call into one of those targets falls through
+  to its (empty) bytecode and STOPs — adding a new precompile is a
+  self-contained edit to `Precompile.run`. The spec side in `Step.lean`
+  exposes the same dispatch via two generic rules
+  (`precompileSuccess` / `precompileOog`); the rules mutate the
+  frame's `halt` so the existing `resumeByHalt` machinery (success
+  copy, exception snapshot-rollback) handles the rest.
 - **Not yet implemented:** block validation, the eight unimplemented
   precompiles listed above, full RLP (only `[address, nonce]` is
   encodable), and ECDSA-recovered tx senders (the runner uses a

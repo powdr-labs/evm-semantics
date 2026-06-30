@@ -512,32 +512,10 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             · rename_i h_take
               split at h
               · rename_i h_fw
+                cases h
                 have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
                     (s.accountMap s.executionEnv.address).balance < value) := by
                   simpa [State.consumeGas, State.consumeMemExp2] using h_take
-                -- `h_afford` is built once here and reused by all three
-                -- precompile-dispatch arms below.
-                have h_afford :
-                    Gas.forwardGas s.executionEnv.fork
-                        (s.gasAvailable
-                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
-                        gasArg.toNat
-                      ≤ s.gasAvailable
-                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg := by
-                  have h := h_fw
-                  simp only [State.consumeGas, State.consumeMemExp2,
-                             ← h_surch_eq] at h
-                  show Gas.forwardGas s.fork _ _ ≤ _
-                  rw [show (s.gasAvailable -
-                              Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
-                          = s.gasAvailable - base - md - surch from by
-                        show _ = _
-                        rw [show Gas.callCommitted s value argsOff argsLen retOff retLen toArg
-                                  = base + md + surch from by
-                              simp [Gas.callCommitted, ← hbase, ← hmd, ← h_surch_eq,
-                                    MachineState.memExpansionDelta2]]
-                        omega]
-                  exact h
                 have post_eq :
                     ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).consumeGas surch h_sc).consumeGas
@@ -545,7 +523,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                               argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                             surch h_sc).gasAvailable gasArg.toNat) h_fw).enterCall
-                      rest (AccountAddress.ofUInt256 toArg) value
+                      rest (AccountAddress.ofUInt256 toArg) (AccountAddress.ofUInt256 toArg)
+                      value
                       (MachineState.readPadded
                         ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas surch
@@ -569,7 +548,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                                    toArg) gasArg.toNat
                           activeWords := s.activeWordsAfterUInt256_2
                             argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                        } : State).enterCall rest (AccountAddress.ofUInt256 toArg) value
+                        } : State).enterCall rest (AccountAddress.ofUInt256 toArg)
+                          (AccountAddress.ofUInt256 toArg) value
                           (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                           (s.accountMap (AccountAddress.ofUInt256 toArg)).code
                           (Gas.forwardGas s.fork
@@ -583,56 +563,30 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         MachineState.memExpansionDelta2,
                         show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                   grind
-                -- The chained `consumeGas`/`consumeMemExp2` calls preserve
-                -- memory and reduce the `gasAvailable` to the bundled
-                -- `s.gasAvailable - Gas.callCommitted …`. The two facts let
-                -- us rewrite `h_prec` from the chained form into the form
-                -- the precompile-rule constructor expects.
-                have h_mem_eq :
-                    ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).consumeGas surch h_sc).consumeGas
-                        (Gas.forwardGas s.fork
-                          (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
-                              argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                            surch h_sc).gasAvailable gasArg.toNat) h_fw).memory
-                    = s.memory := by
-                  simp [State.consumeGas, State.consumeMemExp2]
-                have h_ga_eq :
-                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).consumeGas surch h_sc).gasAvailable
-                    = s.gasAvailable
-                      - Gas.callCommitted s value argsOff argsLen retOff retLen toArg := by
-                  show _ = _
-                  rw [show Gas.callCommitted s value argsOff argsLen retOff retLen toArg
-                          = base + md + surch from by
-                        simp [Gas.callCommitted, ← hbase, ← hmd, ← h_surch_eq,
-                              MachineState.memExpansionDelta2]]
-                  simp [State.consumeGas, State.consumeMemExp2]
-                  omega
-                -- Precompile dispatch: stepF branches on `Precompile.run` and
-                -- emits one of three `.ok` values.  Each branch matches a
-                -- distinct `StepRunning` constructor.
-                split at h
-                · -- `.success out gasUsed`
-                  rename_i out gasUsed h_prec
-                  cases h
-                  rw [h_mem_eq, h_ga_eq] at h_prec
-                  rw [post_eq, h_ga_eq]
-                  exact StepRunning.callPrecompileSuccess s gasArg toArg value argsOff argsLen
-                    retOff retLen rest _ out gasUsed h_dec h_stack h_committed h_take' rfl
-                    h_afford h_prec
-                · -- `.outOfGas`
-                  rename_i h_prec
-                  cases h
-                  rw [h_mem_eq, h_ga_eq] at h_prec
-                  rw [post_eq]
-                  exact StepRunning.callPrecompileOog s gasArg toArg value argsOff argsLen
-                    retOff retLen rest _ h_dec h_stack h_committed h_take' rfl h_afford h_prec
-                · -- `.notAPrecompile`: fall through to the standard `call` rule.
-                  cases h
-                  rw [post_eq]
-                  exact StepRunning.call s gasArg toArg value argsOff argsLen retOff retLen
-                    rest _ h_dec h_stack h_committed h_take' rfl h_afford
+                rw [post_eq]
+                have h_afford :
+                    Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                        gasArg.toNat
+                      ≤ s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg := by
+                  have h := h_fw
+                  simp only [State.consumeGas, State.consumeMemExp2,
+                             ← h_surch_eq] at h
+                  show Gas.forwardGas s.fork _ _ ≤ _
+                  rw [show (s.gasAvailable -
+                              Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                          = s.gasAvailable - base - md - surch from by
+                        show _ = _
+                        rw [show Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                                  = base + md + surch from by
+                              simp [Gas.callCommitted, ← hbase, ← hmd, ← h_surch_eq,
+                                    MachineState.memExpansionDelta2]]
+                        omega]
+                  exact h
+                exact StepRunning.call s gasArg toArg value argsOff argsLen retOff retLen
+                  rest _ h_dec h_stack h_committed h_take' rfl h_afford
               · nomatch h
           · nomatch h
         · simp [h_mem] at h
@@ -706,30 +660,10 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
           · rename_i h_take
             split at h
             · rename_i h_fw
+              cases h
               have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
                   (s.accountMap s.executionEnv.address).balance < value) := by
                 simpa [State.consumeGas, State.consumeMemExp2] using h_take
-              have h_afford :
-                  Gas.forwardGas s.executionEnv.fork
-                      (s.gasAvailable
-                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
-                      gasArg.toNat
-                    ≤ s.gasAvailable
-                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen := by
-                have h := h_fw
-                simp only [State.consumeGas, State.consumeMemExp2] at h
-                show Gas.forwardGas s.fork _ _ ≤ _
-                have eq : (s.gasAvailable
-                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
-                        = s.gasAvailable - base - md
-                          - Gas.callSurcharge s.fork (value.toNat != 0) false := by
-                  show _ = _
-                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen
-                          = base + md + Gas.callSurcharge s.fork (value.toNat != 0) false from
-                        rfl]
-                  omega
-                rw [eq]
-                exact h
               have post_eq :
                   ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas
@@ -744,6 +678,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                         (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).consumeGas
                         _ h_fw).executionEnv.address)
+                    (AccountAddress.ofUInt256 toArg)
                     value
                     (MachineState.readPadded
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
@@ -769,7 +704,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                               gasArg.toNat
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                      } : State).enterCall rest s.executionEnv.address value
+                      } : State).enterCall rest s.executionEnv.address
+                        (AccountAddress.ofUInt256 toArg) value
                         (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                         (s.accountMap (AccountAddress.ofUInt256 toArg)).code
                         (Gas.forwardGas s.fork
@@ -783,53 +719,30 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       MachineState.memExpansionDelta2,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
-              -- Normalization of `Precompile.run`'s arguments from chained to
-              -- bundled form: memory is preserved by `consumeGas`/`consumeMemExp2`,
-              -- and the chained `gasAvailable` equals `s.gasAvailable - committed`.
-              have h_mem_eq :
-                  ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).consumeGas
-                      (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).consumeGas
-                      (Gas.forwardGas s.fork
-                        (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
-                            argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                          (Gas.callSurcharge s.fork (value.toNat != 0) false)
-                          h_sc).gasAvailable gasArg.toNat) h_fw).memory
-                  = s.memory := by
-                simp [State.consumeGas, State.consumeMemExp2]
-              have h_ga_eq :
-                  (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).consumeGas
-                      (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).gasAvailable
-                  = s.gasAvailable
-                    - Gas.callcodeCommitted s value argsOff argsLen retOff retLen := by
-                show _ = _
-                rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen
-                        = base + md + Gas.callSurcharge s.fork (value.toNat != 0) false from
-                      rfl]
-                simp [State.consumeGas, State.consumeMemExp2]
-                omega
-              split at h
-              · -- `.success out gasUsed`
-                rename_i out gasUsed h_prec
-                cases h
-                rw [h_mem_eq, h_ga_eq] at h_prec
-                rw [post_eq, h_ga_eq]
-                exact StepRunning.callcodePrecompileSuccess s gasArg toArg value argsOff argsLen
-                  retOff retLen rest _ out gasUsed h_dec h_stack h_committed h_take' rfl
-                  h_afford h_prec
-              · -- `.outOfGas`
-                rename_i h_prec
-                cases h
-                rw [h_mem_eq, h_ga_eq] at h_prec
-                rw [post_eq]
-                exact StepRunning.callcodePrecompileOog s gasArg toArg value argsOff argsLen
-                  retOff retLen rest _ h_dec h_stack h_committed h_take' rfl h_afford h_prec
-              · -- `.notAPrecompile`
-                cases h
-                rw [post_eq]
-                exact StepRunning.callcode s gasArg toArg value argsOff argsLen retOff retLen
-                  rest _ h_dec h_stack h_committed h_take' rfl h_afford
+              rw [post_eq]
+              have h_afford :
+                  Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen := by
+                have h := h_fw
+                simp only [State.consumeGas, State.consumeMemExp2] at h
+                show Gas.forwardGas s.fork _ _ ≤ _
+                have eq : (s.gasAvailable
+                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        = s.gasAvailable - base - md
+                          - Gas.callSurcharge s.fork (value.toNat != 0) false := by
+                  show _ = _
+                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                          = base + md + Gas.callSurcharge s.fork (value.toNat != 0) false from
+                        rfl]
+                  omega
+                rw [eq]
+                exact h
+              exact StepRunning.callcode s gasArg toArg value argsOff argsLen retOff retLen
+                rest _ h_dec h_stack h_committed h_take' rfl h_afford
             · nomatch h
         · nomatch h
       · simp [h_mem] at h
@@ -889,34 +802,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
         · rename_i h_take
           split at h
           · rename_i h_fw
+            cases h
             have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
               simpa [State.consumeGas, State.consumeMemExp2] using h_take
-            have h_fwd_eq :
-                ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).gasAvailable
-                = s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
-              simp [State.consumeGas, State.consumeMemExp2, Gas.delegatecallCommitted,
-                    MachineState.memExpansionDelta2, ← hbase, ← hmd]
-              omega
-            have h_afford :
-                Gas.forwardGas s.executionEnv.fork
-                    (s.gasAvailable
-                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                    gasArg.toNat
-                  ≤ s.gasAvailable
-                    - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
-              have h := h_fw
-              simp only [State.consumeGas, State.consumeMemExp2] at h
-              show Gas.forwardGas s.fork _ _ ≤ _
-              have eq : (s.gasAvailable
-                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                      = s.gasAvailable - base - md := by
-                show _ = _
-                rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen
-                        = base + md from rfl]
-                omega
-              rw [eq]
-              exact h
             have post_eq :
                 (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                   retOff.toNat retLen.toNat h_mem).consumeGas
@@ -959,36 +847,28 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     MachineState.memExpansionDelta2,
                     show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
               grind
-            have h_mem_eq :
-                (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).consumeGas
-                    (Gas.forwardGas s.fork
-                      ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).gasAvailable gasArg.toNat)
-                    h_fw).memory
-                = s.memory := by
-              simp [State.consumeGas, State.consumeMemExp2]
-            split at h
-            · -- `.success out gasUsed`
-              rename_i out gasUsed h_prec
-              cases h
-              rw [h_mem_eq, h_fwd_eq] at h_prec
-              rw [post_eq, h_fwd_eq]
-              exact StepRunning.delegatecallPrecompileSuccess s gasArg toArg argsOff argsLen
-                retOff retLen rest _ out gasUsed h_dec h_stack h_committed h_take' rfl
-                h_afford h_prec
-            · -- `.outOfGas`
-              rename_i h_prec
-              cases h
-              rw [h_mem_eq, h_fwd_eq] at h_prec
-              rw [post_eq]
-              exact StepRunning.delegatecallPrecompileOog s gasArg toArg argsOff argsLen
-                retOff retLen rest _ h_dec h_stack h_committed h_take' rfl h_afford h_prec
-            · -- `.notAPrecompile`
-              cases h
-              rw [post_eq]
-              exact StepRunning.delegatecall s gasArg toArg argsOff argsLen retOff retLen
-                rest _ h_dec h_stack h_committed h_take' rfl h_afford
+            rw [post_eq]
+            have h_afford :
+                Gas.forwardGas s.executionEnv.fork
+                    (s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                    gasArg.toNat
+                  ≤ s.gasAvailable
+                    - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
+              have h := h_fw
+              simp only [State.consumeGas, State.consumeMemExp2] at h
+              show Gas.forwardGas s.fork _ _ ≤ _
+              have eq : (s.gasAvailable
+                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                      = s.gasAvailable - base - md := by
+                show _ = _
+                rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                        = base + md from rfl]
+                omega
+              rw [eq]
+              exact h
+            exact StepRunning.delegatecall s gasArg toArg argsOff argsLen retOff retLen
+              rest _ h_dec h_stack h_committed h_take' rfl h_afford
           · nomatch h
       · simp [h_mem] at h
     | [], h                            => nomatch h
@@ -1046,34 +926,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
         · rename_i h_take
           split at h
           · rename_i h_fw
+            cases h
             have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
               simpa [State.consumeGas, State.consumeMemExp2] using h_take
-            have h_fwd_eq :
-                ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).gasAvailable
-                = s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen := by
-              simp [State.consumeGas, State.consumeMemExp2, Gas.staticcallCommitted,
-                    MachineState.memExpansionDelta2, ← hbase, ← hmd]
-              omega
-            have h_afford :
-                Gas.forwardGas s.executionEnv.fork
-                    (s.gasAvailable
-                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                    gasArg.toNat
-                  ≤ s.gasAvailable
-                    - Gas.staticcallCommitted s argsOff argsLen retOff retLen := by
-              have h := h_fw
-              simp only [State.consumeGas, State.consumeMemExp2] at h
-              show Gas.forwardGas s.fork _ _ ≤ _
-              have eq : (s.gasAvailable
-                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                      = s.gasAvailable - base - md := by
-                show _ = _
-                rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen
-                        = base + md from rfl]
-                omega
-              rw [eq]
-              exact h
             have post_eq :
                 (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                   retOff.toNat retLen.toNat h_mem).consumeGas
@@ -1116,36 +971,28 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     MachineState.memExpansionDelta2,
                     show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
               grind
-            have h_mem_eq :
-                (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).consumeGas
-                    (Gas.forwardGas s.fork
-                      ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).gasAvailable gasArg.toNat)
-                    h_fw).memory
-                = s.memory := by
-              simp [State.consumeGas, State.consumeMemExp2]
-            split at h
-            · -- `.success out gasUsed`
-              rename_i out gasUsed h_prec
-              cases h
-              rw [h_mem_eq, h_fwd_eq] at h_prec
-              rw [post_eq, h_fwd_eq]
-              exact StepRunning.staticcallPrecompileSuccess s gasArg toArg argsOff argsLen
-                retOff retLen rest _ out gasUsed h_dec h_stack h_committed h_take' rfl
-                h_afford h_prec
-            · -- `.outOfGas`
-              rename_i h_prec
-              cases h
-              rw [h_mem_eq, h_fwd_eq] at h_prec
-              rw [post_eq]
-              exact StepRunning.staticcallPrecompileOog s gasArg toArg argsOff argsLen
-                retOff retLen rest _ h_dec h_stack h_committed h_take' rfl h_afford h_prec
-            · -- `.notAPrecompile`
-              cases h
-              rw [post_eq]
-              exact StepRunning.staticcall s gasArg toArg argsOff argsLen retOff retLen
-                rest _ h_dec h_stack h_committed h_take' rfl h_afford
+            rw [post_eq]
+            have h_afford :
+                Gas.forwardGas s.executionEnv.fork
+                    (s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                    gasArg.toNat
+                  ≤ s.gasAvailable
+                    - Gas.staticcallCommitted s argsOff argsLen retOff retLen := by
+              have h := h_fw
+              simp only [State.consumeGas, State.consumeMemExp2] at h
+              show Gas.forwardGas s.fork _ _ ≤ _
+              have eq : (s.gasAvailable
+                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                      = s.gasAvailable - base - md := by
+                show _ = _
+                rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                        = base + md from rfl]
+                omega
+              rw [eq]
+              exact h
+            exact StepRunning.staticcall s gasArg toArg argsOff argsLen retOff retLen
+              rest _ h_dec h_stack h_committed h_take' rfl h_afford
           · nomatch h
       · simp [h_mem] at h
     | [], h                            => nomatch h
@@ -2271,65 +2118,84 @@ theorem stepFE_sound (s s' : State) (h_nd : ¬ s.isDone) (h : stepFE s = .ok s')
   split at h
   · -- s.halt = .Running
     rename_i h_running
-    -- Split on s.decoded.
+    -- Precompile dispatch: `stepFE` first checks whether the current
+    -- frame's `codeAddr` is a precompile. The three arms of
+    -- `Precompile.run` either close the goal directly (success / OOG)
+    -- or fall through to the normal bytecode dispatch
+    -- (`.notAPrecompile`).
     split at h
-    · -- decoded = none
-      nomatch h
-    · -- decoded = some (op, argOpt)
-      rename_i op argOpt h_dec
-      -- Split on the stack-overflow check.
+    · -- `.success out gasUsed`
+      rename_i out gasUsed h_prec
+      cases h
+      exact .running h_running
+        (StepRunning.precompileSuccess s out gasUsed h_running h_prec)
+    · -- `.outOfGas`
+      rename_i h_prec
+      cases h
+      exact .running h_running
+        (StepRunning.precompileOog s h_running h_prec)
+    · -- `.notAPrecompile`: fall through to the standard bytecode
+      -- dispatch.
+      rename_i h_prec
+      -- Split on s.decoded.
       split at h
-      · -- overflow: would leave >1024 items on the stack
+      · -- decoded = none
         nomatch h
-      · -- no overflow; split on the gas check.
+      · -- decoded = some (op, argOpt)
+        rename_i op argOpt h_dec
+        -- Split on the stack-overflow check.
         split at h
-        · -- gas ≥ cost
-          rename_i h_gas
-          -- Split on the operation kind.
-          cases op with
-          | StopArith op =>
-            exact .running h_running
-              (stepF.stopArith_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | CompBit op =>
-            exact .running h_running
-              (stepF.compBit_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Keccak op =>
-            exact .running h_running
-              (stepF.keccak_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Env op =>
-            exact .running h_running
-              (stepF.env_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Block op =>
-            exact .running h_running
-              (stepF.block_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | StackMemFlow op =>
-            exact .running h_running
-              (stepF.stackMemFlow_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Push op =>
-            exact .running h_running (stepF.push_sound s op argOpt h_dec h_gas h)
-          | Dup op =>
-            exact .running h_running
-              (stepF.dup_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Swap op =>
-            exact .running h_running
-              (stepF.swap_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | DupN op =>
-            exact .running h_running
-              (stepF.dupN_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | SwapN op =>
-            exact .running h_running
-              (stepF.swapN_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Exchange op =>
-            exact .running h_running
-              (stepF.exchange_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Log op =>
-            exact .running h_running
-              (stepF.log_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | System op =>
-            exact .running h_running
-              (stepF.system_sound s op (State.decoded_to_op h_dec) h_gas h)
-        · -- gas < cost
+        · -- overflow: would leave >1024 items on the stack
           nomatch h
+        · -- no overflow; split on the gas check.
+          split at h
+          · -- gas ≥ cost
+            rename_i h_gas
+            -- Split on the operation kind.
+            cases op with
+            | StopArith op =>
+              exact .running h_running
+                (stepF.stopArith_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | CompBit op =>
+              exact .running h_running
+                (stepF.compBit_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Keccak op =>
+              exact .running h_running
+                (stepF.keccak_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Env op =>
+              exact .running h_running
+                (stepF.env_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Block op =>
+              exact .running h_running
+                (stepF.block_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | StackMemFlow op =>
+              exact .running h_running
+                (stepF.stackMemFlow_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Push op =>
+              exact .running h_running (stepF.push_sound s op argOpt h_dec h_gas h)
+            | Dup op =>
+              exact .running h_running
+                (stepF.dup_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Swap op =>
+              exact .running h_running
+                (stepF.swap_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | DupN op =>
+              exact .running h_running
+                (stepF.dupN_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | SwapN op =>
+              exact .running h_running
+                (stepF.swapN_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Exchange op =>
+              exact .running h_running
+                (stepF.exchange_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Log op =>
+              exact .running h_running
+                (stepF.log_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | System op =>
+              exact .running h_running
+                (stepF.system_sound s op (State.decoded_to_op h_dec) h_gas h)
+          · -- gas < cost
+            nomatch h
   -- Non-Running halts: `stepFE` resumes the top caller (`.ok`, via the
   -- `callReturn*` rules) when the call stack is non-empty, otherwise it
   -- returns the state unchanged (the YP-empty case — no transition is

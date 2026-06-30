@@ -327,41 +327,68 @@ modexp`, `0x06–0x09` BN254/BLAKE2F) are stubbed with explicit
 `.notAPrecompile` so a call into them STOPs cleanly; adding a new
 precompile is a two-line edit (`runFoo` + dispatch arm).
 
-**EVM-level dispatch.** Each of the four `CALL`-family handlers in
-`StepF.lean` reaches the same point after the depth/balance/63-64
-sequence — a single `enterCall`/`enterCallFor` — then chains
-`match Precompile.run …` to choose one of three `.ok` post-states:
-1. `.success out gasUsed` → `State.installPrecompileSuccess entered out
-   childGas gasUsed` mutates the just-pushed frame to `halt := .Returned`
-   with `hReturn := output` and `gasAvailable := childGas - gasUsed`.
-   The next outer `stepF` iteration then resumes the caller via the
-   normal `resumeByHalt → resumeSuccess` path, copying `output` into
-   the caller's return window and refunding unspent gas.
-2. `.outOfGas` → `State.installPrecompileOog entered` marks the frame
-   `halt := .Exception .OutOfGas` with `gasAvailable := 0`; the next
-   iteration's `resumeByHalt → resumeException` rolls back the world
-   via the frame's snapshot (undoing the value transfer) and pushes `0`.
-3. `.notAPrecompile` → continue with the normal call rule (the existing
-   `StepRunning.call` / `callcode` / `delegatecall` / `staticcall`
-   constructors).
+**Frame-entry layer.** The dispatch lives in *one* place — a single
+arm at the top of `stepFE`'s running branch — rather than being
+duplicated across the four CALL-family handlers. To make that single
+arm correct for every entry path, each frame's `ExecutionEnv` carries a
+`codeAddr` field: the *borrowed-from* address whose bytecode is
+loaded into the frame.
 
-For the relation, `Step.lean` adds eight precompile-specific
-constructors — `callPrecompileSuccess` / `callPrecompileOog` and the
-matching `callcode` / `delegatecall` / `staticcall` pairs — each of
-which packages the same `h_op` / `h_stack` / `h_gas` / `h_take` /
-`h_fwd` / `h_afford` premises as the corresponding call rule plus an
-`h_prec : Precompile.run … = .success/.outOfGas …` witness pinning
-which arm fires. The proof of `stepFE_sound` adds one `split at h` on
-`Precompile.run` per call-op site (four sites total).
+- `CALL` / `STATICCALL` set `codeAddr = address = tgt`.
+- `CALLCODE` / `DELEGATECALL` set `codeAddr = tgt`, but `address`
+  stays the caller's (those two preserve the caller's storage /
+  identity context). Without `codeAddr` a CALLCODE/DELEGATECALL into
+  a precompile would be invisible to a check that only looked at
+  `address`.
+- `Tx.buildInitState` sets `codeAddr := tx.recipient` for the
+  top-level frame, so a transaction *to* a precompile fires the
+  dispatch on its very first step.
+- A CREATE/CREATE2 init-code frame sets `codeAddr := newAddr` (the
+  freshly-derived address; cannot collide with `0x01..0x09` in
+  practice).
 
-**Tx-level dispatch.** `EvmSemantics.Tx.execute` short-circuits when
-`tx.recipient` is a precompile address (and the tx isn't a create-tx):
-after `buildInitState` (which has already debited intrinsic gas and
-applied the value transfer), `Precompile.run` is invoked with the
-remaining `gasAvailable` as `childGas` and the result mapped directly
-to `ExecResult`. Without this, a transaction whose `to` is `0x04` would
-fall into the (empty) bytecode of the precompile account and STOP
-immediately, never invoking the precompile.
+**The dispatch itself.** With `codeAddr` in place, `stepFE`'s running
+branch is just:
+
+```
+match Precompile.run s.executionEnv.codeAddr s.executionEnv.calldata
+                     s.gasAvailable with
+| .success out gasUsed =>
+    .ok { s with halt := .Returned, hReturn := out,
+                 gasAvailable := s.gasAvailable - gasUsed }
+| .outOfGas =>
+    .ok { s with halt := .Exception .OutOfGas, hReturn := empty,
+                 gasAvailable := 0 }
+| .notAPrecompile =>
+    /- fall through to the normal bytecode dispatch -/
+```
+
+On `.success` the frame is marked `.Returned`; the next iteration's
+`resumeByHalt → resumeSuccess` copies `hReturn` into the caller's
+return window and refunds unspent gas. On `.outOfGas` the frame is
+marked `.Exception .OutOfGas`; `resumeByHalt → resumeException` rolls
+the world back via the frame's snapshot (undoing the value transfer
+the surrounding CALL applied) and pushes `0`. On `.notAPrecompile`
+(any address not in the implemented set, including non-precompiles)
+the normal bytecode dispatch runs as before.
+
+**Spec side.** The relation `Step.lean` mirrors this with **two**
+generic rules — `precompileSuccess` and `precompileOog` — each with
+minimal premises (`s.halt = .Running` plus a `Precompile.run … =
+.success/.outOfGas …` witness). The four CALL-family `StepRunning`
+constructors (`call`, `callcode`, `delegatecall`, `staticcall`)
+remain unchanged: they push the frame the usual way, and the next
+small step fires the precompile rule. This is the user-suggested
+factoring — an intermediate layer between the caller's execution
+step and the callee's first step — and it collapses what would have
+been eight op-specific precompile constructors into two generic ones.
+
+The proof of `stepFE_sound` adds a single `split at h` on
+`Precompile.run` at the top of the running branch, dispatching the
+three arms to the two new rules and (for `.notAPrecompile`) to the
+existing per-operation logic. **`Tx.execute` needs no precompile
+special-case at all** — the generic frame-entry rule handles tx-to-
+precompile transactions on the first step of the `stepF` loop.
 
 ## SELFDESTRUCT
 

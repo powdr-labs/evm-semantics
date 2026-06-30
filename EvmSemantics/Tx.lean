@@ -166,6 +166,12 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
       weiValue  := tx.value
       calldata  := calldata
       code      := code
+      -- Top-level frame: the borrowed-from address equals the call
+      -- target (or the newly-derived address for a create tx). The
+      -- precompile dispatcher in `stepF` keys off `codeAddr` so a tx
+      -- whose recipient is a precompile address fires the precompile
+      -- on the first step and halts immediately.
+      codeAddr  := toAddr
       gasPrice  := tx.gasPrice
       header    := header
       depth     := 0
@@ -252,35 +258,13 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   let collide : Bool :=
     tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
   if collide then rollback
-  -- Tx-level precompile dispatch: a transaction whose recipient is one
-  -- of the YP §9 precompile addresses runs the precompile natively
-  -- rather than dropping into the (empty) bytecode of that account.
-  -- `s0` already carries the value transfer and the intrinsic-gas
-  -- deduction, so the precompile sees `s0.gasAvailable` as its
-  -- `childGas`. A successful run keeps `s0.accountMap` (value
-  -- transferred, sender debited the upfront gas charge); OOG rolls
-  -- back exactly like an exceptional halt.
-  else if ¬ tx.isCreate ∧ Precompile.isPrecompile newAddr then
-    match Precompile.run newAddr tx.data s0.gasAvailable with
-    | .success _ _    => { finalAccounts := s0.accountMap, outcome := .success }
-    | .outOfGas       => rollback
-    | .notAPrecompile =>
-      -- Defensive: `isPrecompile` true but `Precompile.run` returned
-      -- `.notAPrecompile`. This can happen if a precompile address is
-      -- in the YP range `0x01..0x09` but isn't yet implemented in
-      -- `Precompile.run` (e.g. 0x01 ECRECOVER). Fall through to the
-      -- standard EVM loop — which, for an unimplemented precompile,
-      -- enters its empty bytecode and STOPs immediately.
-      match run s0 fuel with
-      | .error .OutOfFuel =>
-        { finalAccounts := preMap, outcome := .fuelExhausted }
-      | .error _ =>
-        rollback
-      | .ok sf =>
-        match sf.halt with
-        | .Exception _ | .Reverted => rollback
-        | _ => { finalAccounts := sf.accountMap, outcome := .success }
   else
+    -- Tx-level precompile dispatch is *not* a special case here: a tx
+    -- whose recipient is a precompile address arrives at `run s0 fuel`
+    -- with `s0.executionEnv.codeAddr = tx.recipient`, and the generic
+    -- precompile arm at the top of `stepFE` fires on the very first
+    -- step. The resulting halted (top-level) frame then exits the
+    -- `run` loop via `isDone`.
     match run s0 fuel with
     | .error .OutOfFuel =>
       { finalAccounts := preMap, outcome := .fuelExhausted }

@@ -37,6 +37,17 @@ structure ExecutionEnv where
   calldata  : ByteArray
   /-- `I_b` — the bytecode being executed. -/
   code      : ByteArray
+  /-- The address whose bytecode `code` was read from — i.e. the
+      target of the surrounding `CALL`/`CALLCODE`/`DELEGATECALL`/
+      `STATICCALL`. For `CALL`/`STATICCALL` this equals `address`; for
+      `CALLCODE`/`DELEGATECALL` it differs from `address` (those two
+      borrow code from `codeAddr` but keep the caller's `address`).
+      Used by the precompile dispatch (YP §9): a frame whose `codeAddr`
+      lies in `0x01..0x09` runs the corresponding native operation in
+      place of `code`. Not in the Yellow Paper's `I` tuple — added here
+      because we need a stable per-frame handle on the borrowed-from
+      address to key the precompile-vs-bytecode decision off of. -/
+  codeAddr  : AccountAddress
   /-- `Iₚ` — the gas price of the originating transaction. -/
   gasPrice  : UInt256
   /-- `I_H` — the block header in which this execution occurs. -/

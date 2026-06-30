@@ -718,7 +718,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- running branch — see the `Precompile.isPrecompile` check
               -- there. This keeps the CALL handler oblivious to the
               -- precompile-vs-bytecode distinction.
-              .ok (s4.enterCall rest tgt value calldata callee.code
+              .ok (s4.enterCall rest tgt tgt value calldata callee.code
                      childGas retOff.toNat retLen.toNat)
             else .error .OutOfGas
         else .error .OutOfGas
@@ -766,7 +766,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- the borrowed bytecode runs instead. (This matches the
               -- YP: CALLCODE-ing into a precompile address just runs
               -- the precompile's empty code in the caller's context.)
-              .ok (s4.enterCall rest s4.executionEnv.address value calldata
+              .ok (s4.enterCall rest s4.executionEnv.address codeAddr value calldata
                      codeSrc.code childGas retOff.toNat retLen.toNat)
             else .error .OutOfGas
         else .error .OutOfGas
@@ -791,13 +791,12 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
             -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
-            let entered := s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
-                             callee.code forwarded retOff.toNat retLen.toNat
-            match Precompile.run tgt calldata forwarded with
-            | .success out gasUsed =>
-              .ok (State.installPrecompileSuccess entered out forwarded gasUsed)
-            | .outOfGas       => .ok (State.installPrecompileOog entered)
-            | .notAPrecompile => .ok entered
+            -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
+            -- generic precompile arm's job at the top of the next
+            -- iteration; the frame's `codeAddr := tgt` is set by
+            -- `enterCallFor` so the arm has the right key.
+            .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
+                   callee.code forwarded retOff.toNat retLen.toNat)
           else .error .OutOfGas
     | _ => underflow
   | .STATICCALL => match s.stack with
@@ -820,13 +819,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
             -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
-            let entered := s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
-                             callee.code forwarded retOff.toNat retLen.toNat
-            match Precompile.run tgt calldata forwarded with
-            | .success out gasUsed =>
-              .ok (State.installPrecompileSuccess entered out forwarded gasUsed)
-            | .outOfGas       => .ok (State.installPrecompileOog entered)
-            | .notAPrecompile => .ok entered
+            -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
+            -- generic precompile arm's job at the top of the next
+            -- iteration.
+            .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
+                   callee.code forwarded retOff.toNat retLen.toNat)
           else .error .OutOfGas
     | _ => underflow
   | .SELFDESTRUCT => match s.stack with
@@ -951,6 +948,30 @@ end stepF
 def stepFE (s : State) : Except ExecutionException State := Id.run do
   match s.halt with
   | .Running =>
+    -- YP §9 precompile dispatch.  If the *currently-executing frame*
+    -- borrows code from a precompile address (`0x01..0x09`), run the
+    -- precompile in place of decoding `s.code`.  This single arm covers
+    -- every entry path: `CALL` / `STATICCALL` (where `codeAddr =
+    -- address`), `CALLCODE` / `DELEGATECALL` (where `codeAddr` is the
+    -- borrowed-from address ≠ `address`), and a transaction whose
+    -- `to` is itself a precompile (where `buildInitState` sets
+    -- `codeAddr := tx.recipient`).  `Precompile.run` returns
+    -- `.notAPrecompile` for anything outside the implemented set, so
+    -- we don't need a separate `isPrecompile` gate — that arm just
+    -- falls through to the standard bytecode dispatch.
+    match Precompile.run s.executionEnv.codeAddr s.executionEnv.calldata
+            s.gasAvailable with
+    | .success out gasUsed =>
+      .ok { s with
+              halt         := .Returned
+              hReturn      := out
+              gasAvailable := s.gasAvailable - gasUsed }
+    | .outOfGas =>
+      .ok { s with
+              halt         := .Exception .OutOfGas
+              hReturn      := ByteArray.empty
+              gasAvailable := 0 }
+    | .notAPrecompile =>
     match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>

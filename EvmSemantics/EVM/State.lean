@@ -247,14 +247,20 @@ def resumeByHalt (child : State) (f : Frame) (rest : List Frame) : State :=
     into address `to`: the callee runs *its own* code and storage (`address`),
     sees the caller as `caller`, receives `value`/`calldata`, and is one level
     deeper. (CALLCODE/DELEGATECALL/STATICCALL differ here — added later.) -/
-def calleeEnvForCall (sc : State) (tgt : AccountAddress) (value : UInt256)
-    (calldata calleeCode : ByteArray) : EvmSemantics.ExecutionEnv :=
+def calleeEnvForCall (sc : State) (tgt : AccountAddress) (codeAddr : AccountAddress)
+    (value : UInt256) (calldata calleeCode : ByteArray) : EvmSemantics.ExecutionEnv :=
   { address              := tgt
     origin               := sc.executionEnv.origin
     caller               := sc.executionEnv.address
     weiValue             := value
     calldata             := calldata
     code                 := calleeCode
+    -- The precompile dispatcher in `stepF` keys off `codeAddr` so the
+    -- precompile-vs-bytecode decision is uniform across the four
+    -- CALL-family ops. For plain `CALL` it equals `tgt`; for
+    -- `CALLCODE` it is the borrowed-from address (≠ `address`, which
+    -- stays the caller).
+    codeAddr             := codeAddr
     gasPrice             := sc.executionEnv.gasPrice
     header               := sc.executionEnv.header
     depth                := sc.executionEnv.depth + 1
@@ -270,7 +276,8 @@ def calleeEnvForCall (sc : State) (tgt : AccountAddress) (value : UInt256)
     `childGas` (forwarded + stipend). Shared verbatim by `stepF` and
     `StepRunning.call` so the soundness proof is mechanical. -/
 def enterCall (sc : State) (rest : List UInt256)
-    (tgt : AccountAddress) (value : UInt256) (calldata calleeCode : ByteArray)
+    (tgt codeAddr : AccountAddress) (value : UInt256)
+    (calldata calleeCode : ByteArray)
     (childGas retOffset retSize : Nat) : State :=
   let frame : Frame :=
     { pc           := sc.pc + UInt256.ofNat 1
@@ -291,38 +298,11 @@ def enterCall (sc : State) (rest : List UInt256)
       memory       := .empty
       returnData   := .empty
       hReturn      := .empty
-      executionEnv := sc.calleeEnvForCall tgt value calldata calleeCode
+      executionEnv := sc.calleeEnvForCall tgt codeAddr value calldata calleeCode
       pc           := UInt256.ofNat 0
       stack        := []
       halt         := .Running
       callStack    := frame :: sc.callStack }
-
-/-- "Halted-precompile" wrapper around `enterCall`: install the precompile
-    frame as if it had already executed and returned `output` after
-    consuming `gasUsed` gas. The next iteration of the `stepF` loop will
-    pop this frame via `resumeByHalt → resumeSuccess`, which writes
-    `output` into the caller's `retOff:retLen` memory window, pushes
-    `1`, and refunds `childGas - gasUsed` to the caller. Used by the
-    YP §9 precompile dispatch. -/
-@[inline] def installPrecompileSuccess (entered : State) (output : ByteArray)
-    (childGas gasUsed : Nat) : State :=
-  { entered with
-      halt         := .Returned
-      hReturn      := output
-      gasAvailable := childGas - gasUsed }
-
-/-- "Halted-precompile-OOG" wrapper around `enterCall`: install the
-    precompile frame as if it had run out of gas, with the entire
-    `childGas` consumed. The next iteration of the `stepF` loop pops
-    this frame via `resumeByHalt → resumeException`, which pushes
-    `0`, clears `returnData`, refunds nothing, and (crucially) rolls
-    the world back via the frame's snapshot — so the value transfer
-    that `enterCall` applied is undone. -/
-@[inline] def installPrecompileOog (entered : State) : State :=
-  { entered with
-      halt         := .Exception .OutOfGas
-      hReturn      := ByteArray.empty
-      gasAvailable := 0 }
 
 end State
 
@@ -404,6 +384,11 @@ def calleeEnvFor (sc : State) (kind : CallKind) (tgt : AccountAddress)
     weiValue             := kind.calleeWeiValue sc value
     calldata             := calldata
     code                 := calleeCode
+    -- For all four CallKinds the `tgt` parameter *is* the borrowed-
+    -- from address (DELEGATECALL/CALLCODE keep the caller's
+    -- `address` while reading code from `tgt`), so `codeAddr := tgt`
+    -- is uniformly correct here.
+    codeAddr             := tgt
     gasPrice             := sc.executionEnv.gasPrice
     header               := sc.executionEnv.header
     depth                := sc.executionEnv.depth + 1
@@ -520,6 +505,11 @@ def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
     weiValue             := value
     calldata             := .empty
     code                 := initCode
+    -- An init-code frame's `codeAddr` is the newly-derived address.
+    -- It cannot collide with a precompile (`0x01..0x09`) under any
+    -- realistic CREATE2 salt, and the keccak preimage for plain
+    -- CREATE makes it astronomically unlikely.
+    codeAddr             := newAddr
     gasPrice             := sc.executionEnv.gasPrice
     header               := sc.executionEnv.header
     depth                := sc.executionEnv.depth + 1
