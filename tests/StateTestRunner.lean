@@ -109,21 +109,44 @@ def parseFork (s : String) : Option Fork :=
   else if s.endsWith "_Osaka" then some .Osaka
   else none
 
+/-- `true` iff this transaction is a contract-creating transaction
+    (the `to` field is empty / absent — the YP's `Tᵢ` flag). -/
+def isCreateTx (tx : Json) : Bool := (strField tx "to") = ""
+
 /-- Build the top-level execution `State` for a BlockchainTest test object,
     given its `pre` accounts and the block's transaction JSON. -/
 def buildState (preMap : AccountMap) (env tx : Json) (fork : Fork) : State :=
-  let toAddr   := hexToAddress (strField tx "to")
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
   let gasLimit := hexToNat     (strField tx "gasLimit")
   let gasPrice := hexToUInt256 (strField tx "gasPrice")
-  -- Apply the transaction-level effects up front: bump the sender nonce, debit
-  -- the up-front gas charge, and transfer `value` to the callee.
-  let sender := preMap txSender
+  -- For a *create* tx we derive the contract address from the sender's
+  -- pre-bump nonce (YP §7), install the `data` payload as the contract's
+  -- *code* (it's the init code, executed as bytecode), and the runner's
+  -- success path snaps the deployed bytes (`hReturn`) into `code` and
+  -- sets the new account's nonce to 1 (or 0 pre-EIP-158). For a call tx
+  -- we just read `to` verbatim.
+  let sender0 := preMap txSender
+  let toAddr  :=
+    if isCreateTx tx then
+      (EvmSemantics.createAddress txSender sender0.nonce.toNat).getD default
+    else
+      hexToAddress (strField tx "to")
   let upfront := gasLimit * gasPrice.toNat
   let preMap := preMap.set txSender
-    { sender with nonce := sender.nonce + UInt256.ofNat 1
-                  balance := sender.balance - UInt256.ofNat upfront }
+    { sender0 with nonce := sender0.nonce + UInt256.ofNat 1
+                   balance := sender0.balance - UInt256.ofNat upfront }
+  -- For a create tx the *target* account doesn't exist yet — install it
+  -- with the init code as its `code` field so `decoded` can read it via
+  -- the normal `executionEnv.code` path. Per EIP-158 the new contract
+  -- already starts with nonce 1 (so an internal CREATE inside the init
+  -- code sees nonce 1 and bumps from there); pre-EIP-158 it stays 0.
+  let preMap :=
+    if isCreateTx tx then
+      let existing := preMap toAddr
+      let n : UInt256 := if fork.atLeast .SpuriousDragon then ⟨1⟩ else ⟨0⟩
+      preMap.set toAddr { existing with code := data, nonce := n }
+    else preMap
   let accountMap := preMap.transfer txSender toAddr value
   let header : BlockHeader :=
     { coinbase      := hexToAddress (strField env "currentCoinbase")
@@ -133,13 +156,18 @@ def buildState (preMap : AccountMap) (env tx : Json) (fork : Fork) : State :=
       gasLimit      := hexToUInt256 (strField env "currentGasLimit")
       baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
       blockHash     := fun _ => ⟨0⟩ }
+  -- A create tx runs `data` as the init code, with empty calldata; a
+  -- call tx runs the target's existing code, with `data` as calldata.
+  let isCreate := isCreateTx tx
+  let calldata := if isCreate then ByteArray.empty else data
+  let code     := if isCreate then data else (accountMap toAddr).code
   let execEnv : ExecutionEnv :=
     { address := toAddr
       origin  := txSender
       caller  := txSender
       weiValue  := value
-      calldata  := data
-      code      := (accountMap toAddr).code
+      calldata  := calldata
+      code      := code
       gasPrice  := gasPrice
       header    := header
       depth     := 0
@@ -263,6 +291,25 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
                 | [] => .passFull
                 | _  => .passCore
         | msgs => .fail (String.intercalate "; " (msgs.take 3))
+      let isCreate := isCreateTx tx
+      -- Address-collision short-circuit for create txs: if the derived
+      -- contract address already hosts code or has a non-zero nonce
+      -- (YP "account already exists"), the create tx fails before any
+      -- execution — exactly like the top-level-OOG path: sender pays
+      -- the full gas (no refund), no value transfer, no state mutation.
+      let preExisting := preMap s0.executionEnv.address
+      let isCollision : Bool :=
+        isCreate && (preExisting.nonce.toNat > 0 || preExisting.code.size > 0)
+      if isCollision then
+        let sender    := preMap txSender
+        let coinAcc   := preMap coinbase
+        let map₁ := preMap.set txSender
+          { sender with nonce := sender.nonce + UInt256.ofNat 1
+                        balance := sender.balance - UInt256.ofNat upfront }
+        let map₂ := map₁.set coinbase
+          { coinAcc with balance := coinAcc.balance + UInt256.ofNat upfront }
+        finishOk { s0 with accountMap := map₂, halt := .Success }
+      else
       match run s0 (2 * s0.gasAvailable + 100000) with
       | .error .OutOfFuel => .incon "fuel exhausted"
       | .error _ =>
@@ -282,7 +329,19 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
         let map₂ := map₁.set coinbase
           { coinAcc with balance := coinAcc.balance + UInt256.ofNat upfront }
         finishOk { s0 with accountMap := map₂, halt := .Success }
-      | .ok sf => finishOk sf
+      | .ok sf =>
+        -- Create-tx success: snap the returned bytes into the new
+        -- account's `code`. The account's nonce was set in `buildState`
+        -- (1 from EIP-158, else 0) so any internal CREATE inside the
+        -- init code bumps from that baseline — preserve whatever it
+        -- arrived at by the time the init code finished.
+        if isCreate then
+          let newAddr := s0.executionEnv.address
+          let newAcc := sf.accountMap newAddr
+          let map' := sf.accountMap.set newAddr
+            { newAcc with code := sf.hReturn }
+          finishOk { sf with accountMap := map' }
+        else finishOk sf
     | [] => .incon "no transactions"
   | [] => .incon "no blocks"
 

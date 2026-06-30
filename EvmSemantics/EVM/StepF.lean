@@ -674,9 +674,16 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           -- Depth limit or insufficient balance ⇒ the call is not taken: the
           -- forwarded gas is *not* spent and `0` is pushed. The caller's
           -- `returnData` buffer is cleared (every CALL-family opcode resets
-          -- it, including this pre-execution failure path).
+          -- it, including this pre-execution failure path). YP §H.2: when
+          -- the call would have transferred non-zero `value` the 2300-gas
+          -- stipend that the surcharge had earmarked for the callee is
+          -- refunded to the caller, since no callee runs to receive it.
           if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
-            .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            let s3' :=
+              if valNZ then
+                { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+              else s3
+            .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
             -- EIP-150: forward at most 63/64 of the remaining gas; add the
@@ -713,8 +720,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
+          -- Same YP §H.2 stipend refund as CALL: failed value-NZ
+          -- CALLCODE gives 2300 back to the caller.
           if s3.executionEnv.depth ≥ 1024 ∨ caller.balance < value then
-            .ok ({ s3 with returnData := .empty }.replaceStackAndIncrPC
+            let s3' :=
+              if valNZ then
+                { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+              else s3
+            .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
             let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s3.gasAvailable)
@@ -897,6 +910,15 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
     match s.decoded with
     | none => .error .InvalidInstruction
     | some (op, argOpt) =>
+      -- Enforce the YP's 1024-deep stack cap before consuming gas: an op
+      -- that would leave more than 1024 items on the stack
+      -- (`len(stack) - δ_pop + α_push > 1024`) halts with `StackOverflow`
+      -- without spending its base cost. The underflow side (`len(stack) <
+      -- δ_pop`) is still caught inside each per-group helper, where the
+      -- pattern-match on `stack` falls through to the `underflow` arm.
+      if s.stack.length + op.pushArity > 1024 + op.popArity then
+        .error .StackOverflow
+      else
       let cost := Gas.baseCost s.fork op
       if h_g : cost ≤ s.gasAvailable then
         let s' := s.consumeGas cost h_g

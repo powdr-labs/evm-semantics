@@ -147,9 +147,13 @@ namespace State
 abbrev fork (s : State) : Fork := s.executionEnv.fork
 
 /-- Convenience: the decoded operation (with its optional immediate) at
-    the current `pc`. -/
-def decoded (s : State) : Option (Operation × Option (UInt256 × Nat)) :=
-  Decode.decodeAt s.executionEnv.code s.pc.toNat
+    the current `pc`. Returns `none` when the byte's opcode hasn't been
+    activated yet in `s.fork` — the YP requires an unactivated opcode
+    byte to trigger `InvalidInstruction`, not execute as the future
+    opcode (e.g. `0x1d` is `INVALID` pre-Constantinople, `SAR` after). -/
+def decoded (s : State) : Option (Operation × Option (UInt256 × Nat)) := do
+  let (op, imm) ← Decode.decodeAt s.executionEnv.code s.pc.toNat
+  if op.availableInFork s.fork then some (op, imm) else none
 
 /-- Just the decoded operation at the current `pc`, dropping the immediate.
     Used as the `h_op` hypothesis on every `Step` success rule that doesn't
@@ -1155,7 +1159,10 @@ inductive StepRunning : State → State → Prop
 
   /-- CALL (not taken): the depth limit is hit or the caller cannot afford the
       value. Base+memory+surcharge gas is still charged; `0` is pushed and the
-      forwarded gas is *not* spent. -/
+      forwarded gas is *not* spent. Per YP §H.2 the `G_callstipend = 2300`
+      portion of the value surcharge is refunded to the caller when the
+      call would have transferred non-zero `value` — the callee never
+      receives the stipend, so the caller gets it back. -/
   | callFail (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
         (rest : List UInt256)
@@ -1170,6 +1177,7 @@ inductive StepRunning : State → State → Prop
           ({ s with
               gasAvailable := s.gasAvailable
                               - Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                              + (bif (value.toNat != 0) then Gas.callStipend else 0)
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
@@ -1215,7 +1223,7 @@ inductive StepRunning : State → State → Prop
 
   /-- CALLCODE (not taken): depth limit hit or caller cannot afford the value.
       Base+memory+surcharge gas is still charged; `0` is pushed; the forwarded
-      gas is *not* spent. -/
+      gas is *not* spent. Same YP §H.2 stipend refund as `callFail`. -/
   | callcodeFail (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
         (rest : List UInt256)
@@ -1230,6 +1238,7 @@ inductive StepRunning : State → State → Prop
           ({ s with
               gasAvailable := s.gasAvailable
                               - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                              + (bif (value.toNat != 0) then Gas.callStipend else 0)
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
