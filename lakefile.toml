@@ -29,18 +29,16 @@ root = "Main"
 
 [[lean_exe]]
 name = "vmtests"
-root = "tests.VMRunner"
+root = "VMRunner"
 
 [[lean_exe]]
 name = "statetests"
-root = "tests.StateTestRunner"
+root = "StateTestRunner"
 
 [[lean_exe]]
 name = "keccak_test"
-root = "tests.KeccakTest"
+root = "KeccakTest"
 
 [[lean_exe]]
-name = "mpt_smoke"
-root = "tests.MptSmoke"
-
-
+name = "fib_demo"
+root = "FibDemo"
