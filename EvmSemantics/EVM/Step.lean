@@ -1140,10 +1140,10 @@ inductive StepRunning : State → State → Prop
                         ≤ s.gasAvailable)
         (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
                          (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd      : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
-                        s.executionEnv.fork
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
                         (s.gasAvailable
-                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)))
+                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                        gasArg.toNat)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1204,10 +1204,10 @@ inductive StepRunning : State → State → Prop
                      ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                       (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
-                     s.executionEnv.fork
+        (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)))
+                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                     gasArg.toNat)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1270,10 +1270,10 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
-        (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
-                     s.executionEnv.fork
+        (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)))
+                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                     gasArg.toNat)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1322,10 +1322,10 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
-        (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
-                     s.executionEnv.fork
+        (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen)))
+                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                     gasArg.toNat)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable

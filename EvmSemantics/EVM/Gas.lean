@@ -308,6 +308,14 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
     `Substate.refundBalance` for one SSTORE writing `new` over `current`
     when the slot's transaction-start value was `original`.
 
+    **Status: scaffolding.** This helper computes the fork-correct
+    refund delta but is *not yet wired into* `stepF` (SSTORE doesn't
+    accumulate `refundBalance` on this branch). The runner therefore
+    never applies refunds — they only matter for the `passFull` (sender
+    balance) comparison, not the `passCore` (storage/nonce/code) one
+    the regression baseline keys on. Kept here so the wiring is a
+    one-line change once we want to start tracking `passFull` balances.
+
     * **Pre-EIP-1283** (Frontier..Byzantium and Petersburg+pre-Istanbul):
       +15000 on a clear-to-zero, otherwise 0.
     * **EIP-1283 / EIP-2200** (original Constantinople / Istanbul+):
@@ -353,7 +361,11 @@ def Gas.sstoreRefund (fork : Fork) (original current new : UInt256) : Int :=
 /-- Denominator of the end-of-tx refund cap: `refund ≤ gas_used / refundDenom`.
     Pre-EIP-3529 (everything before London) uses 2; London onwards uses
     5 per EIP-3529 (the EIP also removed the SELFDESTRUCT refund, which
-    is gated separately in `Gas.selfDestructRefund`). -/
+    is gated separately in `Gas.selfDestructRefund`).
+
+    **Status: scaffolding.** Used together with `Gas.sstoreRefund` once
+    the runner applies end-of-tx refunds to the sender balance; see the
+    note there. -/
 def Gas.refundDenom (fork : Fork) : Nat :=
   if fork.atLeast .London then 5 else 2
 

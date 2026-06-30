@@ -686,14 +686,15 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            -- EIP-150: forward at most 63/64 of the remaining gas; add the
-            -- value stipend to what the callee receives. Pre-EIP-150
-            -- (Frontier/Homestead) the cap is disabled — `allButOneSixtyFourth`
-            -- returns the full `g`, so `min gasArg g` is the spec's
-            -- pre-EIP-150 forward amount (and a `gasArg > g` reaches the
-            -- forward step with `forwarded = g`; the spec OOG is moot
-            -- because the legacy corpus never relies on it).
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s3.gasAvailable)
+            -- EIP-150: forward at most 63/64 of the remaining gas. Per
+            -- `Gas.forwardGas`, pre-EIP-150 (Frontier/Homestead) is
+            -- *uncapped* — `gasArg` is forwarded verbatim and a
+            -- `gasArg > s3.gasAvailable` falls into the `else` branch
+            -- below as `OutOfGas`. Post-EIP-150 it's `min(gasArg, g - g/64)`.
+            -- The callee additionally receives the 2300-gas stipend on
+            -- a value-transferring CALL (funded by the `G_callvalue`
+            -- surcharge already paid above).
+            let forwarded := Gas.forwardGas s.fork s3.gasAvailable gasArg.toNat
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -730,7 +731,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
-            let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s3.gasAvailable)
+            let forwarded := Gas.forwardGas s.fork s3.gasAvailable gasArg.toNat
             if hfw : forwarded ≤ s3.gasAvailable then
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -759,7 +760,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s2.gasAvailable)
+          let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -782,7 +783,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                  (UInt256.ofNat 0 :: rest))
         else
-          let forwarded := min gasArg.toNat (Gas.allButOneSixtyFourth s.fork s2.gasAvailable)
+          let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
