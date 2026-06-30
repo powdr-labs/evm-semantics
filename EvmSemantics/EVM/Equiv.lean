@@ -3802,71 +3802,76 @@ private theorem Operation.pushArity_le_1024 (op : Operation) :
     top-level `decodeFailure`/`stackOverflow`/`outOfGas` constructors. -/
 private theorem stepFE_sound_error' (s : State) (e : ExecutionException)
     (h : stepFE s = .error e) :
-    s.halt = .Running ∧ StepRunning s ({ s with halt := .Exception e }) := by
+    s.halt = .Running ∧
+    Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr = false ∧
+    StepRunning s ({ s with halt := .Exception e }) := by
   unfold stepFE at h
   simp only [Id.run] at h
   split at h
   · -- s.halt = .Running
     rename_i h_running
-    refine ⟨h_running, ?_⟩
     split at h
-    · -- decoded = none → InvalidInstruction
-      rename_i h_none
-      cases h
-      exact StepRunning.decodeFailure s h_none
-    · rename_i op argOpt h_dec
+    · -- Precompile arm: both `.success` and `.outOfGas` return `.ok`.
+      split at h <;> cases h
+    · -- Non-precompile path: capture isPrecompile = false and dispatch.
+      rename_i h_npc
+      refine ⟨h_running, h_npc, ?_⟩
       split at h
-      · -- stack overflow
-        rename_i h_over
+      · -- decoded = none → InvalidInstruction
+        rename_i h_none
         cases h
-        refine StepRunning.stackOverflow s op (State.decoded_to_op h_dec) ?_ ?_
-        · -- popArity ≤ length
-          have h_bound := Operation.pushArity_le_1024 op
-          simp at h_over
-          omega
-        · -- length - popArity + pushArity > 1024
-          have h_bound := Operation.pushArity_le_1024 op
-          simp at h_over
-          omega
-      · split at h
-        · -- gas ≥ cost
-          rename_i h_gas
-          cases op with
-          | StopArith op =>
-            exact stepF.stopArith_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | CompBit op =>
-            exact stepF.compBit_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Keccak op =>
-            exact stepF.keccak_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Env op =>
-            exact stepF.env_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Block op =>
-            exact stepF.block_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | StackMemFlow op =>
-            exact stepF.stackMemFlow_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Push op =>
-            exact stepF.push_sound_error s op argOpt h_dec h_gas h
-          | Dup op =>
-            exact stepF.dup_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Swap op =>
-            exact stepF.swap_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | DupN op =>
-            exact stepF.dupN_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | SwapN op =>
-            exact stepF.swapN_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Exchange op =>
-            exact stepF.exchange_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | Log op =>
-            exact stepF.log_sound_error s op (State.decoded_to_op h_dec) h_gas h
-          | System op =>
-            exact stepF.system_sound_error s op (State.decoded_to_op h_dec) h_gas h
-        · -- gas < cost: top-level OOG
+        exact StepRunning.decodeFailure s h_none
+      · rename_i op argOpt h_dec
+        split at h
+        · -- stack overflow
+          rename_i h_over
           cases h
-          rename_i h_ngas
-          refine StepRunning.outOfGas s op (Gas.baseCost s.fork op)
-            (State.decoded_to_op h_dec) (Nat.le_refl _) ?_
-          simp at h_ngas
-          exact h_ngas
+          refine StepRunning.stackOverflow s op (State.decoded_to_op h_dec) ?_ ?_
+          · have h_bound := Operation.pushArity_le_1024 op
+            simp at h_over
+            omega
+          · have h_bound := Operation.pushArity_le_1024 op
+            simp at h_over
+            omega
+        · split at h
+          · -- gas ≥ cost
+            rename_i h_gas
+            cases op with
+            | StopArith op =>
+              exact stepF.stopArith_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | CompBit op =>
+              exact stepF.compBit_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Keccak op =>
+              exact stepF.keccak_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Env op =>
+              exact stepF.env_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Block op =>
+              exact stepF.block_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | StackMemFlow op =>
+              exact stepF.stackMemFlow_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Push op =>
+              exact stepF.push_sound_error s op argOpt h_dec h_gas h
+            | Dup op =>
+              exact stepF.dup_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Swap op =>
+              exact stepF.swap_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | DupN op =>
+              exact stepF.dupN_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | SwapN op =>
+              exact stepF.swapN_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Exchange op =>
+              exact stepF.exchange_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | Log op =>
+              exact stepF.log_sound_error s op (State.decoded_to_op h_dec) h_gas h
+            | System op =>
+              exact stepF.system_sound_error s op (State.decoded_to_op h_dec) h_gas h
+          · -- gas < cost: top-level OOG
+            cases h
+            rename_i h_ngas
+            refine StepRunning.outOfGas s op (Gas.baseCost s.fork op)
+              (State.decoded_to_op h_dec) (Nat.le_refl _) ?_
+            simp at h_ngas
+            exact h_ngas
   -- Non-Running halts: stepFE returns `.ok _` only; contradicts `.error e`.
   all_goals (split at h <;> cases h)
 
@@ -3904,8 +3909,8 @@ theorem stepFE_sound (s : State) (h_nd : ¬ s.isDone) :
   cases h_fe : stepFE s with
   | ok s' => exact stepFE_sound_ok' s s' h_nd h_fe
   | error e =>
-    obtain ⟨h_nr, h_step⟩ := stepFE_sound_error' s e h_fe
-    exact .running h_nr h_step
+    obtain ⟨h_nr, h_npc, h_step⟩ := stepFE_sound_error' s e h_fe
+    exact .running h_nr h_npc h_step
 
 /-- Soundness on the public total `stepF`. Trivial corollary of
     `stepFE_sound` plus the definitional unfolding of `stepF`. -/
