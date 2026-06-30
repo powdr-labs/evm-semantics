@@ -107,6 +107,21 @@ def createAddress (sender : AccountAddress) (nonce : Nat) :
   (Rlp.encodeAddrNonce sender nonce).map (fun rlpBytes =>
     AccountAddress.ofUInt256 (keccak256 rlpBytes))
 
+/-- `createAddress` is total for any EVM-bounded nonce (i.e. `nonce <
+    2^256` — the range of `UInt256`). Lets callers use `Option.get`
+    instead of carrying the `none` arm. The underlying RLP encoder
+    only fails for payloads `≥ 2^64` bytes, far above this input's
+    ≤ ~50-byte payload. -/
+theorem createAddress_isSome
+    (sender : AccountAddress) (nonce : Nat) (h_nonce : nonce < 2^256) :
+    (createAddress sender nonce).isSome := by
+  unfold createAddress
+  cases h : Rlp.encodeAddrNonce sender nonce with
+  | none =>
+    have := Rlp.encodeAddrNonce_isSome sender nonce h_nonce
+    rw [h] at this; simp at this
+  | some _ => simp
+
 /-- The address of a contract created by `CREATE2` from `sender`,
     `salt`, and the *pre-hashed* init-code hash (the keccak256 of the
     init bytes the EVM read from memory):
@@ -1473,26 +1488,6 @@ inductive StepRunning : State → State → Prop
               returnData   := .empty
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ }
-
-  /-- CREATE with `createAddress = none`. `createAddress`'s `Option`
-      return reflects `Rlp.encodeAddrNonce`'s `Option` return: the RLP
-      encoder is total in practice for the (≤20-byte address, ≤32-byte
-      nonce) payload, so this case is unreachable for EVM-bounded
-      inputs. The constructor exists for the relational semantics to
-      mirror `stepF`'s total behaviour; `stepF_sound`'s exception
-      direction discharges this branch by construction. -/
-  | createInvalidAddr (s : State)
-        (value offset size : UInt256) (rest : List UInt256)
-        (h_op    : s.decodedOp = some .CREATE)
-        (h_stack : s.stack = value :: offset :: size :: rest)
-        (h_perm  : s.executionEnv.permitStateMutation = true)
-        (h_gas   : Gas.createCommitted s offset size ≤ s.gasAvailable)
-        (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                        (s.accountMap s.executionEnv.address).balance < value))
-        (h_addr  : EvmSemantics.createAddress s.executionEnv.address
-                     (s.accountMap s.executionEnv.address).nonce.toNat
-                     = none)
-      : StepRunning s ({ s with halt := .Exception .InvalidInstruction })
 
   /-- CREATE (taken): depth + balance check passes *and* the derived
       address is free. The remaining gas (after base + memory) has

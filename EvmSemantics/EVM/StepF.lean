@@ -860,10 +860,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           else
             -- Derive `newAddr` via `createAddress`. The encoder is
             -- `Option`-typed: it returns `none` only when the payload
-            -- would exceed `2^64` bytes, which is unreachable here
-            -- ([20-byte address, ≤32-byte nonce] tops out at ~55
-            -- bytes). We map a `none` to `InvalidInstruction` for
-            -- completeness, but a gas-bounded execution never reaches it.
+            -- would exceed `2^64` bytes, unreachable here ([20-byte
+            -- address, ≤32-byte nonce] tops out at ~55 bytes). The
+            -- `createAddress_isSome` totality lemma (in `Step.lean`)
+            -- discharges the `none` arm in `system_sound_error`; we
+            -- keep the `match` here so the bytecode shape is simple.
             match createAddress s2.executionEnv.address
                     (s2.accountMap s2.executionEnv.address).nonce.toNat with
             | none => .error .InvalidInstruction

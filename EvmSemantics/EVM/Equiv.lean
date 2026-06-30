@@ -2304,25 +2304,6 @@ private theorem exchange_eq_none_iff {α : Type _} (s : List α) (i j : Nat) :
         cases h₂
       omega
 
-/-- CreateInvalidAddr helper. -/
-private theorem mk_createInvalidAddr {s : State} {stk : List UInt256}
-    (h_dec : s.decodedOp = some .CREATE) (h_stack : s.stack = stk)
-    (value offset size : UInt256) (rest : List UInt256)
-    (h_stack_pat : stk = value :: offset :: size :: rest)
-    (h_perm : s.executionEnv.permitStateMutation = true)
-    (h_gas : Gas.createCommitted s offset size ≤ s.gasAvailable)
-    (h_take : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                  (s.accountMap s.executionEnv.address).balance < value))
-    (h_addr : EvmSemantics.createAddress s.executionEnv.address
-                (s.accountMap s.executionEnv.address).nonce.toNat = none) :
-    StepRunning s ({ toSharedState := s.toSharedState, pc := s.pc, stack := stk,
-                     execLength := s.execLength,
-                     halt := .Exception .InvalidInstruction,
-                     callStack := s.callStack }) := by
-  subst h_stack
-  exact StepRunning.createInvalidAddr s value offset size rest h_dec h_stack_pat
-    h_perm h_gas h_take h_addr
-
 /-- CallStatic helper: CALL with value ≠ 0 in static mode. -/
 private theorem mk_callStatic {s : State} {stk : List UInt256}
     (h_dec : s.decodedOp = some .CALL) (h_stack : s.stack = stk)
@@ -3400,29 +3381,22 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
           · cases h  -- depth/balance fail returns .ok
           · rename_i h_take
             split at h
-            · -- createAddress = none: use the dedicated `createInvalidAddr` rule.
+            · -- createAddress = none: unreachable, discharge via the
+              -- `createAddress_isSome` totality lemma.
               rename_i h_addr_none
-              cases h
-              -- Derive `permitStateMutation = true` from `¬ ¬ permitStateMutation`.
-              have h_perm_true : s.executionEnv.permitStateMutation = true := by
-                simp at h_perm; exact h_perm
-              -- The `chargeMem` commitment becomes `Gas.createCommitted ≤ gasAvailable`.
-              have h_committed : Gas.createCommitted s offset size ≤ s.gasAvailable := by
-                show base + (MachineState.memCost (MachineState.activeWordsAfter
-                              s.activeWords.toNat offset.toNat size.toNat)
-                            - MachineState.memCost s.activeWords.toNat) ≤ s.gasAvailable
-                simp only [State.canExpandMemory, State.consumeGas,
-                           MachineState.memExpansionDelta, ← hbase] at h_mem
-                omega
-              -- Reshape the depth/balance hypothesis through the consumed states.
-              have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                  (s.accountMap s.executionEnv.address).balance < value) := by
-                simpa [State.consumeGas, State.consumeMemExp] using h_take
-              refine mk_createInvalidAddr h_dec h_stack value offset size rest rfl
-                h_perm_true h_committed h_take' ?_
-              -- `h_addr_none` mentions `s2.executionEnv.address` and `s2.accountMap`;
-              -- these are preserved across consumeGas/consumeMemExp.
-              simpa [State.consumeGas, State.consumeMemExp] using h_addr_none
+              exfalso
+              have h_is := EvmSemantics.createAddress_isSome
+                ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                  h_mem).executionEnv.address
+                (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                    h_mem).accountMap
+                  ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                    h_mem).executionEnv.address).nonce.toNat
+                (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                    h_mem).accountMap
+                  ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
+                    h_mem).executionEnv.address).nonce.val.isLt
+              rw [h_addr_none] at h_is; simp at h_is
             · rename_i h_addr_some
               split at h
               · split at h
@@ -3894,14 +3868,15 @@ private theorem stepFE_sound_error' (s : State) (e : ExecutionException)
       `StepRunning.stackOverflow` premises in the outer wrapper.
     - `decoded_push_arg_some` (decoder invariant) closes the
       unreachable `(.Push p, none)` arm of `stepF.push`.
-    - `StepRunning.createInvalidAddr` (added to `Step.lean` alongside
-      the existing `createStatic` / `createFail` / `createCollision`
-      family) mirrors the unreachable-in-practice `createAddress = none`
-      branch of `stepF.system`.
+    - `EvmSemantics.createAddress_isSome` (proved in `Step.lean` via
+      `Rlp.encodeAddrNonce_isSome`) discharges the unreachable
+      `createAddress = none` branch of `stepF.system .CREATE`: the
+      `none` arm collapses to `False` once the lemma is applied at
+      the call site's argument bounds.
 
     Helpers: `mk_underflow`, `mk_outOfGas`, `mk_staticMode`,
     `mk_invalidOp`, `mk_invalidMem`, `mk_jumpBad`, `mk_jumpiBad`,
-    `mk_callStatic`, `mk_createInvalidAddr`. -/
+    `mk_callStatic`. -/
 theorem stepFE_sound (s : State) (h_nd : ¬ s.isDone) :
     Step s (match stepFE s with
             | .ok s' => s'
