@@ -147,9 +147,13 @@ namespace State
 abbrev fork (s : State) : Fork := s.executionEnv.fork
 
 /-- Convenience: the decoded operation (with its optional immediate) at
-    the current `pc`. -/
-def decoded (s : State) : Option (Operation × Option (UInt256 × Nat)) :=
-  Decode.decodeAt s.executionEnv.code s.pc.toNat
+    the current `pc`. Returns `none` when the byte's opcode hasn't been
+    activated yet in `s.fork` — the YP requires an unactivated opcode
+    byte to trigger `InvalidInstruction`, not execute as the future
+    opcode (e.g. `0x1d` is `INVALID` pre-Constantinople, `SAR` after). -/
+def decoded (s : State) : Option (Operation × Option (UInt256 × Nat)) := do
+  let (op, imm) ← Decode.decodeAt s.executionEnv.code s.pc.toNat
+  if op.availableInFork s.fork then some (op, imm) else none
 
 /-- Just the decoded operation at the current `pc`, dropping the immediate.
     Used as the `h_op` hypothesis on every `Step` success rule that doesn't
@@ -1136,9 +1140,16 @@ inductive StepRunning : State → State → Prop
                         ≤ s.gasAvailable)
         (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
                          (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd      : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
                         (s.gasAvailable
-                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)))
+                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                        gasArg.toNat)
+        -- Pre-EIP-150 `forwardGas` returns `gasArg` verbatim, so a too-
+        -- large `gasArg` must OOG rather than enter the callee. This
+        -- premise rules out that case; post-EIP-150 it is implied by
+        -- the `g - g/64` cap.
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1154,7 +1165,10 @@ inductive StepRunning : State → State → Prop
 
   /-- CALL (not taken): the depth limit is hit or the caller cannot afford the
       value. Base+memory+surcharge gas is still charged; `0` is pushed and the
-      forwarded gas is *not* spent. -/
+      forwarded gas is *not* spent. Per YP §H.2 the `G_callstipend = 2300`
+      portion of the value surcharge is refunded to the caller when the
+      call would have transferred non-zero `value` — the callee never
+      receives the stipend, so the caller gets it back. -/
   | callFail (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
         (rest : List UInt256)
@@ -1169,6 +1183,7 @@ inductive StepRunning : State → State → Prop
           ({ s with
               gasAvailable := s.gasAvailable
                               - Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                              + (bif (value.toNat != 0) then Gas.callStipend else 0)
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
@@ -1195,9 +1210,12 @@ inductive StepRunning : State → State → Prop
                      ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                       (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)))
+                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                     gasArg.toNat)
+        (h_afford : forwarded ≤ s.gasAvailable
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1213,7 +1231,7 @@ inductive StepRunning : State → State → Prop
 
   /-- CALLCODE (not taken): depth limit hit or caller cannot afford the value.
       Base+memory+surcharge gas is still charged; `0` is pushed; the forwarded
-      gas is *not* spent. -/
+      gas is *not* spent. Same YP §H.2 stipend refund as `callFail`. -/
   | callcodeFail (s : State)
         (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
         (rest : List UInt256)
@@ -1228,6 +1246,7 @@ inductive StepRunning : State → State → Prop
           ({ s with
               gasAvailable := s.gasAvailable
                               - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                              + (bif (value.toNat != 0) then Gas.callStipend else 0)
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
@@ -1259,9 +1278,12 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
-        (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)))
+                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                     gasArg.toNat)
+        (h_afford : forwarded ≤ s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1310,9 +1332,12 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
-        (h_fwd   : forwarded = min gasArg.toNat (Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen)))
+                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                     gasArg.toNat)
+        (h_afford : forwarded ≤ s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1416,7 +1441,7 @@ inductive StepRunning : State → State → Prop
         (h_addr  : EvmSemantics.createAddress s.executionEnv.address
                      (s.accountMap s.executionEnv.address).nonce.toNat
                      = some newAddr)
-        (h_fwd   : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.createCommitted s offset size))
         (h_coll  : (s.accountMap newAddr).isContract = true)
       : StepRunning s
@@ -1446,7 +1471,7 @@ inductive StepRunning : State → State → Prop
         (h_addr   : EvmSemantics.createAddress s.executionEnv.address
                       (s.accountMap s.executionEnv.address).nonce.toNat
                       = some newAddr)
-        (h_fwd    : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.createCommitted s offset size))
         (h_nocoll : (s.accountMap newAddr).isContract = false)
       : StepRunning s
@@ -1492,7 +1517,7 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                         (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd   : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.create2Committed s offset size))
         (h_coll  : (s.accountMap
                      (EvmSemantics.create2Address s.executionEnv.address salt
@@ -1518,7 +1543,7 @@ inductive StepRunning : State → State → Prop
         (h_gas    : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_take   : ¬ (s.executionEnv.depth ≥ 1024 ∨
                          (s.accountMap s.executionEnv.address).balance < value))
-        (h_fwd    : forwarded = Gas.allButOneSixtyFourth
+        (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.create2Committed s offset size))
         (h_nocoll : (s.accountMap
                       (EvmSemantics.create2Address s.executionEnv.address salt

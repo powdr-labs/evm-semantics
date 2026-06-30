@@ -3,6 +3,7 @@ module
 import Mathlib.Tactic.Linter.Style
 public import Batteries.Tactic.Lint.Misc
 public import Batteries.Tactic.Lint.Simp
+public import EvmSemantics.EVM.Fork
 
 /-!
 `Operation` — the EVM instruction set, mirrored from `EvmYul.Operations`.
@@ -322,6 +323,59 @@ namespace Operation
 @[match_pattern] abbrev SELFDESTRUCT : Operation := .System .SELFDESTRUCT
 
 end Operation
+
+/-- Is `op` part of the instruction set activated at fork `f`? The
+    activation table follows the Yellow Paper:
+
+    * Frontier: everything except the opcodes listed below.
+    * Homestead (EIP-2): `DELEGATECALL`.
+    * Byzantium (EIP-140 / -211 / -214): `REVERT`, `RETURNDATASIZE`,
+      `RETURNDATACOPY`, `STATICCALL`.
+    * Constantinople (EIP-145 / -1014 / -1052): `SHL`, `SHR`, `SAR`,
+      `CREATE2`, `EXTCODEHASH`.
+    * Istanbul (EIP-1344 / -1884): `CHAINID`, `SELFBALANCE`.
+    * London (EIP-3198): `BASEFEE`.
+    * Shanghai (EIP-3855): `PUSH0`.
+    * Cancun (EIP-1153 / -4844 / -5656 / -7516): `TLOAD`, `TSTORE`,
+      `MCOPY`, `BLOBHASH`, `BLOBBASEFEE`.
+
+    EIP-8024 (`DUPN` / `SWAPN` / `EXCHANGE`, bytes `0xe6..0xe8`) is *not*
+    active on any currently modelled fork — the opcode constructors
+    exist in the AST for forward compatibility but `availableInFork`
+    returns `false` for every value in `Fork`, so decoded bytes
+    `0xe6..0xe8` raise `InvalidInstruction` on Frontier through Osaka.
+
+    Decoders gate on this to reject opcodes that haven't been activated
+    yet — an unactivated byte must trigger `InvalidInstruction` per the
+    YP, *not* execute as the future opcode. -/
+def Operation.availableInFork : Operation → Fork → Bool
+  | .CompBit .SHL,            f => f.atLeast .Constantinople
+  | .CompBit .SHR,            f => f.atLeast .Constantinople
+  | .CompBit .SAR,            f => f.atLeast .Constantinople
+  | .Env .RETURNDATASIZE,     f => f.atLeast .Byzantium
+  | .Env .RETURNDATACOPY,     f => f.atLeast .Byzantium
+  | .Env .EXTCODEHASH,        f => f.atLeast .Constantinople
+  | .Block .CHAINID,          f => f.atLeast .Istanbul
+  | .Block .SELFBALANCE,      f => f.atLeast .Istanbul
+  | .Block .BASEFEE,          f => f.atLeast .London
+  | .Block .BLOBHASH,         f => f.atLeast .Cancun
+  | .Block .BLOBBASEFEE,      f => f.atLeast .Cancun
+  | .StackMemFlow .TLOAD,     f => f.atLeast .Cancun
+  | .StackMemFlow .TSTORE,    f => f.atLeast .Cancun
+  | .StackMemFlow .MCOPY,     f => f.atLeast .Cancun
+  | .System .DELEGATECALL,    f => f.atLeast .Homestead
+  | .System .REVERT,          f => f.atLeast .Byzantium
+  | .System .STATICCALL,      f => f.atLeast .Byzantium
+  | .System .CREATE2,         f => f.atLeast .Constantinople
+  | .Push p,                  f => if p.width.val = 0 then f.atLeast .Shanghai else true
+  -- EIP-8024 (`DUPN` / `SWAPN` / `EXCHANGE`): not active on any
+  -- currently modelled fork. The decoder will hand these to us if a
+  -- bytecode contains 0xe6..0xe8, and they will halt with
+  -- `InvalidInstruction`.
+  | .DupN _,                  _ => false
+  | .SwapN _,                 _ => false
+  | .Exchange _,              _ => false
+  | _,                        _ => true
 
 /-- # of immediate-argument bytes following the opcode in the bytecode.
     Non-zero for PUSH1..PUSH32 and the EIP-8024 ops DUPN/SWAPN/EXCHANGE. -/

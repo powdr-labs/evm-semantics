@@ -40,31 +40,27 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=601 fail=0 incon=8 crash=0
 ```
 
-**StateTests `stCallCodes` (80 JSON files, 328 per-fork test cases)**:
+**StateTests `stCallCodes` (80 JSON files, 328 per-fork test cases across
+Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
+Constantinople · ConstantinopleFix)**:
 ```
-pass(full=328 core+=0) fail=0 incon=0 crash=0
+pass(full=0 core+=320) fail=8 incon=0 crash=0
 ```
-- `pass_full` = storage + nonce + code + balance match. All 328 per-fork
-  test entries pass on the full comparison (previously the `*_ABCB_RECURSIVE`
-  tests failed at a storage write deep in a four-way recursive CALL chain
-  — that's now resolved).
-- **fail=0** — every with-`post` test that matches the storage / return-data
-  comparison also matches the expected remaining-`gas` value. The schedule
-  currently covers: every fixed-cost op, SLOAD / SSTORE (pre-EIP-1283),
-  all five `*COPY` opcodes with per-word cost, KECCAK256 (base + per-word),
-  LOG with per-byte cost, EXP with per-byte exponent cost, the CALL /
-  SELFDESTRUCT / CREATE / CREATE2 dynamic pieces, and EIP-150's 63/64 gas
-  forwarding.
-- **Corpus fork note.** The legacy ethereum/tests `Constantinople` corpus
-  was generated against pre-EIP-1283 rules (EIP-1283 was scheduled for
-  Constantinople but reverted in Petersburg). Specifically the corpus
-  uses Frontier-era SLOAD (50 gas), not Tangerine Whistle's 200. Our
-  `Constantinople` fork matches this so the comparison is sound; the
-  `Cancun` fork uses the modern (warm-priced) schedule. See `Gas.lean`.
-- The 104 passes that don't compare gas are tests lacking a `post`
-  block; they exit through the "expected an exception, got an exception"
-  arm before any gas comparison happens. Every test still runs with its
-  declared `exec.gas` budget.
+- `pass_core` = storage + nonce + code match (balance excluded — we don't
+  yet credit coinbase the per-tx fee on the success path, so balance is
+  intentionally off by `gasUsed·gasPrice`). 320 of 328 per-fork variants
+  match on the core comparison.
+- **fail=8** — the eight `*_ABCB_RECURSIVE` Constantinople variants miss
+  one storage slot (`storage[0x02] = 0 ≠ 1`) at the innermost frame of a
+  three-way recursive CALL/CALLCODE chain. The same eight tests pass on
+  the other six activated forks; the divergence is Constantinople-specific
+  and currently under investigation.
+- **Corpus fork note.** Each test file ships a `network` field per variant
+  (`_Frontier`, `_Homestead`, `_EIP150`, `_EIP158`, `_Byzantium`,
+  `_Constantinople`, `_ConstantinopleFix`); the runner derives the fork
+  from that suffix and configures the gas schedule accordingly. Variants
+  whose network isn't yet activated are skipped silently and don't count
+  toward the tally.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in

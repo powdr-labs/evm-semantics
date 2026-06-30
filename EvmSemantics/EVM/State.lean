@@ -173,13 +173,12 @@ def resumeException (child : State) (f : Frame) (rest : List Frame) : State :=
     Cancun); only the *returned* runtime code is capped here. -/
 @[inline] def maxCodeSize : Nat := 24576
 
-/-- EIP-3541 (Cancun): does the candidate deployed code start with the
-    reserved `0xEF` byte? Such code is rejected at deploy time; the
-    rule does not apply on `Constantinople`. -/
+/-- EIP-3541 (London+): does the candidate deployed code start with
+    the reserved `0xEF` byte? Such code is rejected at deploy time;
+    the rule does not apply before London. -/
 def isReservedCodePrefix (fork : Fork) (code : ByteArray) : Bool :=
-  match fork with
-  | .Cancun         => code.size ≥ 1 && code[0]! == 0xEF
-  | .Constantinople => false
+  if fork.atLeast .London then code.size ≥ 1 && code[0]! == 0xEF
+  else false
 
 /-- CREATE-frame success resume: the child halted with `.Success` or
     `.Returned` and its `hReturn` is the candidate deployed code.
@@ -454,10 +453,12 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   -- observable behaviour matches. (Refactoring `AddressSet` to a `RBTree`
   -- or `Finset` would let us compute "first time" precisely; out of scope
   -- for this opcode.)
+  -- SELFDESTRUCT refund: 24000 on Frontier..Petersburg, removed by
+  -- EIP-3529 (London+). The refund is added to the substate's
+  -- `refundBalance` and applied at transaction-end, capped by the
+  -- fork-dependent fraction of gasUsed.
   let refundDelta : Nat :=
-    match sc.executionEnv.fork with
-    | .Constantinople => 24000
-    | .Cancun         => 0
+    if sc.executionEnv.fork.atLeast .London then 0 else 24000
   let substate' : Substate :=
     { sc.substate with
         selfDestructSet := sc.substate.selfDestructSet.insert self
@@ -542,11 +543,16 @@ def enterCreate (sc : State) (rest : List UInt256)
       snapSubstate   := sc.substate
       createAddr     := some newAddr }
   let map₂ := map₁.transfer caller newAddr value
-  -- Bring the new account into existence with nonce 1 (and any pre-existing
-  -- code/storage at this address is preserved — see the collision check in
-  -- `stepF.system .CREATE`).
+  -- Bring the new account into existence (pre-existing code/storage at this
+  -- address is preserved — see the collision check in `stepF.system .CREATE`).
+  -- Nonce initialisation is fork-gated: pre-EIP-161 (Frontier/Homestead/TangerineWhistle)
+  -- a fresh contract starts at nonce 0, matching the legacy YP; from EIP-158
+  -- (Spurious Dragon, alias EIP-161) onwards a fresh contract starts at
+  -- nonce 1 so it can be distinguished from the empty-account predicate.
   let newAcc := map₂ newAddr
-  let map₃ := map₂.set newAddr { newAcc with nonce := ⟨1⟩ }
+  let initNonce : UInt256 :=
+    if sc.executionEnv.fork.atLeast .SpuriousDragon then ⟨1⟩ else ⟨0⟩
+  let map₃ := map₂.set newAddr { newAcc with nonce := initNonce }
   { sc with
       accountMap   := map₃
       gasAvailable := childGas

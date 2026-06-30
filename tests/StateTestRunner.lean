@@ -70,54 +70,199 @@ def mkAccount (accJson : Json) : Account :=
     storage  := storage
     tstorage := Storage.empty }
 
-/-- Intrinsic transaction gas: 21000 + 16 per non-zero calldata byte + 4 per
-    zero byte (pre-EIP-2028 the non-zero rate was 68; Constantinople uses 68).
-    The legacy corpus predates EIP-2028, so we use 68/4. -/
-def intrinsicGas (data : ByteArray) : Nat := Id.run do
+/-- Intrinsic transaction gas `g₀` (YP §6.2). Fork- and tx-kind-aware:
+
+    * Per-byte data cost: 4 for zero bytes; 68 for non-zero bytes
+      pre-Istanbul, 16 from Istanbul onwards (EIP-2028).
+    * `+G_txcreate = 32000` for a contract-creating transaction.
+    * `+G_initcodeword · ⌈|initcode|/32⌉ = 2 · ⌈|data|/32⌉` for a
+      create-tx from Shanghai onwards (EIP-3860).
+
+    `data` is `T_d` — the calldata for a call tx, the init code for a
+    create tx. -/
+def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.run do
+  let perNonZero := if fork.atLeast .Istanbul then 16 else 68
   let mut g := 21000
   for b in data do
-    g := g + (if b == 0 then 4 else 68)
+    g := g + (if b == 0 then 4 else perNonZero)
+  if isCreate then
+    -- `G_txcreate = 32000` was introduced by Homestead (EIP-2). Frontier
+    -- create transactions pay only the base 21000.
+    if fork.atLeast .Homestead then
+      g := g + 32000
+    if fork.atLeast .Shanghai then
+      -- EIP-3860 init-code word cost: 2 per 32-byte word.
+      g := g + 2 * ((data.size + 31) / 32)
   return g
 
+/-- Map a BlockchainTest variant suffix (the bit after the last `_` in the
+    test object's key, e.g. `_Constantinople`, `_Berlin`) to a `Fork`. Each
+    variant in BlockchainTests/GeneralStateTests is named
+    `<base>_<network>_d<i>g<j>v<k>` (the suffix we get) — the `network` is
+    the activation fork. We return `none` for variants we don't model
+    (notably `Frontier`-tagged variants that exercise the legacy schedule;
+    those are covered by VMTests). -/
+def parseFork (s : String) : Option Fork :=
+  if s.endsWith "_Frontier" then some .Frontier
+  else if s.endsWith "_Homestead" then some .Homestead
+  else if s.endsWith "_EIP150" then some .TangerineWhistle
+  else if s.endsWith "_EIP158" then some .SpuriousDragon
+  else if s.endsWith "_Byzantium" then some .Byzantium
+  else if s.endsWith "_Constantinople" then some .Constantinople
+  else if s.endsWith "_ConstantinopleFix" then some .Petersburg
+  else if s.endsWith "_Petersburg" then some .Petersburg
+  else if s.endsWith "_Istanbul" then some .Istanbul
+  else if s.endsWith "_MuirGlacier" then some .MuirGlacier
+  else if s.endsWith "_Berlin" then some .Berlin
+  else if s.endsWith "_London" then some .London
+  else if s.endsWith "_ArrowGlacier" then some .ArrowGlacier
+  else if s.endsWith "_GrayGlacier" then some .GrayGlacier
+  else if s.endsWith "_Merge" then some .Paris
+  else if s.endsWith "_Paris" then some .Paris
+  else if s.endsWith "_Shanghai" then some .Shanghai
+  else if s.endsWith "_Cancun" then some .Cancun
+  else if s.endsWith "_Prague" then some .Prague
+  else if s.endsWith "_Osaka" then some .Osaka
+  else none
+
+/-- `true` iff this transaction is a contract-creating transaction
+    (the `to` field is empty / absent — the YP's `Tᵢ` flag). -/
+def isCreateTx (tx : Json) : Bool := (strField tx "to") = ""
+
+/-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
+    approximates `factor · e^(numerator / denominator)` using the
+    convergent series `Σ (numerator^i · factor) / (denominator^i · i!)`,
+    stopping as soon as a term contributes 0 (Nat arithmetic). The blob
+    base fee is `fake_exp(MIN_BLOB_BASE_FEE = 1, excessBlobGas,
+    BLOB_BASE_FEE_UPDATE_FRACTION = 3338477)` per EIP-4844 §5. -/
+partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
+  let rec go (i accum numAcc : Nat) (fuel : Nat) : Nat :=
+    if fuel = 0 then accum
+    else
+      let term := numAcc / (denominator * i)
+      if term = 0 then accum
+      else go (i + 1) (accum + term) (numAcc * numerator) (fuel - 1)
+  go 1 factor (factor * numerator) 64
+
+/-- EIP-4844 blob base fee derived from `excessBlobGas`. -/
+def blobBaseFeeOf (excessBlobGas : Nat) : Nat :=
+  fakeExponential 1 excessBlobGas 3338477
+
+/-- Build the EVM `BlockHeader` from the test block's `blockHeader` JSON
+    (BlockchainTests format). Missing modern fields fall back to zero —
+    a pre-London corpus has no `baseFeePerGas`, a pre-Cancun corpus has
+    no `excessBlobGas`, etc. Maps:
+
+    * `coinbase` / `timestamp` / `number` / `gasLimit` ← same-named JSON
+      fields.
+    * `prevRandao` ← `difficulty` (the YP renamed the field at the Merge
+      and the same opcode 0x44 reads `mixHash` post-Paris; the
+      BlockchainTests corpus is pre-Merge, so `difficulty` is what's
+      populated and pre-Merge `DIFFICULTY` reads it).
+    * `baseFeePerGas` ← `baseFeePerGas` if present (London+), else 0.
+    * `chainId` is *not* in the block header per se; we default to 1
+      (mainnet) when not exposed by the test.
+    * `blobBaseFee` — preferred path: derive from `excessBlobGas` via
+      EIP-4844 `fake_exp(1, excessBlobGas, 3338477)`. If the corpus
+      provides an explicit `blobBaseFee` field that takes precedence
+      (some tooling emits it directly); otherwise we use the derivation
+      from `excessBlobGas`; otherwise 0. -/
+def decodeHeader (blockHeader : Json) : BlockHeader :=
+  let blobBaseFeeField    := strField blockHeader "blobBaseFee"
+  let excessBlobGasField  := strField blockHeader "excessBlobGas"
+  let blobBaseFee : UInt256 :=
+    if blobBaseFeeField ≠ "" then hexToUInt256 blobBaseFeeField
+    else if excessBlobGasField ≠ "" then
+      UInt256.ofNat (blobBaseFeeOf (hexToUInt256 excessBlobGasField).toNat)
+    else ⟨0⟩
+  { coinbase      := hexToAddress (strField blockHeader "coinbase")
+    timestamp     := hexToUInt256 (strField blockHeader "timestamp")
+    number        := hexToUInt256 (strField blockHeader "number")
+    prevRandao    := hexToUInt256 (strField blockHeader "difficulty")
+    gasLimit      := hexToUInt256 (strField blockHeader "gasLimit")
+    baseFeePerGas := hexToUInt256 (strField blockHeader "baseFeePerGas")
+    chainId       := ⟨1⟩
+    blobBaseFee   := blobBaseFee
+    blockHash     := fun _ => ⟨0⟩ }
+
+/-- Read the EIP-4844 `blobVersionedHashes` list out of a tx JSON
+    (Cancun-era blob-typed transactions). Pre-Cancun tests have no such
+    field and we return `#[]`. -/
+def decodeBlobHashes (tx : Json) : Array UInt256 :=
+  match (tx.getObjVal? "blobVersionedHashes").toOption.getD Json.null with
+  | .arr a => a.map (fun j => hexToUInt256 ((j.getStr?).toOption.getD ""))
+  | _      => #[]
+
 /-- Build the top-level execution `State` for a BlockchainTest test object,
-    given its `pre` accounts and the block's transaction JSON. -/
-def buildState (preMap : AccountMap) (env tx : Json) : State :=
-  let toAddr   := hexToAddress (strField tx "to")
+    given its `pre` accounts, the block's `blockHeader` JSON, and the
+    transaction JSON.
+
+    For a **call tx** (`tx.to ≠ ""`): the executing account is `tx.to`,
+    its `code` runs as bytecode, `tx.data` is the calldata. Value is
+    transferred from sender to `tx.to`.
+
+    For a **create tx** (`tx.to = ""`): the executing account is the
+    derived `newAddr = keccak(rlp [sender, sender_nonce_pre_bump])[12:]`.
+    Per YP `Λ`: the new account starts with `code := ∅` (NOT the init
+    code — init code is what runs, but the *deployed* code only
+    materialises on a successful halt; until then the account is
+    invisible to `EXTCODESIZE`/`EXTCODECOPY`/etc.). The init code is
+    placed in `executionEnv.code` so `decoded` reads it from there.
+    The nonce is bumped to 1 (EIP-158+) or 0 (pre-EIP-158) so an
+    internal CREATE inside the init code derives the right child
+    address. Value is transferred from sender to `newAddr`. The
+    runner's success path (`runOne` below) then snaps `sf.hReturn`
+    into `newAddr.code` *only* after passing the EIP-3541 reserved-
+    prefix, EIP-170 max-code-size, and `G_codedeposit · |hReturn|`
+    deposit-gas checks. -/
+def buildState (preMap : AccountMap) (blockHeader tx : Json) (fork : Fork) : State :=
   let value    := hexToUInt256 (strField tx "value")
   let data     := hexToBytes   (strField tx "data")
   let gasLimit := hexToNat     (strField tx "gasLimit")
   let gasPrice := hexToUInt256 (strField tx "gasPrice")
-  -- Apply the transaction-level effects up front: bump the sender nonce, debit
-  -- the up-front gas charge, and transfer `value` to the callee.
-  let sender := preMap txSender
+  let isCreate := isCreateTx tx
+  let sender0 := preMap txSender
+  let toAddr  :=
+    if isCreate then
+      (EvmSemantics.createAddress txSender sender0.nonce.toNat).getD default
+    else
+      hexToAddress (strField tx "to")
   let upfront := gasLimit * gasPrice.toNat
   let preMap := preMap.set txSender
-    { sender with nonce := sender.nonce + UInt256.ofNat 1
-                  balance := sender.balance - UInt256.ofNat upfront }
+    { sender0 with nonce := sender0.nonce + UInt256.ofNat 1
+                   balance := sender0.balance - UInt256.ofNat upfront }
+  -- Create-tx: seed the new account's nonce (EIP-158 / pre-EIP-158).
+  -- Critically, leave `code := ∅` — the deployed code is installed by
+  -- the runner *only* on a successful halt that passes the deploy
+  -- checks; until then the account is bytecode-empty.
+  let preMap :=
+    if isCreate then
+      let existing := preMap toAddr
+      let n : UInt256 := if fork.atLeast .SpuriousDragon then ⟨1⟩ else ⟨0⟩
+      preMap.set toAddr { existing with nonce := n }
+    else preMap
   let accountMap := preMap.transfer txSender toAddr value
-  let header : BlockHeader :=
-    { coinbase      := hexToAddress (strField env "currentCoinbase")
-      timestamp     := hexToUInt256 (strField env "currentTimestamp")
-      number        := hexToUInt256 (strField env "currentNumber")
-      prevRandao    := hexToUInt256 (strField env "currentDifficulty")
-      gasLimit      := hexToUInt256 (strField env "currentGasLimit")
-      baseFeePerGas := ⟨0⟩, chainId := ⟨0⟩, blobBaseFee := ⟨0⟩
-      blockHash     := fun _ => ⟨0⟩ }
+  let header := decodeHeader blockHeader
+  -- A create tx runs `data` as the init code with empty calldata; a
+  -- call tx runs the target's existing code with `data` as calldata.
+  let calldata := if isCreate then ByteArray.empty else data
+  let code     := if isCreate then data else (accountMap toAddr).code
   let execEnv : ExecutionEnv :=
     { address := toAddr
       origin  := txSender
       caller  := txSender
       weiValue  := value
-      calldata  := data
-      code      := (accountMap toAddr).code
+      calldata  := calldata
+      code      := code
       gasPrice  := gasPrice
       header    := header
       depth     := 0
       permitStateMutation := true
-      blobVersionedHashes := #[]
-      fork                := .Constantinople }
+      blobVersionedHashes := decodeBlobHashes tx
+      fork                := fork }
   { toMachineState :=
-      { gasAvailable := gasLimit - intrinsicGas data, activeWords := ⟨0⟩
+      { gasAvailable := gasLimit - intrinsicGas fork isCreate data,
+        activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
     substate     := { Substate.empty with originalAccountMap := accountMap }
@@ -203,7 +348,7 @@ def cmpPost (sf : State) (preEntries postEntries : List (String × Json))
         msgs := s!"{addrStr} bal {got.balance.toNat}≠{expBal.toNat}" :: msgs
   return msgs
 
-def runOne (testObj : Json) : Outcome :=
+def runOne (testObj : Json) (fork : Fork) : Outcome :=
   let preMap : AccountMap :=
     (objEntries testObj "pre").foldl
       (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
@@ -214,23 +359,95 @@ def runOne (testObj : Json) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let s0 := buildState preMap (subObj testObj "env") tx
+      let blockHeader := subObj block "blockHeader"
+      let gasLimit := hexToNat     (strField tx "gasLimit")
+      let gasPrice := hexToUInt256 (strField tx "gasPrice")
+      let coinbase := hexToAddress (strField blockHeader "coinbase")
+      let upfront  := gasLimit * gasPrice.toNat
+      let s0 := buildState preMap blockHeader tx fork
       -- Steps are bounded by gas: every non-halting opcode costs ≥1 gas, and
       -- resume steps are bounded by the number of CALLs (≥700 gas each). So
       -- `2·gasAvailable` (plus slack) can never pre-empt a genuine OutOfGas; it
       -- is purely a backstop against an evaluator bug producing a 0-gas
       -- non-halting step.
-      match run s0 (2 * s0.gasAvailable + 100000) with
-      | .error .OutOfFuel => .incon "fuel exhausted"
-      | .error e => .incon s!"top-level halt {repr e}"
-      | .ok sf =>
-        let pre := objEntries testObj "pre"
-        let post := objEntries testObj "postState"
+      let pre := objEntries testObj "pre"
+      let post := objEntries testObj "postState"
+      let finishOk (sf : State) : Outcome :=
         match cmpPost sf pre post false with
         | [] => match cmpPost sf pre post true with
                 | [] => .passFull
                 | _  => .passCore
         | msgs => .fail (String.intercalate "; " (msgs.take 3))
+      let isCreate := isCreateTx tx
+      let newAddr  := s0.executionEnv.address
+      -- The YP tx-create rollback post-state: sender's nonce bumped,
+      -- sender debited the full upfront gas charge, coinbase credited
+      -- the same amount; everything else as in `preMap`. Used by the
+      -- collision, top-level-exception, and reverted/deploy-rejected
+      -- arms below.
+      let rollbackAccounts : AccountMap :=
+        let sender  := preMap txSender
+        let coinAcc := preMap coinbase
+        let m₁ := preMap.set txSender
+          { sender with nonce := sender.nonce + UInt256.ofNat 1
+                        balance := sender.balance - UInt256.ofNat upfront }
+        m₁.set coinbase { coinAcc with balance := coinAcc.balance + UInt256.ofNat upfront }
+      let rollback : Outcome := finishOk { s0 with accountMap := rollbackAccounts,
+                                                   halt := .Success }
+      -- Address-collision short-circuit for create txs: if the derived
+      -- contract address already hosts code or has a non-zero nonce
+      -- (YP "account already exists"), the create tx fails before any
+      -- execution — same disposition as a top-level exception.
+      let preExisting := preMap newAddr
+      let isCollision : Bool :=
+        isCreate && (preExisting.nonce.toNat > 0 || preExisting.code.size > 0)
+      if isCollision then rollback
+      else
+      match run s0 (2 * s0.gasAvailable + 100000) with
+      | .error .OutOfFuel => .incon "fuel exhausted"
+      | .error _ => rollback
+      | .ok sf =>
+        -- The active frame halted; disposition depends on *how*.
+        --
+        -- For a **call tx**: `.Success`/`.Returned`/`.Reverted` all keep
+        -- the world `sf.accountMap` produced; `.Exception` rolls back.
+        -- (Our `Tx.execute` will eventually distinguish revert from
+        -- success on balances, but `passCore` checks only storage/nonce/
+        -- code so we accept the executed world as-is for non-exception.)
+        --
+        -- For a **create tx**: `.Success`/`.Returned` triggers the YP
+        -- `Λ` deploy step — install `sf.hReturn` as `newAddr.code` if
+        -- the three deploy checks pass:
+        --   (i) `G_codedeposit · |hReturn| ≤ sf.gasAvailable`
+        --       (deposit-gas affordability);
+        --  (ii) `|hReturn| ≤ maxCodeSize` from Spurious Dragon onwards
+        --       (EIP-170);
+        -- (iii) `hReturn` does *not* begin with `0xEF` from London
+        --       onwards (EIP-3541).
+        -- Any one of these failing — or a `.Reverted` halt, or an
+        -- `.Exception` halt — collapses the create-tx into the
+        -- `rollback` post-state.
+        match sf.halt with
+        | .Exception _ | .Reverted => rollback
+        | _ =>
+          -- .Success or .Returned: a call-tx is done; a create-tx
+          -- runs the deploy-or-reject check.
+          if isCreate then
+            let hReturn := sf.hReturn
+            let depositCost := State.codeDepositPerByte * hReturn.size
+            let oversized   := sf.executionEnv.fork.atLeast .SpuriousDragon
+                                && decide (hReturn.size > State.maxCodeSize)
+            let badPrefix   := State.isReservedCodePrefix sf.executionEnv.fork hReturn
+            if depositCost ≤ sf.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then
+              let newAcc := sf.accountMap newAddr
+              let map' := sf.accountMap.set newAddr { newAcc with code := hReturn }
+              finishOk { sf with accountMap := map',
+                                 gasAvailable := sf.gasAvailable - depositCost }
+            else
+              -- Deploy rejected by EIP-3541, EIP-170, or deposit-gas
+              -- OOG: rollback the whole tx per YP.
+              rollback
+          else finishOk sf
     | [] => .incon "no transactions"
   | [] => .incon "no blocks"
 
@@ -257,8 +474,10 @@ partial def collectJson (p : System.FilePath) : IO (Array System.FilePath) := do
     else if path.toString.endsWith ".json" then out := out.push path
   return out.qsort (fun a b => a.toString < b.toString)
 
-/-- Run every `*_Constantinople` test in one file; return one `(tag, name, msg)`
-    triple per test (`tag ∈ {PASS_FULL, PASS_CORE, FAIL, INCON}`). -/
+/-- Run every fork variant in one file; return one `(tag, name, msg)`
+    triple per test (`tag ∈ {PASS_FULL, PASS_CORE, FAIL, INCON}`). Variants
+    whose `network` suffix doesn't map to a `Fork` we model are skipped
+    silently (they don't count toward any tally). -/
 def runFileResults (path : System.FilePath) : IO (Array (String × String × String)) := do
   let txt ← IO.FS.readFile path
   match Json.parse txt with
@@ -267,65 +486,146 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
     let entries := match j with | .obj m => m.toArray.toList | _ => []
     let mut out := #[]
     for (name, testObj) in entries do
-      if !name.endsWith "_Constantinople" then continue
-      let r := match runOne testObj with
-        | .passFull => ("PASS_FULL", name, "")
-        | .passCore => ("PASS_CORE", name, "")
-        | .fail m   => ("FAIL", name, m)
-        | .incon m  => ("INCON", name, m)
-      out := out.push r
+      match parseFork name with
+      | none => continue
+      | some fork =>
+        let r := match runOne testObj fork with
+          | .passFull => ("PASS_FULL", name, "")
+          | .passCore => ("PASS_CORE", name, "")
+          | .fail m   => ("FAIL", name, m)
+          | .incon m  => ("INCON", name, m)
+        out := out.push r
     return out
 
-/-- Run `files`, up to `jobs` `Task`s in flight. Prints per-test `FAIL`/`INCON`
-    notes (stable, spawn order) when `verbose`, then returns the folded tally.
-    Mirrors `VMRunner.runDir`. -/
-def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool) : IO Tally := do
+/-- Run `files` keeping up to `jobs` `Task`s **continuously in flight**: as
+    each one finishes, the next file is dispatched immediately rather than
+    waiting for the rest of the batch (the old `for task in tasks do IO.wait
+    task` pattern starved cores whenever one file in the batch was slow —
+    the `_ABCB_RECURSIVE` family on functional world-state maps takes
+    minutes per file).
+
+    The scheduler is a fixed-size array of `jobs` slots; each slot holds at
+    most one in-flight task. The main loop polls slots with
+    `Task.hasFinished` (non-blocking), harvests anything done, refills the
+    slot with the next file, and sleeps `10ms` only when every slot is
+    busy (so we don't busy-spin the main thread).
+
+    Per-task wall-clock cap: if `timeoutMs > 0`, a task whose elapsed time
+    exceeds the cap is marked `INCON wall-timeout`, its slot freed, and the
+    next file dispatched. The abandoned task continues running in the
+    background (Lean's `Task`s aren't OS-cancellable), but it no longer
+    blocks the harness — and the slot count drops to `jobs - hung` for the
+    remainder of the run, which is the closest we can get without
+    subprocess isolation. `timeoutMs = 0` disables the cap.
+
+    Output is in completion order (which can differ from spawn order). The
+    summary scripts key on FAIL ids, not line order. -/
+def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
+    (timeoutMs : Nat := 0) : IO Tally := do
   let mut t : Tally := {}
-  let mut i := 0
   let n := files.size
-  let batch := Nat.max 1 jobs
-  while i < n do
-    let stop := Nat.min (i + batch) n
-    let mut tasks : Array (Task (Except IO.Error (Array (String × String × String)))) := #[]
-    for k in [i:stop] do
-      tasks := tasks.push (← IO.asTask (runFileResults files[k]!))
-    for task in tasks do
-      match (← IO.wait task) with
+  if n = 0 then return t
+  let workers := Nat.max 1 jobs
+  -- Each slot: optional (file index, spawn-time millis, task).
+  let mut slots :
+      Array (Option (Nat × Nat × Task (Except IO.Error (Array (String × String × String))))) :=
+    Array.replicate workers none
+  let mut nextIdx : Nat := 0
+  let mut remaining : Nat := n
+  let foldResult : Tally → Bool →
+      Except IO.Error (Array (String × String × String)) → IO Tally :=
+    fun t verb r => do
+      let mut t := t
+      match r with
       | .ok results =>
         for (tag, name, msg) in results do
           match tag with
           | "PASS_FULL" => t := { t with passFull := t.passFull + 1 }
           | "PASS_CORE" => t := { t with passCore := t.passCore + 1 }
           | "FAIL"      => t := { t with fail := t.fail + 1 }
-                           if verbose then IO.println s!"FAIL {name}: {msg}"
+                           if verb then IO.println s!"FAIL {name}: {msg}"
           | "INCON"     => t := { t with incon := t.incon + 1 }
-                           if verbose then IO.println s!"INCON {name}: {msg}"
+                           if verb then IO.println s!"INCON {name}: {msg}"
           | _           => t := { t with crash := t.crash + 1 }
-                           if verbose then IO.println s!"CRASH {name}: {msg}"
+                           if verb then IO.println s!"CRASH {name}: {msg}"
       | .error e =>
         t := { t with crash := t.crash + 1 }
-        if verbose then IO.println s!"CRASH (task): {e}"
-    i := stop
+        if verb then IO.println s!"CRASH (task): {e}"
+      return t
+  -- Prime the pool: spawn up to `workers` initial tasks. Use
+  -- `Task.Priority.dedicated` so each task gets its own OS thread —
+  -- Lean's default pool caps non-dedicated workers at `numCores`,
+  -- which under heavy GC contention starves the sliding window even
+  -- when `jobs` is set higher.
+  for i in [0:workers] do
+    if nextIdx < n then
+      let now ← IO.monoMsNow
+      let task ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
+      slots := slots.set! i (some (nextIdx, now, task))
+      nextIdx := nextIdx + 1
+  -- Main loop: poll, harvest, refill.
+  while remaining > 0 do
+    let mut progress := false
+    for i in [0:workers] do
+      match slots[i]! with
+      | none => pure ()
+      | some (idx, startMs, task) =>
+        let done ← IO.hasFinished task
+        let elapsed := (← IO.monoMsNow) - startMs
+        if done then
+          t ← foldResult t verbose (← IO.wait task)
+          remaining := remaining - 1
+          progress := true
+          -- Refill slot.
+          if nextIdx < n then
+            let now ← IO.monoMsNow
+            let next ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
+            slots := slots.set! i (some (nextIdx, now, next))
+            nextIdx := nextIdx + 1
+          else
+            slots := slots.set! i none
+        else if timeoutMs > 0 ∧ elapsed > timeoutMs then
+          -- Abandon: mark INCON and free the slot. The task keeps
+          -- running in the background but the harness moves on.
+          t := { t with incon := t.incon + 1 }
+          if verbose then
+            IO.println s!"INCON {files[idx]!.fileName.getD files[idx]!.toString}: \
+              wall-timeout (>{timeoutMs}ms, abandoned)"
+          remaining := remaining - 1
+          progress := true
+          if nextIdx < n then
+            let now ← IO.monoMsNow
+            let next ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
+            slots := slots.set! i (some (nextIdx, now, next))
+            nextIdx := nextIdx + 1
+          else
+            slots := slots.set! i none
+    if !progress then
+      -- All in-flight tasks still running; yield CPU briefly.
+      IO.sleep 10
   return t
 
-/-- Resolve worker count: `-j N`, else env `STATETESTS_JOBS`, else 8. -/
-def parseJobs (args : List String) : Nat × List String := Id.run do
-  let rec go : List String → Option Nat → List String → Nat × List String
-    | [], n, acc => (n.getD 0, acc.reverse)
-    | "-j" :: v :: rest, _, acc => go rest (some v.toNat!) acc
-    | x :: rest, n, acc => go rest n (x :: acc)
-  go args none []
+/-- Parse `-j N` and `--timeout MS` out of `args`. Returns the jobs
+    value (or `0` for "unset"), the timeout-in-millis (`0` = disabled),
+    and the remaining args. -/
+def parseFlags (args : List String) : Nat × Nat × List String := Id.run do
+  let rec go : List String → Option Nat → Option Nat → List String → Nat × Nat × List String
+    | [], j, tm, acc => (j.getD 0, tm.getD 0, acc.reverse)
+    | "-j" :: v :: rest, _, tm, acc => go rest (some v.toNat!) tm acc
+    | "--timeout" :: v :: rest, j, _, acc => go rest j (some v.toNat!) acc
+    | x :: rest, j, tm, acc => go rest j tm (x :: acc)
+  go args none none []
 
 def main (args : List String) : IO Unit := do
   let verbose := args.contains "-v"
-  let (jobs0, rest) := parseJobs (args.filter (· != "-v"))
+  let (jobs0, timeoutMs, rest) := parseFlags (args.filter (· != "-v"))
   let jobs ← if jobs0 > 0 then pure jobs0 else do
     match (← IO.getEnv "STATETESTS_JOBS") with
     | some s => pure (Nat.max 1 s.toNat!)
     | none   => pure 8
   let root : System.FilePath := rest.headD "."
   let files ← if (← root.isDir) then collectJson root else pure #[root]
-  let t ← runFiles files jobs verbose
+  let t ← runFiles files jobs verbose timeoutMs
   IO.println s!"pass(full={t.passFull} core+={t.passCore}) fail={t.fail} \
 incon={t.incon} crash={t.crash} (total {t.total})"
 

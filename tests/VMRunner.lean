@@ -100,7 +100,21 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
       depth     := 0
       permitStateMutation := true
       blobVersionedHashes := #[]
-      fork                := .Constantinople }
+      -- The `legacytests/Constantinople/VMTests` corpus is named for the
+      -- corpus revision (the *git tag* in ethereum/legacytests was
+      -- `constantinople`-era), but the actual VMTest bytecodes pre-date
+      -- the per-fork divergences: they were generated against the
+      -- Frontier gas schedule (e.g. `SLOAD = 50` rather than Tangerine
+      -- Whistle's 200, `EXP` per-byte 10 rather than Spurious Dragon's
+      -- 50, `SELFDESTRUCT` base 0 rather than 5000) and never reference
+      -- a post-Frontier opcode (no `DELEGATECALL` / `REVERT` /
+      -- `RETURNDATA*` / `SHL` / `SHR` / `SAR` / `EXTCODEHASH` /
+      -- `CREATE2`). We therefore tag the execution with
+      -- `Fork.Frontier`, which (i) picks the right gas schedule and
+      -- (ii) lets `Operation.availableInFork` reject any post-Frontier
+      -- byte that shouldn't be reachable in this corpus. The
+      -- `vmtests-baseline.txt` regression check pins this behaviour. -/
+      fork                := .Frontier }
   { toMachineState :=
       { gasAvailable := gas, activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
@@ -306,50 +320,98 @@ def absorbResults (f : System.FilePath) (results : Array (String × String × St
     | _          => pure ()
   return (t, notes)
 
-/-- Run one subdir: spawn a Lean `Task` per file, up to `jobs` in flight
-    concurrently. Results are folded in spawn order so notes are stable. -/
-def runDir (dir : System.FilePath) (jobs : Nat) : IO Tally := do
+/-- Run one subdir: keep up to `jobs` Lean `Task`s **continuously in
+    flight** via a sliding-window scheduler. Each worker slot is refilled
+    as soon as its previous task completes, so a slow file never starves
+    the other cores (the old batch-wait `for task in tasks do IO.wait
+    task` made the slowest file in each batch determine throughput).
+
+    Output ordering: notes are emitted in *completion* order rather than
+    spawn order. The summary scripts key on FAIL ids, not line order.
+    Per-task wall-clock cap via `timeoutMs > 0`: tasks running past the
+    cap are recorded as `CRASH wall-timeout` and the slot freed (the
+    abandoned task keeps running in the background — Lean Tasks aren't
+    OS-cancellable). -/
+def runDir (dir : System.FilePath) (jobs : Nat) (timeoutMs : Nat := 0) : IO Tally := do
   let files ← collectJson dir
   let mut t : Tally := {}
   let mut notes : Array String := #[]
-  let mut i := 0
   let n := files.size
-  let batch := Nat.max 1 jobs
-  while i < n do
-    let stop := Nat.min (i + batch) n
-    -- Spawn `stop - i` tasks; each runs on the default thread pool.
-    let mut tasks : Array (System.FilePath ×
-                            Task (Except IO.Error (Array (String × String × String)))) := #[]
-    for k in [i:stop] do
-      let f := files[k]!
-      let task ← IO.asTask (runFileResults f)
-      tasks := tasks.push (f, task)
-    -- Wait for each in spawn order so the notes array stays stable.
-    for (f, task) in tasks do
-      match (← IO.wait task) with
-      | .ok results =>
-        let (t', n') := absorbResults f results t notes
-        t := t'; notes := n'
-      | .error e =>
-        t := { t with crash := t.crash + 1 }
-        notes := notes.push s!"CRASH {f.fileName.getD f.toString}: {e}"
-    i := stop
+  if n = 0 then return t
+  let workers := Nat.max 1 jobs
+  let mut slots :
+      Array (Option (Nat × Nat × System.FilePath ×
+                      Task (Except IO.Error (Array (String × String × String))))) :=
+    Array.replicate workers none
+  let mut nextIdx : Nat := 0
+  let mut remaining : Nat := n
+  -- Prime the pool.
+  for i in [0:workers] do
+    if nextIdx < n then
+      let now ← IO.monoMsNow
+      let f := files[nextIdx]!
+      let task ← IO.asTask (runFileResults f) Task.Priority.dedicated
+      slots := slots.set! i (some (nextIdx, now, f, task))
+      nextIdx := nextIdx + 1
+  while remaining > 0 do
+    let mut progress := false
+    for i in [0:workers] do
+      match slots[i]! with
+      | none => pure ()
+      | some (_, startMs, f, task) =>
+        let done ← IO.hasFinished task
+        let elapsed := (← IO.monoMsNow) - startMs
+        if done then
+          match (← IO.wait task) with
+          | .ok results =>
+            let (t', n') := absorbResults f results t notes
+            t := t'; notes := n'
+          | .error e =>
+            t := { t with crash := t.crash + 1 }
+            notes := notes.push s!"CRASH {f.fileName.getD f.toString}: {e}"
+          remaining := remaining - 1
+          progress := true
+          if nextIdx < n then
+            let now ← IO.monoMsNow
+            let g := files[nextIdx]!
+            let task' ← IO.asTask (runFileResults g) Task.Priority.dedicated
+            slots := slots.set! i (some (nextIdx, now, g, task'))
+            nextIdx := nextIdx + 1
+          else
+            slots := slots.set! i none
+        else if timeoutMs > 0 ∧ elapsed > timeoutMs then
+          t := { t with crash := t.crash + 1 }
+          notes := notes.push s!"CRASH {f.fileName.getD f.toString}: \
+            wall-timeout (>{timeoutMs}ms, abandoned)"
+          remaining := remaining - 1
+          progress := true
+          if nextIdx < n then
+            let now ← IO.monoMsNow
+            let g := files[nextIdx]!
+            let task' ← IO.asTask (runFileResults g) Task.Priority.dedicated
+            slots := slots.set! i (some (nextIdx, now, g, task'))
+            nextIdx := nextIdx + 1
+          else
+            slots := slots.set! i none
+    if !progress then IO.sleep 10
   for note in notes do IO.println s!"    {note}"
   return t
 
-/-- Resolve the worker count: explicit `--jobs N` / `-j N`, else env
-    `VMTESTS_JOBS`, else default `4`. Returns the resolved count and the
-    remaining (non-`-j`) arguments. -/
-def parseJobs (args : List String) : Nat × List String := Id.run do
-  let rec go : List String → Option Nat → List String → Nat × List String
-    | [], n, acc => (n.getD 0, acc.reverse)
-    | "-j" :: v :: rest, _, acc => go rest (some v.toNat!) acc
-    | "--jobs" :: v :: rest, _, acc => go rest (some v.toNat!) acc
-    | x :: rest, n, acc => go rest n (x :: acc)
-  go args none []
+/-- Parse `-j N` / `--jobs N` and `--timeout MS` out of `args`. Returns
+    the jobs value (`0` = unset, use env/default), the timeout in millis
+    (`0` = disabled), and the remaining (non-flag) arguments. -/
+def parseFlags (args : List String) : Nat × Nat × List String := Id.run do
+  let rec go : List String → Option Nat → Option Nat → List String → Nat × Nat × List String
+    | [], j, tm, acc => (j.getD 0, tm.getD 0, acc.reverse)
+    | "-j" :: v :: rest, _, tm, acc => go rest (some v.toNat!) tm acc
+    | "--jobs" :: v :: rest, _, tm, acc => go rest (some v.toNat!) tm acc
+    | "--timeout" :: v :: rest, j, _, acc => go rest j (some v.toNat!) acc
+    | x :: rest, j, tm, acc => go rest j tm (x :: acc)
+  go args none none []
 
-def parentMain (root : System.FilePath) (jobs : Nat) : IO Unit := do
-  IO.println s!"VMTests runner — root: {root}, jobs: {jobs}"
+def parentMain (root : System.FilePath) (jobs : Nat) (timeoutMs : Nat) : IO Unit := do
+  IO.println s!"VMTests runner — root: {root}, jobs: {jobs}\
+    {if timeoutMs > 0 then s!", timeout: {timeoutMs}ms" else ""}"
   let mut subdirs : Array System.FilePath := #[]
   for ent in (← root.readDir) do
     if (← ent.path.isDir) then subdirs := subdirs.push ent.path
@@ -357,14 +419,14 @@ def parentMain (root : System.FilePath) (jobs : Nat) : IO Unit := do
   let mut total : Tally := {}
   for d in sorted do
     IO.println s!"\n## {d.fileName.getD ""}"
-    let t ← runDir d jobs
+    let t ← runDir d jobs timeoutMs
     IO.println s!"  {t.line} (total {t.total})"
     total := total.add t
   IO.println s!"\n==== TOTAL ===="
   IO.println s!"  {total.line} (total {total.total})"
 
 def main (args : List String) : IO Unit := do
-  let (jobs0, rest) := parseJobs args
+  let (jobs0, timeoutMs, rest) := parseFlags args
   let jobs ←
     if jobs0 > 0 then pure jobs0
     else do
@@ -373,8 +435,8 @@ def main (args : List String) : IO Unit := do
       | none   => pure 8
   match rest with
   | "--file" :: path :: _ => runFile path
-  | root :: _             => parentMain root jobs
-  | []                    => parentMain "." jobs
+  | root :: _             => parentMain root jobs timeoutMs
+  | []                    => parentMain "." jobs timeoutMs
 end VMRunner
 
 def main (args : List String) : IO Unit := VMRunner.main args
