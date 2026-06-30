@@ -15,6 +15,7 @@ public import EvmSemantics.EVM.Decode
 public import EvmSemantics.EVM.Gas
 public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.BigStep
+public import EvmSemantics.EVM.Precompile
 public import EvmSemantics.EVM.StepF
 public import EvmSemantics.EVM.Equiv
 public import EvmSemantics.Tx

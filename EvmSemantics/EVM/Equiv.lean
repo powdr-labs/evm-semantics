@@ -523,7 +523,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                               argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                             surch h_sc).gasAvailable gasArg.toNat) h_fw).enterCall
-                      rest (AccountAddress.ofUInt256 toArg) value
+                      rest (AccountAddress.ofUInt256 toArg) (AccountAddress.ofUInt256 toArg)
+                      value
                       (MachineState.readPadded
                         ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas surch
@@ -547,7 +548,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                                    toArg) gasArg.toNat
                           activeWords := s.activeWordsAfterUInt256_2
                             argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                        } : State).enterCall rest (AccountAddress.ofUInt256 toArg) value
+                        } : State).enterCall rest (AccountAddress.ofUInt256 toArg)
+                          (AccountAddress.ofUInt256 toArg) value
                           (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                           (s.accountMap (AccountAddress.ofUInt256 toArg)).code
                           (Gas.forwardGas s.fork
@@ -562,10 +564,6 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                   grind
                 rw [post_eq]
-                -- `h_afford`: the stepF branch we're in already
-                -- discharged `forwarded ≤ s3.gasAvailable`, which equals
-                -- `s.gasAvailable - Gas.callCommitted …` after the
-                -- chained `consumeGas` calls are unfolded.
                 have h_afford :
                     Gas.forwardGas s.executionEnv.fork
                         (s.gasAvailable
@@ -680,6 +678,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                         (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).consumeGas
                         _ h_fw).executionEnv.address)
+                    (AccountAddress.ofUInt256 toArg)
                     value
                     (MachineState.readPadded
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
@@ -705,7 +704,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                               gasArg.toNat
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                      } : State).enterCall rest s.executionEnv.address value
+                      } : State).enterCall rest s.executionEnv.address
+                        (AccountAddress.ofUInt256 toArg) value
                         (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
                         (s.accountMap (AccountAddress.ofUInt256 toArg)).code
                         (Gas.forwardGas s.fork
@@ -805,21 +805,6 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             cases h
             have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
               simpa [State.consumeGas, State.consumeMemExp2] using h_take
-            -- `forwarded` is bound by stepF as
-            -- `min gasArg.toNat (allButOneSixtyFourth s2.gasAvailable)`, where
-            -- `s2.gasAvailable = s.gasAvailable - Gas.delegatecallCommitted s …`.
-            have h_fwd_eq :
-                ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).gasAvailable
-                = s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
-              simp [State.consumeGas, State.consumeMemExp2, Gas.delegatecallCommitted,
-                    MachineState.memExpansionDelta2, ← hbase, ← hmd]
-              omega
-            -- The stepF post-state matches the bundled rule's post-state because
-            -- (i) `s2.gasAvailable = s.gasAvailable - committed` (`h_fwd_eq`),
-            -- and (ii) `consumeGas` is proof-irrelevant in its proof argument.
-            -- We prove the post-state equality by a single `simp` + `grind`,
-            -- threading `h_fwd_eq` through.
             have post_eq :
                 (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                   retOff.toNat retLen.toNat h_mem).consumeGas
@@ -2133,65 +2118,85 @@ private theorem stepFE_sound_ok' (s s' : State) (h_nd : ¬ s.isDone) (h : stepFE
   split at h
   · -- s.halt = .Running
     rename_i h_running
-    -- Split on s.decoded.
+    -- Precompile dispatch: `stepFE` first matches on
+    -- `Precompile.isPrecompile fork codeAddr`. The `true` arm runs
+    -- the precompile (which then further splits on its `.success` /
+    -- `.outOfGas` result); the `false` arm falls through to the
+    -- standard bytecode dispatch.
     split at h
-    · -- decoded = none
-      nomatch h
-    · -- decoded = some (op, argOpt)
-      rename_i op argOpt h_dec
-      -- Split on the stack-overflow check.
+    · -- `Precompile.isPrecompile … = true`
+      rename_i h_isPrec
       split at h
-      · -- overflow: would leave >1024 items on the stack
+      · -- `Precompile.run … = .success out gasUsed`
+        rename_i out gasUsed h_prec
+        cases h
+        exact Step.precompileSuccess s out gasUsed h_running h_isPrec h_prec
+      · -- `Precompile.run … = .outOfGas`
+        rename_i h_prec
+        cases h
+        exact Step.precompileOog s h_running h_isPrec h_prec
+    · -- `Precompile.isPrecompile … = false`: standard bytecode dispatch.
+      rename_i h_isPrec
+      -- Split on s.decoded.
+      split at h
+      · -- decoded = none
         nomatch h
-      · -- no overflow; split on the gas check.
+      · -- decoded = some (op, argOpt)
+        rename_i op argOpt h_dec
+        -- Split on the stack-overflow check.
         split at h
-        · -- gas ≥ cost
-          rename_i h_gas
-          -- Split on the operation kind.
-          cases op with
-          | StopArith op =>
-            exact .running h_running
-              (stepF.stopArith_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | CompBit op =>
-            exact .running h_running
-              (stepF.compBit_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Keccak op =>
-            exact .running h_running
-              (stepF.keccak_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Env op =>
-            exact .running h_running
-              (stepF.env_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Block op =>
-            exact .running h_running
-              (stepF.block_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | StackMemFlow op =>
-            exact .running h_running
-              (stepF.stackMemFlow_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Push op =>
-            exact .running h_running (stepF.push_sound s op argOpt h_dec h_gas h)
-          | Dup op =>
-            exact .running h_running
-              (stepF.dup_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Swap op =>
-            exact .running h_running
-              (stepF.swap_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | DupN op =>
-            exact .running h_running
-              (stepF.dupN_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | SwapN op =>
-            exact .running h_running
-              (stepF.swapN_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Exchange op =>
-            exact .running h_running
-              (stepF.exchange_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | Log op =>
-            exact .running h_running
-              (stepF.log_sound s op (State.decoded_to_op h_dec) h_gas h)
-          | System op =>
-            exact .running h_running
-              (stepF.system_sound s op (State.decoded_to_op h_dec) h_gas h)
-        · -- gas < cost
+        · -- overflow: would leave >1024 items on the stack
           nomatch h
+        · -- no overflow; split on the gas check.
+          split at h
+          · -- gas ≥ cost
+            rename_i h_gas
+            -- Split on the operation kind.
+            cases op with
+            | StopArith op =>
+              exact .running h_running h_isPrec
+                (stepF.stopArith_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | CompBit op =>
+              exact .running h_running h_isPrec
+                (stepF.compBit_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Keccak op =>
+              exact .running h_running h_isPrec
+                (stepF.keccak_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Env op =>
+              exact .running h_running h_isPrec
+                (stepF.env_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Block op =>
+              exact .running h_running h_isPrec
+                (stepF.block_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | StackMemFlow op =>
+              exact .running h_running h_isPrec
+                (stepF.stackMemFlow_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Push op =>
+              exact .running h_running h_isPrec
+                (stepF.push_sound s op argOpt h_dec h_gas h)
+            | Dup op =>
+              exact .running h_running h_isPrec
+                (stepF.dup_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Swap op =>
+              exact .running h_running h_isPrec
+                (stepF.swap_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | DupN op =>
+              exact .running h_running h_isPrec
+                (stepF.dupN_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | SwapN op =>
+              exact .running h_running h_isPrec
+                (stepF.swapN_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Exchange op =>
+              exact .running h_running h_isPrec
+                (stepF.exchange_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | Log op =>
+              exact .running h_running h_isPrec
+                (stepF.log_sound s op (State.decoded_to_op h_dec) h_gas h)
+            | System op =>
+              exact .running h_running h_isPrec
+                (stepF.system_sound s op (State.decoded_to_op h_dec) h_gas h)
+          · -- gas < cost
+            nomatch h
   -- Non-Running halts: `stepFE` resumes the top caller (`.ok`, via the
   -- `callReturn*` rules) when the call stack is non-empty, otherwise it
   -- returns the state unchanged (the YP-empty case — no transition is

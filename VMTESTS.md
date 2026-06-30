@@ -3,15 +3,22 @@
 Two harnesses exercise the verified evaluator (`stepF` / `run`):
 
 - **`tests/VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
-  **VMTests** suite, the suite that matches this evaluator's *single-frame*
-  scope (no inter-contract calls, no transaction processing). This is the
-  bulk of the conformance coverage; the rest of this document is about it.
+  **VMTests** suite, the *single-frame* corpus (no inter-contract calls,
+  no transaction processing — each test runs one bytecode through `stepF`
+  with its declared `exec.gas` budget and compares the resulting
+  storage/return-data/balance/nonce/gas against the corpus). It pre-dates
+  the evaluator's inter-contract and transaction-level support, so it
+  exercises a strict subset of what we now model. This is the bulk of
+  the conformance coverage; the rest of this document is about it.
 - **`tests/StateTestRunner.lean`** (executable `statetests`) — runs the
-  BlockchainTests **`stCall*` / `stCallCodes`** suites, which exercise the
-  CALL and CALLCODE opcodes' per-call-frame stack and the three
-  `callReturn*` resume rules. Storage comparison covers the union of
-  pre/post slot keys (so cleared-to-zero slots are caught). CI runs it as
-  a separate, non-gating job against `.github/statetests-baseline.txt`.
+  BlockchainTests **GeneralStateTests** (a curated 30-dir subset of the
+  ~50 `st*` directories — the ones the evaluator currently passes
+  cleanly; see the list near the bottom of this doc). Decodes each
+  transaction, hands it to `EvmSemantics.Tx.execute`, and compares the
+  resulting `AccountMap` against the test's `postState`. Storage
+  comparison covers the union of pre/post slot keys (so cleared-to-zero
+  slots are caught). CI runs it as a separate, non-gating job against
+  `.github/statetests-baseline.txt`.
 
 ## How to run
 ```
@@ -37,30 +44,42 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 **VMTests (609 tests)**:
 ```
-pass=601 fail=0 incon=8 crash=0
+pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests `stCallCodes` (80 JSON files, 328 per-fork test cases across
+**StateTests (curated 30-dir subset, 7106 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(full=0 core+=320) fail=8 incon=0 crash=0
+pass(full=8 core+=7098) fail=0 incon=0 crash=0
 ```
-- `pass_core` = storage + nonce + code match (balance excluded — we don't
-  yet credit coinbase the per-tx fee on the success path, so balance is
-  intentionally off by `gasUsed·gasPrice`). 320 of 328 per-fork variants
-  match on the core comparison.
-- **fail=8** — the eight `*_ABCB_RECURSIVE` Constantinople variants miss
-  one storage slot (`storage[0x02] = 0 ≠ 1`) at the innermost frame of a
-  three-way recursive CALL/CALLCODE chain. The same eight tests pass on
-  the other six activated forks; the divergence is Constantinople-specific
-  and currently under investigation.
+- `pass_core` = storage + nonce + code match. `pass_full` additionally
+  requires exact balances (which are still off by the per-tx
+  `gasUsed·gasPrice` for tests where we don't credit the coinbase
+  precisely — only the eight passes that happen to net to zero match
+  fully today).
+- **fail=0 / incon=0 / crash=0** — every variant in the 30 listed
+  directories matches the corpus on storage / nonce / code.
 - **Corpus fork note.** Each test file ships a `network` field per variant
   (`_Frontier`, `_Homestead`, `_EIP150`, `_EIP158`, `_Byzantium`,
   `_Constantinople`, `_ConstantinopleFix`); the runner derives the fork
   from that suffix and configures the gas schedule accordingly. Variants
   whose network isn't yet activated are skipped silently and don't count
   toward the tally.
+- **The 30 dirs in CI** (alphabetical):
+  `stArgsZeroOneBalance`, `stAttackTest`, `stBadOpcode`, `stBugs`,
+  `stCallCodes`, `stCallCreateCallCodeTest`,
+  `stCallDelegateCodesCallCodeHomestead`,
+  `stCallDelegateCodesHomestead`, `stChangedEIP150`, `stCodeCopyTest`,
+  `stCodeSizeLimit`, `stDelegatecallTestHomestead`, `stEIP150Specific`,
+  `stEIP150singleCodeGasPrices`, `stExample`, `stHomesteadSpecific`,
+  `stInitCodeTest`, `stLogTests`, `stMemExpandingEIP150Calls`,
+  `stMemoryStressTest`, `stMemoryTest`, `stRandom`, `stRecursiveCreate`,
+  `stRefundTest`, `stShift`, `stSpecialTest`, `stStackTests`,
+  `stTransactionTest`, `stTransitionTest`, `stZeroCallsRevert`.
+  Add a directory to the sparse-checkout in
+  `.github/workflows/ci.yml` and regenerate the baseline once the
+  evaluator passes every variant in that directory.
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
@@ -93,7 +112,7 @@ summary. The full output and normalized summary are uploaded as artifacts.
 - **No opcodes are skipped.** All of CALL / CALLCODE / DELEGATECALL /
   STATICCALL / CREATE / CREATE2 / SELFDESTRUCT are implemented; the
   call family is also exercised by the separate `statetests` exe
-  against the `stCall*` / `stCallCodes` BlockchainTests.
+  against the curated GeneralStateTests subset.
 - **Keccak.** `EvmSemantics.keccak256` is wired (via `@[implemented_by]`)
   to a self-contained Keccak-256 implementation in
   `EvmSemantics.Crypto.Keccak256` (Keccak-f[1600] permutation + sponge,

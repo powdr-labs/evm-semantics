@@ -3,6 +3,7 @@ module
 public import EvmSemantics.EVM.State
 public import EvmSemantics.EVM.Decode
 public import EvmSemantics.EVM.Gas
+public import EvmSemantics.EVM.Precompile
 public import EvmSemantics.Crypto.Keccak256
 public import EvmSemantics.Data.Rlp
 
@@ -1165,7 +1166,8 @@ inductive StepRunning : State → State → Prop
                                 - forwarded
                 activeWords  := s.activeWordsAfterUInt256_2
                                   argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
-           ).enterCall rest (AccountAddress.ofUInt256 toArg) value
+           ).enterCall rest (AccountAddress.ofUInt256 toArg)
+             (AccountAddress.ofUInt256 toArg) value
              (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
              (s.accountMap (AccountAddress.ofUInt256 toArg)).code
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
@@ -1231,7 +1233,8 @@ inductive StepRunning : State → State → Prop
                                 - forwarded
                 activeWords  := s.activeWordsAfterUInt256_2
                                   argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
-           ).enterCall rest s.executionEnv.address value
+           ).enterCall rest s.executionEnv.address
+             (AccountAddress.ofUInt256 toArg) value
              (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
              (s.accountMap (AccountAddress.ofUInt256 toArg)).code
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
@@ -1378,6 +1381,14 @@ inductive StepRunning : State → State → Prop
               returnData   := .empty
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
+
+  -- (Precompile dispatch lives one layer up, in `Step` — see
+  -- `Step.precompileSuccess` / `Step.precompileOog` below. Lifting it
+  -- out of `StepRunning` is what makes the regular bytecode rules
+  -- *exclusive*: `Step.running` carries the gate `Precompile.run … =
+  -- .notAPrecompile`, so a precompile-frame state cannot also derive
+  -- a STOP-from-empty-code transition via `StepRunning.stop`.)
+
 
   ----------------------------------------------------------------------------
   -- CREATE / CREATE2: install a new contract.
@@ -1853,10 +1864,63 @@ inductive StepReturn : State → State → Prop
     directly, and the headline `stepF_sound` wraps them via `.running` /
     `.returning` after dispatching on `s.halt`. -/
 inductive Step : State → State → Prop
-  /-- A running-state transition: the per-opcode logic encoded by
-      `StepRunning`, plus the explicit `s.halt = .Running` guard that lets
-      `not_from_done` rule out successors from done states. -/
-  | running : ∀ {s s' : State}, s.halt = .Running → StepRunning s s' → Step s s'
+  /-- A running-state transition that executes the frame's bytecode: the
+      per-opcode logic encoded by `StepRunning`, plus the explicit
+      `s.halt = .Running` guard (so `not_from_done` rules out successors
+      from done states) and the **precompile gate**
+      `Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr
+      = false` (so a precompile-frame state cannot derive a bytecode
+      transition — only the `precompile*` constructors below fire for
+      it). The gate is what makes the bytecode and precompile sides
+      exclusive at the relation level, mirroring `stepF`'s "if
+      `isPrecompile` then dispatch precompile, else decode bytecode"
+      shape. -/
+  | running : ∀ {s s' : State},
+                s.halt = .Running →
+                Precompile.isPrecompile s.executionEnv.fork
+                    s.executionEnv.codeAddr = false →
+                StepRunning s s' → Step s s'
+  /-- YP §9 precompile dispatch (success arm). Fires when the frame's
+      `codeAddr` is a precompile whose gas requirement fits — i.e.
+      `Precompile.run … = .success output gasUsed`. The post-state
+      flips `halt` to `.Returned`, writes `output` to `hReturn`, and
+      consumes `gasUsed` of the frame's gas. The next outer step (via
+      `resumeByHalt → resumeSuccess` if `callStack ≠ []`, or by
+      `Eval.halted` at depth 0) handles caller return-window write and
+      gas refund. -/
+  | precompileSuccess (s : State) (output : ByteArray) (gasUsed : Nat)
+        (h_running : s.halt = .Running)
+        (h_isPrec  : Precompile.isPrecompile s.executionEnv.fork
+                        s.executionEnv.codeAddr = true)
+        (h_prec    : Precompile.run s.executionEnv.fork
+                      s.executionEnv.codeAddr s.executionEnv.calldata
+                      s.gasAvailable h_isPrec
+                    = .success output gasUsed)
+      : Step s
+          { s with
+              halt         := .Returned
+              hReturn      := output
+              gasAvailable := s.gasAvailable - gasUsed }
+  /-- YP §9 precompile dispatch (out-of-gas arm). Fires when the frame's
+      `codeAddr` is a precompile whose gas requirement exceeds
+      `s.gasAvailable` — i.e. `Precompile.run … = .outOfGas`. The
+      frame forfeits all its gas and `hReturn`; the next outer step's
+      `resumeException` rolls back the world via the frame's snapshot
+      (undoing the value transfer the surrounding CALL applied) and
+      pushes `0` on the caller's stack. -/
+  | precompileOog (s : State)
+        (h_running : s.halt = .Running)
+        (h_isPrec  : Precompile.isPrecompile s.executionEnv.fork
+                        s.executionEnv.codeAddr = true)
+        (h_prec    : Precompile.run s.executionEnv.fork
+                      s.executionEnv.codeAddr s.executionEnv.calldata
+                      s.gasAvailable h_isPrec
+                    = .outOfGas)
+      : Step s
+          { s with
+              halt         := .Exception .OutOfGas
+              hReturn      := ByteArray.empty
+              gasAvailable := 0 }
   /-- A call-return transition: the inner `StepReturn` already implies
       `s.halt ≠ .Running` (each constructor pins the halt kind) and
       `s.callStack ≠ []` (each carries `h_stack : callStack = _ :: _`). -/
