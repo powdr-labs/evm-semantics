@@ -19,12 +19,17 @@ What's in: foundation types, `Operation` ADT (incl. EIP-8024
 `DUPN`/`SWAPN`/`EXCHANGE`) and bytecode decoder, halted-state flag +
 `ExecutionResult`, small-step relation `Step` (success + exception
 rules), big-step relation `Eval` + reflexive-transitive closure
-`Steps`, executable shadow `stepF` with soundness theorem
-`stepF s = .ok s' → Step s s'` (no `sorry`), real Keccak-256
-(`Crypto/Keccak256.lean`, wired via `@[implemented_by]`), and the four
-call-family opcodes `CALL` / `CALLCODE` / `DELEGATECALL` / `STATICCALL`
-with a per-call-frame stack, EIP-150 forwarding, value stipend, and
-static-mode guard on `CALL`.
+`Steps`, executable shadow `stepF` (now *total* — folds in-frame
+exceptions into `halt := .Exception e`) with soundness theorem
+`stepFE_sound : stepFE s = .ok s' → Step s s'` (no `sorry`), real
+Keccak-256 (`Crypto/Keccak256.lean`, wired via `@[implemented_by]`),
+the four call-family opcodes `CALL` / `CALLCODE` / `DELEGATECALL` /
+`STATICCALL` with a per-call-frame stack, EIP-150 forwarding, value
+stipend, and static-mode guard on `CALL`, and a transaction-execution
+layer `EvmSemantics.Tx` (`Tx.Transaction` + `Tx.execute`) that wraps
+`stepF` with intrinsic-gas charging, sender-nonce bump, value
+transfer, address-collision check, and the YP `Λ` contract-creation
+deploy step (EIP-3541 / EIP-170 / `G_codedeposit`).
 
 **Demo (`Main.lean`)** runs `PUSH1 5 ; PUSH1 3 ; ADD ; STOP` through the
 executable shadow, producing stack `[8]` and `halt = Success`. Confirms
@@ -68,8 +73,21 @@ trivial program.
   balance), with a dedicated `Step.createCollision` /
   `Step.create2Collision` constructor pair (caller's nonce bumped,
   push 0, no transfer, no frame).
-- **Not yet implemented:** transaction processing (`Υ`), block validation,
-  precompiled contracts, full RLP (only `[address, nonce]` is encodable).
+- **Transaction processing (YP `Υ`)** lives in `EvmSemantics.Tx`: a
+  fork-agnostic `Tx.Transaction` record (sender / recipient /
+  value / data / gasLimit / gasPrice) plus `Tx.execute`, which handles
+  intrinsic-gas charging (fork- and create-aware: EIP-2028, EIP-3860,
+  Homestead-onwards `G_txcreate`), sender-nonce bump, value transfer,
+  address-collision check for create-txs, the fueled `stepF` loop, and
+  the YP `Λ` deploy step (EIP-3541 reserved-prefix / EIP-170
+  max-code-size / `G_codedeposit`). Top-level REVERT / Exception roll
+  the world back to the pre-tx state with full gas charged to the
+  coinbase.
+- **Not yet implemented:** block validation, precompiled contracts
+  (0x01..0x09 — `ecrecover` / `sha256` / `ripemd160` / `identity` /
+  `modexp` / BN254 / BLS12-381), full RLP (only `[address, nonce]` is
+  encodable), and ECDSA-recovered tx senders (the runner uses a
+  hard-coded sender for the corpus).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
   the static Yellow-Paper fee per fork (`Constantinople` matches the
