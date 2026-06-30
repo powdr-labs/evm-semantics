@@ -62,6 +62,7 @@ graph TD
         Step["EVM/Step.lean<br/>Step wrapper (small-step Prop)<br/>StepRunning opcode rules · StepReturn resume rules"]
         BigStep["EVM/BigStep.lean<br/>Steps (rtc) · Eval (big-step)"]
         StepF["EVM/StepF.lean<br/>stepF executable shadow<br/>+ 14 per-group helpers"]
+        Precompile["EVM/Precompile.lean<br/>YP §9 dispatch (0x04 identity)"]
         Equiv["EVM/Equiv.lean<br/>stepF_sound (no sorry)<br/>+ 14 helper lemmas"]
     end
 
@@ -90,6 +91,7 @@ graph TD
     Step --> Equiv
     StepF --> Equiv
     BigStep --> Equiv
+    Precompile --> Step & StepF
     Step -.->|re-export| Main
     StepF --> Main & VMRunner
 ```
@@ -310,6 +312,110 @@ expansion → depth-limit pre-check → 63/64 forwarding → `enterCallFor`):
   target's context (address = target) but with `permitStateMutation`
   forced to `false`, so any state-mutating opcode in the new frame is
   rejected. `CALLVALUE` is forced to `0`.
+
+## Precompiled contracts
+
+YP §9 reserves addresses `0x01..0x09` for *precompiles*: native operations
+the EVM invokes in place of stored bytecode. The dispatcher lives in
+`EvmSemantics.EVM.Precompile.run : AccountAddress → ByteArray → Nat →
+Result` and returns one of three outcomes — `.success output gasUsed`,
+`.outOfGas`, or `.notAPrecompile` (target isn't in the modelled set, fall
+through to the normal `enterCall` path). Currently implemented:
+**0x04 `identity`** (`runIdentity`, gas `15 + 3·⌈|input|/32⌉`). The other
+eight arms (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`, `0x05
+modexp`, `0x06–0x09` BN254/BLAKE2F) are stubbed with explicit
+`.notAPrecompile` so a call into them STOPs cleanly; adding a new
+precompile is a two-line edit (`runFoo` + dispatch arm).
+
+**Frame-entry layer.** The dispatch lives in *one* place — a single
+arm at the top of `stepFE`'s running branch — rather than being
+duplicated across the four CALL-family handlers. To make that single
+arm correct for every entry path, each frame's `ExecutionEnv` carries a
+`codeAddr` field: the *borrowed-from* address whose bytecode is
+loaded into the frame.
+
+- `CALL` / `STATICCALL` set `codeAddr = address = tgt`.
+- `CALLCODE` / `DELEGATECALL` set `codeAddr = tgt`, but `address`
+  stays the caller's (those two preserve the caller's storage /
+  identity context). Without `codeAddr` a CALLCODE/DELEGATECALL into
+  a precompile would be invisible to a check that only looked at
+  `address`.
+- `Tx.buildInitState` sets `codeAddr := tx.recipient` for the
+  top-level frame, so a transaction *to* a precompile fires the
+  dispatch on its very first step.
+- A CREATE/CREATE2 init-code frame sets `codeAddr := newAddr` (the
+  freshly-derived address; cannot collide with `0x01..0x09` in
+  practice).
+
+**The dispatch itself.** With `codeAddr` in place, `stepFE`'s running
+branch is just:
+
+```
+match Precompile.run s.executionEnv.codeAddr s.executionEnv.calldata
+                     s.gasAvailable with
+| .success out gasUsed =>
+    .ok { s with halt := .Returned, hReturn := out,
+                 gasAvailable := s.gasAvailable - gasUsed }
+| .outOfGas =>
+    .ok { s with halt := .Exception .OutOfGas, hReturn := empty,
+                 gasAvailable := 0 }
+| .notAPrecompile =>
+    /- fall through to the normal bytecode dispatch -/
+```
+
+On `.success` the frame is marked `.Returned`; the next iteration's
+`resumeByHalt → resumeSuccess` copies `hReturn` into the caller's
+return window and refunds unspent gas. On `.outOfGas` the frame is
+marked `.Exception .OutOfGas`; `resumeByHalt → resumeException` rolls
+the world back via the frame's snapshot (undoing the value transfer
+the surrounding CALL applied) and pushes `0`. On `.notAPrecompile`
+(any address not in the implemented set, including non-precompiles)
+the normal bytecode dispatch runs as before.
+
+**Spec side.** The dispatch lives at the `Step` layer (not inside
+`StepRunning`), as **three top-level constructors**:
+
+* `Step.running` — the bytecode arm. Carries `s.halt = .Running`
+  *and* an explicit gate
+  `Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr
+  = false` so a precompile-frame state can never derive a bytecode
+  transition.
+* `Step.precompileSuccess` / `Step.precompileOog` — the precompile
+  arms. Each takes `s.halt = .Running` plus a positive
+  `Precompile.isPrecompile … = true` witness plus a
+  `Precompile.run … h_isPrec = .success/.outOfGas …` outcome witness.
+  Note that `Precompile.run` itself takes the `isPrecompile` proof as
+  a precondition — it has no `.notAPrecompile` arm, because the
+  precondition rules that case out by construction.
+
+The gate is what gives the relation **exclusivity** between the two
+sides: without it `Step` would over-derive (e.g. a precompile address
+has empty bytecode that decodes to `STOP`, so `StepRunning.stop`
+would also fire alongside `Step.precompileSuccess`). With the gate,
+exactly one of the three arms is derivable for any running state.
+The Bool predicate `Precompile.isPrecompile : Fork → AccountAddress
+→ Bool` is the single source of truth for "is this address a
+precompile we model?" — used by `Step.running`, the precompile
+arms, *and* `stepFE`'s dispatch, so the three stay in lockstep by
+referencing the same definition.
+
+The four CALL-family `StepRunning` constructors (`call`, `callcode`,
+`delegatecall`, `staticcall`) are unchanged: they push the frame the
+usual way, and the next small step fires either the precompile arm
+or the bytecode arm depending on the new frame's `codeAddr`. This is
+the user-suggested factoring — an intermediate layer between the
+caller's execution step and the callee's first step — and it
+collapses what would have been eight op-specific precompile
+constructors into two generic ones.
+
+The proof of `stepFE_sound` adds a single `split at h` on
+`Precompile.run` at the top of the running branch, dispatching the
+three arms to the two precompile rules and (for `.notAPrecompile`)
+to the existing per-operation logic — passing the
+`.notAPrecompile` witness as `Step.running`'s gate premise.
+**`Tx.execute` needs no precompile special-case at all** — the
+generic frame-entry rule handles tx-to-precompile transactions on
+the first step of the `stepF` loop.
 
 ## SELFDESTRUCT
 

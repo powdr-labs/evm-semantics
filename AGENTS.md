@@ -136,8 +136,26 @@ marked by `Frame.createAddr := some newAddr`, with a dedicated
 `resumeCreateSuccess` rule that installs `hReturn` as the new code
 (charged at `G_codedeposit = 200` per byte). Address derivation uses a
 minimal RLP encoder (`EvmSemantics.Rlp`) for CREATE and a raw keccak
-preimage for CREATE2. **Not yet implemented:** transaction processing,
-block validation, precompiles, full RLP.
+preimage for CREATE2. Transaction processing (YP `Υ`) lives in
+`EvmSemantics.Tx`. The YP §9 precompile dispatcher lives in
+`EvmSemantics.EVM.Precompile`; **0x04 `identity`** is implemented.
+Dispatch happens at the *frame entry* layer — every `ExecutionEnv`
+carries a `codeAddr` (the borrowed-from address, distinct from
+`address` for `CALLCODE` / `DELEGATECALL`), and a single arm at the
+top of `stepF`'s running branch fires the precompile whenever
+`Precompile.isPrecompile fork codeAddr` is `true`. The same arm
+covers tx-to-precompile transactions (where `Tx.buildInitState`
+sets `codeAddr := tx.recipient`) without any special case in
+`Tx.execute`. The spec side mirrors this with two generic Step
+rules (`Step.precompileSuccess` / `precompileOog`) plus an
+exclusivity gate on `Step.running` (`isPrecompile fork codeAddr =
+false`) so the bytecode rules and precompile rules are mutually
+exclusive at the relation level. `Precompile.run` takes the
+`isPrecompile` proof as a precondition, so its `Result` only has
+`.success` / `.outOfGas` — no `.notAPrecompile` arm. **Not yet
+implemented:** block validation, the eight unimplemented precompiles
+(`0x01 ecrecover` / `0x02 sha256` / `0x03 ripemd160` / `0x05 modexp` /
+`0x06–0x09` BN254 + BLAKE2F), full RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while

@@ -12,6 +12,7 @@ public import EvmSemantics.EVM.State
 public import EvmSemantics.EVM.Gas
 public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.StepF
+public import EvmSemantics.EVM.Precompile
 
 /-!
 `EvmSemantics.Tx` — the *transaction-execution* layer that sits on top
@@ -165,6 +166,12 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
       weiValue  := tx.value
       calldata  := calldata
       code      := code
+      -- Top-level frame: the borrowed-from address equals the call
+      -- target (or the newly-derived address for a create tx). The
+      -- precompile dispatcher in `stepF` keys off `codeAddr` so a tx
+      -- whose recipient is a precompile address fires the precompile
+      -- on the first step and halts immediately.
+      codeAddr  := toAddr
       gasPrice  := tx.gasPrice
       header    := header
       depth     := 0
@@ -252,6 +259,12 @@ def execute (preMap : AccountMap) (header : BlockHeader)
     tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
   if collide then rollback
   else
+    -- Tx-level precompile dispatch is *not* a special case here: a tx
+    -- whose recipient is a precompile address arrives at `run s0 fuel`
+    -- with `s0.executionEnv.codeAddr = tx.recipient`, and the generic
+    -- precompile arm at the top of `stepFE` fires on the very first
+    -- step. The resulting halted (top-level) frame then exits the
+    -- `run` loop via `isDone`.
     match run s0 fuel with
     | .error .OutOfFuel =>
       { finalAccounts := preMap, outcome := .fuelExhausted }

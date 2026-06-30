@@ -44,7 +44,7 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 
 **VMTests (609 tests)**:
 ```
-pass=601 fail=0 incon=8 crash=0
+pass=602 fail=0 incon=7 crash=0
 ```
 
 **StateTests (curated 30-dir subset, 7106 per-fork test cases across

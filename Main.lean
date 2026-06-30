@@ -10,7 +10,7 @@ open EvmSemantics EvmSemantics.EVM
 def initState (code : ByteArray) (gas : Nat) : State :=
   let env : ExecutionEnv :=
     { address := 0, origin := 0, caller := 0, weiValue := ⟨0⟩
-      calldata := .empty, code := code
+      calldata := .empty, code := code, codeAddr := 0
       gasPrice := ⟨0⟩, header := default, depth := 0, permitStateMutation := true
       blobVersionedHashes := #[]
       fork                := .Cancun }

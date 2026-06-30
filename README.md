@@ -83,9 +83,34 @@ trivial program.
   max-code-size / `G_codedeposit`). Top-level REVERT / Exception roll
   the world back to the pre-tx state with full gas charged to the
   coinbase.
-- **Not yet implemented:** block validation, precompiled contracts
-  (0x01..0x09 — `ecrecover` / `sha256` / `ripemd160` / `identity` /
-  `modexp` / BN254 / BLS12-381), full RLP (only `[address, nonce]` is
+- **Precompiled contracts (YP §9):** `EvmSemantics.EVM.Precompile`
+  exports two definitions held in lockstep:
+  `isPrecompile : Fork → AccountAddress → Bool` (the per-fork
+  membership predicate) and
+  `run : (fork) → (addr) → (input) → (childGas) → (h : isPrecompile
+  fork addr = true) → Result` (total only on the subset
+  `isPrecompile` accepts — no `.notAPrecompile` arm, because the
+  precondition rules that case out). Dispatch keys off each frame's
+  `ExecutionEnv.codeAddr` (the borrowed-from address recorded at
+  frame entry), and covers every entry path: `CALL` / `STATICCALL`
+  (where `codeAddr = tgt = address`), `CALLCODE` / `DELEGATECALL`
+  (where `codeAddr = tgt ≠ address`), and a transaction whose `to`
+  is itself a precompile address (where `Tx.buildInitState` sets
+  `codeAddr := tx.recipient`). Currently implemented: **0x04
+  `identity`** (gas `15 + 3·⌈|input|/32⌉`); the YP precompile set
+  beyond that (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`,
+  `0x05 modexp`, `0x06–0x09` BN254 + BLAKE2F, plus the Cancun KZG
+  and Prague BLS12-381 set) is not yet in `isPrecompile`'s `true`
+  case, so a call into those addresses falls through to their
+  (empty) bytecode and STOPs — adding a new precompile is a
+  synchronized edit to `isPrecompile` and `run` (the totality proof
+  enforces they stay aligned). The spec side in `Step.lean` exposes
+  the same dispatch via two generic rules (`Step.precompileSuccess`
+  / `precompileOog`); the rules mutate the frame's `halt` so the
+  existing `resumeByHalt` machinery (success copy, exception
+  snapshot-rollback) handles the rest.
+- **Not yet implemented:** block validation, the eight unimplemented
+  precompiles listed above, full RLP (only `[address, nonce]` is
   encodable), and ECDSA-recovered tx senders (the runner uses a
   hard-coded sender for the corpus).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
