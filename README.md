@@ -78,11 +78,17 @@ trivial program.
   value / data / gasLimit / gasPrice) plus `Tx.execute`, which handles
   intrinsic-gas charging (fork- and create-aware: EIP-2028, EIP-3860,
   Homestead-onwards `G_txcreate`), sender-nonce bump, value transfer,
-  address-collision check for create-txs, the fueled `stepF` loop, and
-  the YP `Λ` deploy step (EIP-3541 reserved-prefix / EIP-170
-  max-code-size / `G_codedeposit`). Top-level REVERT / Exception roll
-  the world back to the pre-tx state with full gas charged to the
-  coinbase.
+  address-collision check for create-txs, the fueled `stepF` loop, the
+  YP `Λ` deploy step (EIP-3541 reserved-prefix / EIP-170 max-code-size
+  / `G_codedeposit`), and the YP §6.3 tx-level gas accounting: on
+  success, the sender is refunded the unspent gas plus the substate
+  refund counter (capped per EIP-3529: `gasUsed/2` pre-London,
+  `gasUsed/5` after) and the coinbase receives the rest; on revert,
+  the world rolls back but the unspent gas is still returned; on
+  exception, all gas goes to the coinbase. The per-fork PoW block
+  reward (`5/3/2 ETH` for Frontier/Byzantium/Constantinople-era; `0`
+  post-Paris) is credited to the coinbase on every non-`fuelExhausted`
+  outcome.
 - **Precompiled contracts (YP §9):** `EvmSemantics.EVM.Precompile`
   exports two definitions held in lockstep:
   `isPrecompile : Fork → AccountAddress → Bool` (the per-fork

@@ -217,19 +217,97 @@ structure ExecResult where
   outcome       : ExecOutcome
   deriving Inhabited
 
-/-- Materialise the post-state of a *failed* transaction (collision or
-    top-level exception): everything from `preMap` except the sender's
-    nonce bumped, the full `gasLimit·gasPrice` debited, and the coinbase
-    credited the same amount. The value transfer that `buildInitState`
-    layered on top is *not* replayed. -/
-def failPostState (preMap : AccountMap) (sender coinbase : AccountAddress)
-    (upfront : Nat) : AccountMap :=
+/-- Pre-London (Frontier..Berlin) refund cap is `gasUsed / 2`;
+    EIP-3529 (London onwards) reduced it to `gasUsed / 5`. The
+    Constantinople-era legacy corpus is pre-London, so divisor `2`
+    applies for every variant in the current CI subset. -/
+@[inline] def gasRefundCapDivisor (fork : Fork) : Nat :=
+  if fork.atLeast .London then 5 else 2
+
+/-- Per-fork PoW block reward paid to the coinbase. Block-level
+    accounting (not tx-level), but `Tx.execute` adds it because the
+    `BlockchainTests` corpus we run has one tx per block and the
+    postState includes the reward credit on the coinbase. Schedule:
+
+    * `Frontier..SpuriousDragon` — `5 · 10¹⁸` (5 ETH).
+    * `Byzantium` — `3 · 10¹⁸` (EIP-649 "Difficulty Bomb Delay & Reward
+      Reduction").
+    * `Constantinople..GrayGlacier` — `2 · 10¹⁸` (EIP-1234, further
+      reduction).
+    * `Paris` onwards — `0`: the block reward moved to the consensus
+      layer at the merge. -/
+def blockReward (fork : Fork) : Nat :=
+  if fork.atLeast .Paris then 0
+  else if fork.atLeast .Constantinople then 2 * 10^18
+  else if fork.atLeast .Byzantium then 3 * 10^18
+  else 5 * 10^18
+
+/-- Credit the coinbase with the per-fork block reward, on top of the
+    tx-level gas-fee accounting already applied to `map`. Called once
+    per `Tx.execute` (= once per single-tx block in the legacy state
+    tests' BlockchainTest wrapping). -/
+def applyBlockReward (map : AccountMap) (coinbase : AccountAddress)
+    (fork : Fork) : AccountMap :=
+  let reward := blockReward fork
+  if reward = 0 then map
+  else
+    let c := map coinbase
+    map.set coinbase
+      { c with balance := c.balance + UInt256.ofNat reward }
+
+/-- Total gas returned to the sender on a successful execution, per
+    YP §6.3. `gasRemaining` is the residual `sf.gasAvailable` after
+    the call (and, for a create-tx, after the deploy `G_codedeposit`
+    charge); `refundCounter` is `sf.substate.refundBalance` (accumulated
+    from SSTORE clears and pre-London SELFDESTRUCTs). The refund is the
+    counter capped by `gasUsed / divisor`. -/
+@[inline] def refundedGasOnSuccess (gasLimit gasRemaining refundCounter : Nat)
+    (fork : Fork) : Nat :=
+  let gasUsed := gasLimit - gasRemaining
+  gasRemaining + Nat.min refundCounter (gasUsed / gasRefundCapDivisor fork)
+
+/-- Layer the tx-level gas accounting onto `map`: credit the sender
+    `gasRefunded · gasPrice` (the unused-gas refund) and credit the
+    coinbase `(gasLimit - gasRefunded) · gasPrice` (the gas reward).
+    Robust to `sender = coinbase`: the updates are applied in
+    sequence, so the coinbase write reads the post-sender-write
+    balance. -/
+def applyTxGasAccounting (map : AccountMap)
+    (sender coinbase : AccountAddress)
+    (gasLimit gasRefunded gasPrice : Nat) : AccountMap :=
+  let senderCredit   := UInt256.ofNat (gasRefunded * gasPrice)
+  let coinbaseCredit := UInt256.ofNat ((gasLimit - gasRefunded) * gasPrice)
+  let m₁ := map.set sender
+    { (map sender) with balance := (map sender).balance + senderCredit }
+  m₁.set coinbase
+    { (m₁ coinbase) with balance := (m₁ coinbase).balance + coinbaseCredit }
+
+/-- Build the post-state for a *world-rolled-back* outcome (collision,
+    top-level exception, top-level revert, deploy rejected): start
+    from `preMap`, bump the sender's nonce, debit the full upfront
+    `gasLimit · gasPrice`, then call `applyTxGasAccounting` to credit
+    sender + coinbase. `gasRefunded` is `0` for an exception (sender
+    keeps nothing) and `sf.gasAvailable` for a revert (sender keeps
+    the unspent gas; substate refund counter is discarded). -/
+def failPostStateRefunded (preMap : AccountMap)
+    (sender coinbase : AccountAddress)
+    (gasLimit gasRefunded gasPrice : Nat) : AccountMap :=
   let s := preMap sender
-  let c := preMap coinbase
-  let m₁ := preMap.set sender
+  let upfront := UInt256.ofNat (gasLimit * gasPrice)
+  let m₀ := preMap.set sender
     { s with nonce := s.nonce + UInt256.ofNat 1
-             balance := s.balance - UInt256.ofNat upfront }
-  m₁.set coinbase { c with balance := c.balance + UInt256.ofNat upfront }
+             balance := s.balance - upfront }
+  applyTxGasAccounting m₀ sender coinbase gasLimit gasRefunded gasPrice
+
+/-- Materialise the post-state of a transaction that aborts before
+    execution (collision, OOG-on-intrinsic, fuel exhausted) or that
+    halts exceptionally at the top frame: sender's nonce bumped,
+    full upfront gas paid to the coinbase, no value transfer. The
+    `gasLimit·gasPrice` charge is applied via `applyTxGasAccounting`
+    with `gasRefunded = 0`. -/
+def failPostState (preMap : AccountMap) (sender coinbase : AccountAddress)
+    (gasLimit gasPrice : Nat) : AccountMap :=
+  failPostStateRefunded preMap sender coinbase gasLimit 0 gasPrice
 
 /-- Execute one transaction against `preMap` under `header`/`fork`.
 
@@ -242,15 +320,19 @@ def execute (preMap : AccountMap) (header : BlockHeader)
     (tx : Transaction) (fork : Fork) (fuel : Nat)
     (blobVersionedHashes : Array UInt256 := #[]) : ExecResult :=
   let s0       := buildInitState preMap header tx fork blobVersionedHashes
-  let upfront  := tx.gasLimit * tx.gasPrice.toNat
   let coinbase := header.coinbase
   let newAddr  := s0.executionEnv.address
-  -- The YP tx-level rollback post-state: sender's nonce bumped, sender
-  -- debited the full upfront gas charge, coinbase credited the same
-  -- amount; everything else as in `preMap`. Used by the collision,
-  -- top-level-exception, top-level-revert, and deploy-rejected arms.
+  let gasPrice := tx.gasPrice.toNat
+  -- The block reward is paid to the coinbase regardless of tx
+  -- outcome; we layer it on top of every non-`fuelExhausted`
+  -- result-map below via `applyBlockReward`.
+  let withReward (m : AccountMap) : AccountMap := applyBlockReward m coinbase fork
+  -- Tx-rollback post-state used by collision, exception, deploy-
+  -- rejected, and (after we re-enter the inner loop) every other
+  -- "no state changes, all gas to coinbase" arm.
   let rollback : ExecResult :=
-    { finalAccounts := failPostState preMap tx.sender coinbase upfront,
+    { finalAccounts := withReward (failPostState preMap tx.sender coinbase
+                                     tx.gasLimit gasPrice),
       outcome := .exceptional }
   -- Address-collision check for create tx: per YP, a target with code
   -- or non-zero nonce makes the create fail before any code runs.
@@ -273,26 +355,43 @@ def execute (preMap : AccountMap) (header : BlockHeader)
       -- needs the case for totality.
       rollback
     | .ok sf =>
-      -- Inspect the *top frame's* termination tag.
+      -- Inspect the *top frame's* termination tag and produce the
+      -- YP §6.3 post-state with the right gas-refund split between
+      -- sender and coinbase.
       --
-      -- For a **call tx**: `.Success`/`.Returned` keeps the world
-      -- mutations `sf.accountMap` produced; `.Reverted` and
-      -- `.Exception _` roll back to the pre-tx state (sender keeps
-      -- value, gas paid in full to the coinbase).
+      -- The four outcomes:
       --
-      -- For a **create tx** with `.Success`/`.Returned`: run the YP
-      -- `Λ` deploy step — install `sf.hReturn` as `newAddr.code` only
-      -- if all three deploy checks pass:
-      --   (i) `G_codedeposit · |hReturn| ≤ sf.gasAvailable`
-      --       (deposit-gas affordability);
-      --  (ii) `|hReturn| ≤ maxCodeSize` from Spurious Dragon onwards
-      --       (EIP-170);
-      -- (iii) `hReturn` does *not* begin with `0xEF` from London
-      --       onwards (EIP-3541).
-      -- Any one of these failing — or `.Reverted` / `.Exception` —
-      -- collapses the create-tx into the rollback post-state.
+      --  * **Top-level `.Exception`** — all gas is forfeit; world
+      --    rolls back to `preMap`; sender's nonce bumped; full upfront
+      --    `gasLimit · gasPrice` paid to coinbase. (= the `rollback`
+      --    post-state defined above.)
+      --
+      --  * **Top-level `.Reverted`** — world rolls back to `preMap`;
+      --    sender's nonce bumped; sender refunded `sf.gasAvailable ·
+      --    gasPrice` (the gas that hadn't been spent when REVERT
+      --    fired); coinbase paid the difference. The substate refund
+      --    counter is discarded (the YP discards substate on revert
+      --    along with the world).
+      --
+      --  * **Top-level `.Success`/`.Returned` (call tx)** — keep the
+      --    state changes accumulated in `sf.accountMap`; refund the
+      --    sender `sf.gasAvailable + min(refundCounter, gasUsed /
+      --    capDivisor)` worth of gas (the unspent gas plus the SSTORE-
+      --    / SELFDESTRUCT-derived refund, capped per EIP-3529).
+      --
+      --  * **Top-level `.Success`/`.Returned` (create tx)** — same as
+      --    the call-tx success arm, except the residual gas is
+      --    `sf.gasAvailable - G_codedeposit · |hReturn|` (the deploy
+      --    step's `G_codedeposit` charge). The three deploy gates
+      --    (deposit-gas affordability; EIP-170 size cap from Spurious
+      --    Dragon; EIP-3541 reserved-prefix from London) decide
+      --    whether the deploy commits or the whole tx rolls back.
       match sf.halt with
-      | .Exception _ | .Reverted => rollback
+      | .Exception _ => rollback
+      | .Reverted =>
+        let map := failPostStateRefunded preMap tx.sender coinbase
+                     tx.gasLimit sf.gasAvailable gasPrice
+        { finalAccounts := withReward map, outcome := .exceptional }
       | _ =>
         if tx.isCreate then
           let hReturn := sf.hReturn
@@ -301,16 +400,28 @@ def execute (preMap : AccountMap) (header : BlockHeader)
                               && decide (hReturn.size > State.maxCodeSize)
           let badPrefix   := State.isReservedCodePrefix fork hReturn
           if depositCost ≤ sf.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then
+            -- Deploy commits: install `hReturn` as the new account's
+            -- code, then apply the gas-refund accounting with
+            -- `gasRemaining = sf.gasAvailable - depositCost`.
             let newAcc := sf.accountMap newAddr
-            let map' := sf.accountMap.set newAddr { newAcc with code := hReturn }
-            { finalAccounts := map',
-              outcome := .success }
+            let mapWithCode := sf.accountMap.set newAddr
+                                 { newAcc with code := hReturn }
+            let gasRemaining := sf.gasAvailable - depositCost
+            let gasRefunded := refundedGasOnSuccess tx.gasLimit gasRemaining
+                                 sf.substate.refundBalance.toNat fork
+            let map' := applyTxGasAccounting mapWithCode tx.sender coinbase
+                          tx.gasLimit gasRefunded gasPrice
+            { finalAccounts := withReward map', outcome := .success }
           else
             -- Deploy rejected by EIP-3541, EIP-170, or deposit-gas
             -- OOG: rollback the whole tx per YP.
             rollback
         else
-          { finalAccounts := sf.accountMap, outcome := .success }
+          let gasRefunded := refundedGasOnSuccess tx.gasLimit sf.gasAvailable
+                               sf.substate.refundBalance.toNat fork
+          let map' := applyTxGasAccounting sf.accountMap tx.sender coinbase
+                        tx.gasLimit gasRefunded gasPrice
+          { finalAccounts := withReward map', outcome := .success }
 
 end Tx
 end EvmSemantics
