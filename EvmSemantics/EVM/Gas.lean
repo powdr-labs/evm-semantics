@@ -139,17 +139,18 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     `original` value (at frame start), `current` value (just before this
     write), and the `new` value being written.
 
-    Four distinct schedules:
+    Four distinct schedules across the forks we model:
 
-    **Frontier..Byzantium and Petersburg** (pre-EIP-1283; Petersburg
-    reverted Constantinople's EIP-1283 activation):
+    **Pre-EIP-1283** — Frontier..Byzantium and Petersburg (which
+    reverted EIP-1283):
 
     | Condition                              | Cost  |
     |----------------------------------------|------:|
     | `current = 0 ∧ new ≠ 0` (fresh set)    | 20000 |
     | otherwise (reset, clear, no-op)        |  5000 |
 
-    **Constantinople** (EIP-1283 net-metered, active only on this fork):
+    **EIP-1283 — Constantinople only** (briefly active before being
+    reverted by Petersburg; net-metered with 200-gas no-op):
 
     | Condition                                          | Cost  |
     |----------------------------------------------------|------:|
@@ -158,8 +159,9 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     | `original = current ∧ original ≠ 0` (clean reset)  |  5000 |
     | otherwise (`original ≠ current`, "dirty")          |   200 |
 
-    **Istanbul..Berlin** (EIP-2200, like EIP-1283 with the 2300-stipend
-    sentry — that sentry is checked separately in `Gas.sstoreSentry`):
+    **EIP-2200 — Istanbul / MuirGlacier** (net-metered with the
+    `G_callstipend = 2300` sentry checked separately by
+    `Gas.sstoreSentry`, and an 800-gas no-op):
 
     | Condition                                          | Cost  |
     |----------------------------------------------------|------:|
@@ -168,8 +170,9 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     | `original = current ∧ original ≠ 0` (clean reset)  |  5000 |
     | otherwise (dirty)                                  |   800 |
 
-    **London..Cancun** (EIP-2929 cold/warm; we use warm prices here, the
-    cold 2100-gas surcharge is not yet tracked):
+    **EIP-2929 warm placeholder — Berlin..Cancun** (we don't yet
+    track cold/warm access lists, so we use warm prices throughout;
+    the cold first-touch surcharge of 2100 is omitted):
 
     | Condition                                          | Cost  |
     |----------------------------------------------------|------:|
@@ -178,17 +181,17 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     | `original = current ∧ original ≠ 0` (clean reset)  |  2900 |
     | otherwise (dirty)                                  |   100 |
 
-    Refunds are returned by `Gas.sstoreRefund` and accumulated by the
-    runner into the YP's `A_r` refund counter. -/
+    Refunds are returned by `Gas.sstoreRefund` (status: scaffolding —
+    not yet applied to balance). -/
 def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
-  if fork.atLeast .London then
-    -- EIP-2929-era warm prices.
+  if fork.atLeast .Berlin then
+    -- EIP-2929 warm placeholder.
     if current.toNat = new.toNat then 100
     else if current.toNat = original.toNat then
       if original.toNat = 0 then 20000 else 2900
     else 100
   else if fork.atLeast .Istanbul then
-    -- EIP-2200 net-metered.
+    -- EIP-2200 net-metered. (MuirGlacier shares the Istanbul EVM.)
     if current.toNat = new.toNat then 800
     else if current.toNat = original.toNat then
       if original.toNat = 0 then 20000 else 5000
@@ -333,6 +336,14 @@ def Gas.expByteCost (fork : Fork) (exponent : UInt256) : Nat :=
     `Substate.refundBalance` for one SSTORE writing `new` over `current`
     when the slot's transaction-start value was `original`.
 
+    **Status: scaffolding.** This helper computes the fork-correct
+    refund delta but is *not yet wired into* `stepF` (SSTORE doesn't
+    accumulate `refundBalance` on this branch). The runner therefore
+    never applies refunds — they only matter for the `passFull` (sender
+    balance) comparison, not the `passCore` (storage/nonce/code) one
+    the regression baseline keys on. Kept here so the wiring is a
+    one-line change once we want to start tracking `passFull` balances.
+
     * **Pre-EIP-1283** (Frontier..Byzantium and Petersburg+pre-Istanbul):
       +15000 on a clear-to-zero, otherwise 0.
     * **EIP-1283 / EIP-2200** (original Constantinople / Istanbul+):
@@ -378,7 +389,11 @@ def Gas.sstoreRefund (fork : Fork) (original current new : UInt256) : Int :=
 /-- Denominator of the end-of-tx refund cap: `refund ≤ gas_used / refundDenom`.
     Pre-EIP-3529 (everything before London) uses 2; London onwards uses
     5 per EIP-3529 (the EIP also removed the SELFDESTRUCT refund, which
-    is gated separately in `Gas.selfDestructRefund`). -/
+    is gated separately in `Gas.selfDestructRefund`).
+
+    **Status: scaffolding.** Used together with `Gas.sstoreRefund` once
+    the runner applies end-of-tx refunds to the sender balance; see the
+    note there. -/
 def Gas.refundDenom (fork : Fork) : Nat :=
   if fork.atLeast .London then 5 else 2
 

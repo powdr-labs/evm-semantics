@@ -339,6 +339,12 @@ end Operation
     * Cancun (EIP-1153 / -4844 / -5656 / -7516): `TLOAD`, `TSTORE`,
       `MCOPY`, `BLOBHASH`, `BLOBBASEFEE`.
 
+    EIP-8024 (`DUPN` / `SWAPN` / `EXCHANGE`, bytes `0xe6..0xe8`) is *not*
+    active on any currently modelled fork — the opcode constructors
+    exist in the AST for forward compatibility but `availableInFork`
+    returns `false` for every value in `Fork`, so decoded bytes
+    `0xe6..0xe8` raise `InvalidInstruction` on Frontier through Osaka.
+
     Decoders gate on this to reject opcodes that haven't been activated
     yet — an unactivated byte must trigger `InvalidInstruction` per the
     YP, *not* execute as the future opcode. -/
@@ -362,6 +368,13 @@ def Operation.availableInFork : Operation → Fork → Bool
   | .System .STATICCALL,      f => f.atLeast .Byzantium
   | .System .CREATE2,         f => f.atLeast .Constantinople
   | .Push p,                  f => if p.width.val = 0 then f.atLeast .Shanghai else true
+  -- EIP-8024 (`DUPN` / `SWAPN` / `EXCHANGE`): not active on any
+  -- currently modelled fork. The decoder will hand these to us if a
+  -- bytecode contains 0xe6..0xe8, and they will halt with
+  -- `InvalidInstruction`.
+  | .DupN _,                  _ => false
+  | .SwapN _,                 _ => false
+  | .Exchange _,              _ => false
   | _,                        _ => true
 
 /-- # of immediate-argument bytes following the opcode in the bytecode.

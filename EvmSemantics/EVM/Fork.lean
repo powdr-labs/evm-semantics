@@ -23,26 +23,48 @@ arms each. The ordering is the canonical activation order on mainnet.
 
 namespace EvmSemantics
 
-/-- The EVM hard-fork version. Listed in canonical activation order. -/
+/-- The EVM hard-fork version. Listed in canonical activation order.
+
+    Per-constructor EIPs of note:
+    * `TangerineWhistle`: EIP-150 (gas re-pricing).
+    * `SpuriousDragon`: EIP-160 (`EXP` per-byte 50), EIP-161 (empty-account
+      semantics).
+    * `Byzantium`: `REVERT`, `RETURNDATA*`, `STATICCALL`, …
+    * `Constantinople`: EIP-145 (`SHL`/`SHR`/`SAR`), EIP-1014 (`CREATE2`),
+      EIP-1052 (`EXTCODEHASH`), EIP-1283 (net-metered SSTORE).
+    * `Petersburg` (= `ConstantinopleFix`): reverts EIP-1283.
+    * `Istanbul`: EIP-1344 (`CHAINID`), EIP-1884 (re-pricing +
+      `SELFBALANCE`), EIP-2028 (calldata 16), EIP-2200 (net-metered
+      SSTORE).
+    * `MuirGlacier`: difficulty-bomb delay only — semantically identical
+      to `Istanbul` for the EVM.
+    * `Berlin`: EIP-2929 (cold/warm access lists), EIP-2718 (typed-tx
+      envelope).
+    * `London`: EIP-1559 (base fee), EIP-3198 (`BASEFEE`), EIP-3529
+      (reduced refunds, no `SELFDESTRUCT` refund), EIP-3541 (reject
+      `0xEF` code).
+    * `ArrowGlacier` / `GrayGlacier`: difficulty-bomb delays only.
+    * `Paris` (The Merge): EIP-3675 (PoS finality), EIP-4399
+      (`PREVRANDAO` replaces `DIFFICULTY`); block reward = 0.
+    * `Shanghai`: EIP-3651 (warm coinbase), EIP-3855 (`PUSH0`),
+      EIP-3860 (init-code limit), EIP-4895 (withdrawals).
+    * `Cancun`: EIP-1153 (transient storage), EIP-4844 (blob tx +
+      `BLOBHASH`), EIP-5656 (`MCOPY`), EIP-6780 (`SELFDESTRUCT`-same-tx),
+      EIP-7516 (`BLOBBASEFEE`).
+    * `Prague` (Pectra, mainnet 2025-05-07): EIP-7702 (EOA delegation),
+      EIP-2537 (BLS12-381 precompiles), EIP-2935 (`BLOCKHASH` history),
+      EIP-6110 (deposit log), EIP-7251 (effective-balance cap raised),
+      EIP-7549 (committee dedup), EIP-7691 (blob count up to 6/9).
+    * `Osaka` (Fusaka, post-Prague): EIP-7594 (PeerDAS), EIP-7825 (per-tx
+      gas cap), EIP-7823 (modexp upper bound), EIP-7883 (modexp
+      re-pricing), EIP-7918 (blob base-fee floor), EIP-7935 (gas-limit
+      raise). -/
 inductive Fork where
-  | Frontier
-  | Homestead
-  | TangerineWhistle        -- Tangerine Whistle: EIP-150 gas re-pricing.
-  | SpuriousDragon        -- Spurious Dragon: EIP-160 / -161 (EXP per-byte 50, empty-account semantics).
-  | Byzantium     -- REVERT, RETURNDATA*, STATICCALL, etc.
-  | Constantinople -- EIP-145 (SHL/SHR/SAR), EIP-1014 (CREATE2), EIP-1052 (EXTCODEHASH), EIP-1283 (net-metered SSTORE).
-  | Petersburg    -- = ConstantinopleFix; reverts EIP-1283.
-  | Istanbul      -- EIP-1344 (CHAINID), EIP-1884 (re-pricing + SELFBALANCE), EIP-2028 (calldata 16), EIP-2200 (net-metered SSTORE).
-  | MuirGlacier   -- Difficulty-bomb delay only — semantically identical to Istanbul for the EVM.
-  | Berlin        -- EIP-2929 (cold/warm access lists), EIP-2718 (typed tx envelope).
-  | London        -- EIP-1559 (base fee), EIP-3198 (BASEFEE op), EIP-3529 (reduced refunds, no SELFDESTRUCT refund), EIP-3541 (reject 0xEF code).
-  | ArrowGlacier  -- Difficulty-bomb delay only.
-  | GrayGlacier   -- Difficulty-bomb delay only.
-  | Paris         -- The Merge: EIP-3675 (PoS finality), EIP-4399 (PREVRANDAO replaces DIFFICULTY); block reward = 0.
-  | Shanghai      -- EIP-3651 (warm coinbase), EIP-3855 (PUSH0), EIP-3860 (init code limit), EIP-4895 (withdrawals).
-  | Cancun        -- EIP-1153 (transient storage), EIP-4844 (blob tx + BLOBHASH), EIP-5656 (MCOPY), EIP-6780 (SELFDESTRUCT-same-tx), EIP-7516 (BLOBBASEFEE).
-  | Prague        -- Pectra (mainnet 2025-05-07): EIP-7702 (EOA delegation), EIP-2537 (BLS12-381 precompiles), EIP-2935 (BLOCKHASH history), EIP-6110 (deposit log), EIP-7251 (effective-balance cap raised), EIP-7549 (committee dedup), EIP-7691 (blob count up to 6/9).
-  | Osaka         -- Fusaka (post-Prague hard fork): EIP-7594 (PeerDAS), EIP-7825 (per-tx gas cap), EIP-7823 (modexp upper bound), EIP-7883 (modexp re-pricing), EIP-7918 (blob base-fee floor), EIP-7935 (gas-limit raise).
+  | Frontier | Homestead | TangerineWhistle | SpuriousDragon
+  | Byzantium | Constantinople | Petersburg
+  | Istanbul | MuirGlacier | Berlin | London
+  | ArrowGlacier | GrayGlacier | Paris | Shanghai | Cancun
+  | Prague | Osaka
   deriving DecidableEq, Repr, Inhabited
 
 namespace Fork

@@ -85,13 +85,28 @@ structure Transaction where
 /-- `true` iff this is a contract-creating transaction. -/
 @[inline] def Transaction.isCreate (tx : Transaction) : Bool := tx.recipient.isNone
 
-/-- Intrinsic gas `g₀` (YP §6.2): a flat 21 000 baseline plus a per-byte
-    cost on `data` (4 for zero bytes, 68 otherwise; EIP-2028 lowered the
-    non-zero rate to 16 from Istanbul on, not yet modelled). -/
-def intrinsicGas (data : ByteArray) : Nat := Id.run do
+/-- Intrinsic transaction gas `g₀` (YP §6.2). Fork- and tx-kind-aware:
+
+    * Per-byte data cost: 4 for zero bytes; 68 for non-zero bytes
+      pre-Istanbul, 16 from Istanbul onwards (EIP-2028).
+    * `+G_txcreate = 32000` for a contract-creating transaction from
+      Homestead onwards (Frontier had no extra create surcharge).
+    * `+G_initcodeword · ⌈|initcode|/32⌉ = 2 · ⌈|data|/32⌉` for a
+      create-tx from Shanghai onwards (EIP-3860).
+
+    `data` is `T_d` — the calldata for a call tx, the init code for a
+    create tx. -/
+def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.run do
+  let perNonZero := if fork.atLeast .Istanbul then 16 else 68
   let mut g := 21000
   for b in data do
-    g := g + (if b == 0 then 4 else 68)
+    g := g + (if b == 0 then 4 else perNonZero)
+  if isCreate then
+    -- `G_txcreate = 32000` was introduced by Homestead (EIP-2);
+    -- Frontier create-tx pays only the base 21000.
+    if fork.atLeast .Homestead then g := g + 32000
+    -- EIP-3860 init-code word cost: 2 per 32-byte word.
+    if fork.atLeast .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
 
 /-- One step of the executable EVM, but **total** in the in-frame
@@ -132,20 +147,27 @@ def Transaction.targetAddress (tx : Transaction) (sender : Account) :
     calldata pair, derive the new contract's address & seed its nonce
     for a create tx. -/
 def buildInitState (preMap : AccountMap) (header : BlockHeader)
-    (tx : Transaction) (fork : Fork) : State :=
+    (tx : Transaction) (fork : Fork) (blobVersionedHashes : Array UInt256 := #[]) :
+    State :=
   let sender0 := preMap tx.sender
   let toAddr  := tx.targetAddress sender0
   let upfront := tx.gasLimit * tx.gasPrice.toNat
   let preMap := preMap.set tx.sender
     { sender0 with nonce := sender0.nonce + UInt256.ofNat 1
                    balance := sender0.balance - UInt256.ofNat upfront }
+  -- Create-tx: seed the new account's nonce (EIP-158+ = 1, else 0).
+  -- Critically, leave `code := ∅` — the deployed code is installed by
+  -- `execute` *only* on a successful halt that passes the EIP-3541 /
+  -- EIP-170 / deposit-gas checks; until then the account is empty.
   let preMap :=
     if tx.isCreate then
       let existing := preMap toAddr
       let n : UInt256 := if fork.atLeast .SpuriousDragon then ⟨1⟩ else ⟨0⟩
-      preMap.set toAddr { existing with code := tx.data, nonce := n }
+      preMap.set toAddr { existing with nonce := n }
     else preMap
   let accountMap := preMap.transfer tx.sender toAddr tx.value
+  -- A create tx runs `data` as the init code with empty calldata; a
+  -- call tx runs the target's existing code with `data` as calldata.
   let calldata := if tx.isCreate then ByteArray.empty else tx.data
   let code     := if tx.isCreate then tx.data else (accountMap toAddr).code
   let execEnv : ExecutionEnv :=
@@ -159,10 +181,11 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
       header    := header
       depth     := 0
       permitStateMutation := true
-      blobVersionedHashes := #[]
+      blobVersionedHashes := blobVersionedHashes
       fork                := fork }
   { toMachineState :=
-      { gasAvailable := tx.gasLimit - intrinsicGas tx.data, activeWords := ⟨0⟩
+      { gasAvailable := tx.gasLimit - intrinsicGas fork tx.isCreate tx.data,
+        activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
     substate     := { Substate.empty with originalAccountMap := accountMap }
@@ -221,18 +244,25 @@ def failPostState (preMap : AccountMap) (sender coinbase : AccountAddress)
     supplies it. The `fuelExhausted` outcome surfaces only when the
     bound was hit, which always indicates an evaluator bug. -/
 def execute (preMap : AccountMap) (header : BlockHeader)
-    (tx : Transaction) (fork : Fork) (fuel : Nat) : ExecResult :=
-  let s0       := buildInitState preMap header tx fork
+    (tx : Transaction) (fork : Fork) (fuel : Nat)
+    (blobVersionedHashes : Array UInt256 := #[]) : ExecResult :=
+  let s0       := buildInitState preMap header tx fork blobVersionedHashes
   let upfront  := tx.gasLimit * tx.gasPrice.toNat
   let coinbase := header.coinbase
-  let preExisting := preMap s0.executionEnv.address
-  -- Address-collision check for create tx: per YP, a target with code
-  -- or non-zero nonce makes the create fail before any code runs.
-  let collide : Bool :=
-    tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
-  if collide then
+  let newAddr  := s0.executionEnv.address
+  -- The YP tx-level rollback post-state: sender's nonce bumped, sender
+  -- debited the full upfront gas charge, coinbase credited the same
+  -- amount; everything else as in `preMap`. Used by the collision,
+  -- top-level-exception, top-level-revert, and deploy-rejected arms.
+  let rollback : ExecResult :=
     { finalAccounts := failPostState preMap tx.sender coinbase upfront,
       outcome := .exceptional }
+  -- Address-collision check for create tx: per YP, a target with code
+  -- or non-zero nonce makes the create fail before any code runs.
+  let preExisting := preMap newAddr
+  let collide : Bool :=
+    tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
+  if collide then rollback
   else
     match run s0 fuel with
     | .error .OutOfFuel =>
@@ -240,28 +270,46 @@ def execute (preMap : AccountMap) (header : BlockHeader)
     | .error _ =>
       -- `run` only returns `.error` for `.OutOfFuel` now — but Lean
       -- needs the case for totality.
-      { finalAccounts := failPostState preMap tx.sender coinbase upfront,
-        outcome := .exceptional }
+      rollback
     | .ok sf =>
-      -- Inspect the *top frame's* termination tag. An `.Exception`
-      -- forces the YP tx-level rollback (state → preMap, sender pays
-      -- full gas); `.Reverted`/`.Success`/`.Returned` keep the world
-      -- mutations the loop computed. For a create-tx `.Success`, the
-      -- returned bytes become the new account's `code`; the account's
-      -- nonce was seeded in `buildInitState` so any internal CREATE
-      -- inside the init code has already bumped from that baseline.
+      -- Inspect the *top frame's* termination tag.
+      --
+      -- For a **call tx**: `.Success`/`.Returned` keeps the world
+      -- mutations `sf.accountMap` produced; `.Reverted` and
+      -- `.Exception _` roll back to the pre-tx state (sender keeps
+      -- value, gas paid in full to the coinbase).
+      --
+      -- For a **create tx** with `.Success`/`.Returned`: run the YP
+      -- `Λ` deploy step — install `sf.hReturn` as `newAddr.code` only
+      -- if all three deploy checks pass:
+      --   (i) `G_codedeposit · |hReturn| ≤ sf.gasAvailable`
+      --       (deposit-gas affordability);
+      --  (ii) `|hReturn| ≤ maxCodeSize` from Spurious Dragon onwards
+      --       (EIP-170);
+      -- (iii) `hReturn` does *not* begin with `0xEF` from London
+      --       onwards (EIP-3541).
+      -- Any one of these failing — or `.Reverted` / `.Exception` —
+      -- collapses the create-tx into the rollback post-state.
       match sf.halt with
-      | .Exception _ =>
-        { finalAccounts := failPostState preMap tx.sender coinbase upfront,
-          outcome := .exceptional }
+      | .Exception _ | .Reverted => rollback
       | _ =>
-        let acc' :=
-          if tx.isCreate && sf.halt != .Reverted then
-            let newAddr := s0.executionEnv.address
+        if tx.isCreate then
+          let hReturn := sf.hReturn
+          let depositCost := State.codeDepositPerByte * hReturn.size
+          let oversized   := fork.atLeast .SpuriousDragon
+                              && decide (hReturn.size > State.maxCodeSize)
+          let badPrefix   := State.isReservedCodePrefix fork hReturn
+          if depositCost ≤ sf.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then
             let newAcc := sf.accountMap newAddr
-            sf.accountMap.set newAddr { newAcc with code := sf.hReturn }
-          else sf.accountMap
-        { finalAccounts := acc', outcome := .success }
+            let map' := sf.accountMap.set newAddr { newAcc with code := hReturn }
+            { finalAccounts := map',
+              outcome := .success }
+          else
+            -- Deploy rejected by EIP-3541, EIP-170, or deposit-gas
+            -- OOG: rollback the whole tx per YP.
+            rollback
+        else
+          { finalAccounts := sf.accountMap, outcome := .success }
 
 end Tx
 end EvmSemantics
