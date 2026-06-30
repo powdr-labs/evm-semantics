@@ -60,11 +60,45 @@ jobs:
           git init -q
           git remote add origin https://github.com/ethereum/legacytests
           git sparse-checkout init --cone
-          # VMTests (for the vmtests suite) + the stCall* BlockchainTests (for
-          # the recursive-CALL statetests suite). Both are pinned to CORPUS_REV.
+          # VMTests (for the vmtests suite) + the GeneralStateTests
+          # subdirs the statetests runner currently passes cleanly on
+          # (no FAIL / no INCON / no CRASH). The full
+          # `GeneralStateTests` tree is ~400 MB; this curated set is
+          # ~70 MB. Add a dir here once the evaluator passes every
+          # variant in it; keep a snapshot in `.github/statetests-baseline.txt`
+          # so a regression flips one of the listed tests to FAIL.
           git sparse-checkout set \
             Constantinople/VMTests \
-            Constantinople/BlockchainTests/GeneralStateTests/stCallCodes
+            Constantinople/BlockchainTests/GeneralStateTests/stArgsZeroOneBalance \
+            Constantinople/BlockchainTests/GeneralStateTests/stAttackTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stBadOpcode \
+            Constantinople/BlockchainTests/GeneralStateTests/stBugs \
+            Constantinople/BlockchainTests/GeneralStateTests/stCallCodes \
+            Constantinople/BlockchainTests/GeneralStateTests/stCallCreateCallCodeTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stCallDelegateCodesCallCodeHomestead \
+            Constantinople/BlockchainTests/GeneralStateTests/stCallDelegateCodesHomestead \
+            Constantinople/BlockchainTests/GeneralStateTests/stChangedEIP150 \
+            Constantinople/BlockchainTests/GeneralStateTests/stCodeCopyTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stCodeSizeLimit \
+            Constantinople/BlockchainTests/GeneralStateTests/stDelegatecallTestHomestead \
+            Constantinople/BlockchainTests/GeneralStateTests/stEIP150Specific \
+            Constantinople/BlockchainTests/GeneralStateTests/stEIP150singleCodeGasPrices \
+            Constantinople/BlockchainTests/GeneralStateTests/stExample \
+            Constantinople/BlockchainTests/GeneralStateTests/stHomesteadSpecific \
+            Constantinople/BlockchainTests/GeneralStateTests/stInitCodeTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stLogTests \
+            Constantinople/BlockchainTests/GeneralStateTests/stMemExpandingEIP150Calls \
+            Constantinople/BlockchainTests/GeneralStateTests/stMemoryStressTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stMemoryTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stRandom \
+            Constantinople/BlockchainTests/GeneralStateTests/stRecursiveCreate \
+            Constantinople/BlockchainTests/GeneralStateTests/stRefundTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stShift \
+            Constantinople/BlockchainTests/GeneralStateTests/stSpecialTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stStackTests \
+            Constantinople/BlockchainTests/GeneralStateTests/stTransactionTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stTransitionTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stZeroCallsRevert
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
 
@@ -107,20 +141,23 @@ jobs:
             vmtests-output.txt
             vmtests-summary.txt
 
-      # Non-gating: reports the recursive-CALL conformance picture against the
-      # stCall* BlockchainTests and flags regressions. The known-state baseline
-      # lives in .github/statetests-baseline.txt. Wrapped in `timeout` because
-      # the evaluator's functional world-state maps make some calls slow; a
-      # hang must not block CI.
-      - name: Run CALL state tests (stCall*)
+      # Non-gating: reports the GeneralStateTests conformance picture against
+      # the curated subset checked out above and flags regressions. The
+      # known-state baseline lives in .github/statetests-baseline.txt.
+      # Wrapped in `timeout` because the evaluator's functional world-state
+      # maps make some calls slow; a hang must not block CI.
+      - name: Run GeneralStateTests (curated subset)
         if: always()
         continue-on-error: true
         run: |
-          # Per-file wall-cap (45s) + parallelism (4): bounds CI time despite the
-          # evaluator's slow functional world-state maps. Deep-recursion tests
-          # that exceed the cap are recorded as INCON (wall-timeout), never hang.
+          # `statetests_run.sh` walks the dir tree via `find … -name '*.json'`,
+          # so pointing it at the parent `GeneralStateTests` picks up every
+          # subdir the sparse-checkout has materialised. Per-file wall-cap
+          # (45s) + parallelism (4): bounds CI time despite the evaluator's
+          # slow functional world-state maps. Deep-recursion tests that
+          # exceed the cap are recorded as INCON (wall-timeout), never hang.
           .github/scripts/statetests_run.sh \
-            corpus/Constantinople/BlockchainTests/GeneralStateTests/stCallCodes 45 4 \
+            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 4 \
             | tee statetests-output.txt
 
       # GATING: this step fails the job if a previously-passing CALL test now

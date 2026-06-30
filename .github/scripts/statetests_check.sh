@@ -32,10 +32,10 @@ mapfile -t improvements < <(comm -23 "$tmp/base.set" "$tmp/cur.set" | sed 's/^te
 
 cval() { sed -nE "s/^$2=([0-9]+)$/\1/p" "$1"; }
 
-echo "## StateTests (CALL) regression report"
+echo "## StateTests regression report"
 echo
-echo "_BlockchainTests \`stCall*\` suites (Constantinople variant) run against the"
-echo "recursive-CALL evaluator. \`core\` = storage/nonce/code match; \`full\` also"
+echo "_BlockchainTests GeneralStateTests (curated subset) run against the"
+echo "evaluator. \`core\` = storage/nonce/code match; \`full\` also"
 echo "requires exact balances. Non-gating._"
 echo
 echo "| metric | baseline | current | Δ |"
