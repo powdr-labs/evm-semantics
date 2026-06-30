@@ -297,6 +297,33 @@ def enterCall (sc : State) (rest : List UInt256)
       halt         := .Running
       callStack    := frame :: sc.callStack }
 
+/-- "Halted-precompile" wrapper around `enterCall`: install the precompile
+    frame as if it had already executed and returned `output` after
+    consuming `gasUsed` gas. The next iteration of the `stepF` loop will
+    pop this frame via `resumeByHalt → resumeSuccess`, which writes
+    `output` into the caller's `retOff:retLen` memory window, pushes
+    `1`, and refunds `childGas - gasUsed` to the caller. Used by the
+    YP §9 precompile dispatch. -/
+@[inline] def installPrecompileSuccess (entered : State) (output : ByteArray)
+    (childGas gasUsed : Nat) : State :=
+  { entered with
+      halt         := .Returned
+      hReturn      := output
+      gasAvailable := childGas - gasUsed }
+
+/-- "Halted-precompile-OOG" wrapper around `enterCall`: install the
+    precompile frame as if it had run out of gas, with the entire
+    `childGas` consumed. The next iteration of the `stepF` loop pops
+    this frame via `resumeByHalt → resumeException`, which pushes
+    `0`, clears `returnData`, refunds nothing, and (crucially) rolls
+    the world back via the frame's snapshot — so the value transfer
+    that `enterCall` applied is undone. -/
+@[inline] def installPrecompileOog (entered : State) : State :=
+  { entered with
+      halt         := .Exception .OutOfGas
+      hReturn      := ByteArray.empty
+      gasAvailable := 0 }
+
 end State
 
 /-! ### The four call-family opcodes, parameterised over `CallKind`

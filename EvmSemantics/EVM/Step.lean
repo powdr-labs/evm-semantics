@@ -3,6 +3,7 @@ module
 public import EvmSemantics.EVM.State
 public import EvmSemantics.EVM.Decode
 public import EvmSemantics.EVM.Gas
+public import EvmSemantics.EVM.Precompile
 public import EvmSemantics.Crypto.Keccak256
 public import EvmSemantics.Data.Rlp
 
@@ -1378,6 +1379,318 @@ inductive StepRunning : State → State → Prop
               returnData   := .empty
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
+
+  ----------------------------------------------------------------------------
+  -- Precompile dispatch (YP §9). When the call target is a precompile
+  -- (0x01..0x09), the EVM doesn't execute bytecode — it invokes the
+  -- precompile natively. We model the outcome as a halted callee
+  -- frame: `enterCall` pushes the frame in the usual way, then we
+  -- immediately mark the frame as `.Returned` (or `.Exception
+  -- .OutOfGas`) and stash the precompile's output in `hReturn`. The
+  -- next loop iteration sees the halted frame and pops it via
+  -- `resumeByHalt`, which copies `hReturn` into the caller's memory
+  -- (resumeSuccess) or rolls the world back via the snapshot
+  -- (resumeException). The four call ops each have a success and an
+  -- OOG arm; the precompile-dispatch hypothesis (`h_prec`) pins which
+  -- arm fires.
+  ----------------------------------------------------------------------------
+
+  /-- CALL into a precompile that ran to completion. `output`/`gasUsed`
+      come from `Precompile.run`; the post-state is the standard
+      `enterCall` followed by `installPrecompileSuccess`, which marks
+      the freshly pushed frame as `.Returned` with `hReturn := output`
+      and `gasAvailable := childGas - gasUsed`. The next step then
+      resumes via `callReturnSuccess`. -/
+  | callPrecompileSuccess (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (output : ByteArray) (gasUsed : Nat)
+        (h_op       : s.decodedOp = some .CALL)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
+                         (s.accountMap s.executionEnv.address).balance < value))
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+                      = .success output gasUsed)
+      : StepRunning s
+          (State.installPrecompileSuccess
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCall rest (AccountAddress.ofUInt256 toArg) value
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+               retOff.toNat retLen.toNat))
+            output (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+            gasUsed)
+
+  /-- CALL into a precompile that ran out of gas. `enterCall` pushes
+      the frame (and applies the value transfer), then
+      `installPrecompileOog` marks it as `.Exception .OutOfGas` with
+      `gasAvailable := 0`. The next step then resumes via
+      `callReturnException`, which rolls back the world via the
+      frame's snapshot — undoing the value transfer — and pushes `0`. -/
+  | callPrecompileOog (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (h_op       : s.decodedOp = some .CALL)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
+                         (s.accountMap s.executionEnv.address).balance < value))
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+                      = .outOfGas)
+      : StepRunning s
+          (State.installPrecompileOog
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCall rest (AccountAddress.ofUInt256 toArg) value
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+               retOff.toNat retLen.toNat)))
+
+  /-- CALLCODE into a precompile (success). Same shape as
+      `callPrecompileSuccess`, but the `enterCall` target is the
+      caller (CALLCODE preserves the caller's address) and the
+      precompile is dispatched by the code-source address `toArg`. -/
+  | callcodePrecompileSuccess (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (output : ByteArray) (gasUsed : Nat)
+        (h_op       : s.decodedOp = some .CALLCODE)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
+                         (s.accountMap s.executionEnv.address).balance < value))
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+                      = .success output gasUsed)
+      : StepRunning s
+          (State.installPrecompileSuccess
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCall rest s.executionEnv.address value
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+               retOff.toNat retLen.toNat))
+            output (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+            gasUsed)
+
+  /-- CALLCODE into a precompile (OOG). -/
+  | callcodePrecompileOog (s : State)
+        (gasArg toArg value argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (h_op       : s.decodedOp = some .CALLCODE)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
+                         (s.accountMap s.executionEnv.address).balance < value))
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+                      = .outOfGas)
+      : StepRunning s
+          (State.installPrecompileOog
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCall rest s.executionEnv.address value
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
+               retOff.toNat retLen.toNat)))
+
+  /-- DELEGATECALL into a precompile (success). DELEGATECALL forwards
+      no stipend, so `childGas = forwarded`. -/
+  | delegatecallPrecompileSuccess (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (output : ByteArray) (gasUsed : Nat)
+        (h_op       : s.decodedOp = some .DELEGATECALL)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ s.executionEnv.depth ≥ 1024)
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        forwarded
+                      = .success output gasUsed)
+      : StepRunning s
+          (State.installPrecompileSuccess
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCallFor .DelegateCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               forwarded retOff.toNat retLen.toNat))
+            output forwarded gasUsed)
+
+  /-- DELEGATECALL into a precompile (OOG). -/
+  | delegatecallPrecompileOog (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (h_op       : s.decodedOp = some .DELEGATECALL)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ s.executionEnv.depth ≥ 1024)
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        forwarded
+                      = .outOfGas)
+      : StepRunning s
+          (State.installPrecompileOog
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCallFor .DelegateCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               forwarded retOff.toNat retLen.toNat)))
+
+  /-- STATICCALL into a precompile (success). STATICCALL forwards no
+      stipend, so `childGas = forwarded`. -/
+  | staticcallPrecompileSuccess (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (output : ByteArray) (gasUsed : Nat)
+        (h_op       : s.decodedOp = some .STATICCALL)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ s.executionEnv.depth ≥ 1024)
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        forwarded
+                      = .success output gasUsed)
+      : StepRunning s
+          (State.installPrecompileSuccess
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCallFor .StaticCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               forwarded retOff.toNat retLen.toNat))
+            output forwarded gasUsed)
+
+  /-- STATICCALL into a precompile (OOG). -/
+  | staticcallPrecompileOog (s : State)
+        (gasArg toArg argsOff argsLen retOff retLen : UInt256)
+        (rest : List UInt256) (forwarded : Nat)
+        (h_op       : s.decodedOp = some .STATICCALL)
+        (h_stack    : s.stack =
+                        gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        (h_gas      : Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                        ≤ s.gasAvailable)
+        (h_take     : ¬ s.executionEnv.depth ≥ 1024)
+        (h_fwd      : forwarded = Gas.forwardGas s.executionEnv.fork
+                        (s.gasAvailable
+                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                        gasArg.toNat)
+        (h_afford   : forwarded ≤ s.gasAvailable
+                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+        (h_prec     : Precompile.run (AccountAddress.ofUInt256 toArg)
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        forwarded
+                      = .outOfGas)
+      : StepRunning s
+          (State.installPrecompileOog
+            ((({ s with
+                  gasAvailable := s.gasAvailable
+                                  - Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                                  - forwarded
+                  activeWords  := s.activeWordsAfterUInt256_2
+                                    argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
+             ).enterCallFor .StaticCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
+               (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+               (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+               forwarded retOff.toNat retLen.toNat)))
 
   ----------------------------------------------------------------------------
   -- CREATE / CREATE2: install a new contract.

@@ -62,6 +62,7 @@ graph TD
         Step["EVM/Step.lean<br/>Step wrapper (small-step Prop)<br/>StepRunning opcode rules · StepReturn resume rules"]
         BigStep["EVM/BigStep.lean<br/>Steps (rtc) · Eval (big-step)"]
         StepF["EVM/StepF.lean<br/>stepF executable shadow<br/>+ 14 per-group helpers"]
+        Precompile["EVM/Precompile.lean<br/>YP §9 dispatch (0x04 identity)"]
         Equiv["EVM/Equiv.lean<br/>stepF_sound (no sorry)<br/>+ 14 helper lemmas"]
     end
 
@@ -90,6 +91,7 @@ graph TD
     Step --> Equiv
     StepF --> Equiv
     BigStep --> Equiv
+    Precompile --> Step & StepF
     Step -.->|re-export| Main
     StepF --> Main & VMRunner
 ```
@@ -310,6 +312,56 @@ expansion → depth-limit pre-check → 63/64 forwarding → `enterCallFor`):
   target's context (address = target) but with `permitStateMutation`
   forced to `false`, so any state-mutating opcode in the new frame is
   rejected. `CALLVALUE` is forced to `0`.
+
+## Precompiled contracts
+
+YP §9 reserves addresses `0x01..0x09` for *precompiles*: native operations
+the EVM invokes in place of stored bytecode. The dispatcher lives in
+`EvmSemantics.EVM.Precompile.run : AccountAddress → ByteArray → Nat →
+Result` and returns one of three outcomes — `.success output gasUsed`,
+`.outOfGas`, or `.notAPrecompile` (target isn't in the modelled set, fall
+through to the normal `enterCall` path). Currently implemented:
+**0x04 `identity`** (`runIdentity`, gas `15 + 3·⌈|input|/32⌉`). The other
+eight arms (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`, `0x05
+modexp`, `0x06–0x09` BN254/BLAKE2F) are stubbed with explicit
+`.notAPrecompile` so a call into them STOPs cleanly; adding a new
+precompile is a two-line edit (`runFoo` + dispatch arm).
+
+**EVM-level dispatch.** Each of the four `CALL`-family handlers in
+`StepF.lean` reaches the same point after the depth/balance/63-64
+sequence — a single `enterCall`/`enterCallFor` — then chains
+`match Precompile.run …` to choose one of three `.ok` post-states:
+1. `.success out gasUsed` → `State.installPrecompileSuccess entered out
+   childGas gasUsed` mutates the just-pushed frame to `halt := .Returned`
+   with `hReturn := output` and `gasAvailable := childGas - gasUsed`.
+   The next outer `stepF` iteration then resumes the caller via the
+   normal `resumeByHalt → resumeSuccess` path, copying `output` into
+   the caller's return window and refunding unspent gas.
+2. `.outOfGas` → `State.installPrecompileOog entered` marks the frame
+   `halt := .Exception .OutOfGas` with `gasAvailable := 0`; the next
+   iteration's `resumeByHalt → resumeException` rolls back the world
+   via the frame's snapshot (undoing the value transfer) and pushes `0`.
+3. `.notAPrecompile` → continue with the normal call rule (the existing
+   `StepRunning.call` / `callcode` / `delegatecall` / `staticcall`
+   constructors).
+
+For the relation, `Step.lean` adds eight precompile-specific
+constructors — `callPrecompileSuccess` / `callPrecompileOog` and the
+matching `callcode` / `delegatecall` / `staticcall` pairs — each of
+which packages the same `h_op` / `h_stack` / `h_gas` / `h_take` /
+`h_fwd` / `h_afford` premises as the corresponding call rule plus an
+`h_prec : Precompile.run … = .success/.outOfGas …` witness pinning
+which arm fires. The proof of `stepFE_sound` adds one `split at h` on
+`Precompile.run` per call-op site (four sites total).
+
+**Tx-level dispatch.** `EvmSemantics.Tx.execute` short-circuits when
+`tx.recipient` is a precompile address (and the tx isn't a create-tx):
+after `buildInitState` (which has already debited intrinsic gas and
+applied the value transfer), `Precompile.run` is invoked with the
+remaining `gasAvailable` as `childGas` and the result mapped directly
+to `ExecResult`. Without this, a transaction whose `to` is `0x04` would
+fall into the (empty) bytecode of the precompile account and STOP
+immediately, never invoking the precompile.
 
 ## SELFDESTRUCT
 

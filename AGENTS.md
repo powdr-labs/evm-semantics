@@ -136,8 +136,17 @@ marked by `Frame.createAddr := some newAddr`, with a dedicated
 `resumeCreateSuccess` rule that installs `hReturn` as the new code
 (charged at `G_codedeposit = 200` per byte). Address derivation uses a
 minimal RLP encoder (`EvmSemantics.Rlp`) for CREATE and a raw keccak
-preimage for CREATE2. **Not yet implemented:** transaction processing,
-block validation, precompiles, full RLP.
+preimage for CREATE2. Transaction processing (YP `Υ`) lives in
+`EvmSemantics.Tx`. The YP §9 precompile dispatcher lives in
+`EvmSemantics.EVM.Precompile`; **0x04 `identity`** is implemented and
+hooked into all four CALL-family opcodes (via eight new
+`*PrecompileSuccess` / `*PrecompileOog` Step rules + a phantom-frame
+encoding in `stepF` that mutates `enterCall`'s halt field so the
+existing `resumeByHalt` paths handle the rest) and into `Tx.execute`
+for transactions whose recipient is a precompile address. **Not yet
+implemented:** block validation, the eight unimplemented precompiles
+(`0x01 ecrecover` / `0x02 sha256` / `0x03 ripemd160` / `0x05 modexp` /
+`0x06–0x09` BN254 + BLAKE2F), full RLP.
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while

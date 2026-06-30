@@ -83,9 +83,22 @@ trivial program.
   max-code-size / `G_codedeposit`). Top-level REVERT / Exception roll
   the world back to the pre-tx state with full gas charged to the
   coinbase.
-- **Not yet implemented:** block validation, precompiled contracts
-  (0x01..0x09 — `ecrecover` / `sha256` / `ripemd160` / `identity` /
-  `modexp` / BN254 / BLS12-381), full RLP (only `[address, nonce]` is
+- **Precompiled contracts (YP §9):** `EvmSemantics.EVM.Precompile`
+  implements the precompile dispatch (`run : AccountAddress → ByteArray
+  → Nat → Result`) used by both the EVM `CALL`/`CALLCODE`/`DELEGATECALL`/
+  `STATICCALL` opcodes and by `Tx.execute` for transactions whose
+  recipient is itself a precompile address. Currently implemented:
+  **0x04 `identity`** (gas `15 + 3·⌈|input|/32⌉`). The dispatcher's other
+  arms (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`, `0x05 modexp`,
+  `0x06–0x09` BN254 + BLAKE2F) are stubbed with `.notAPrecompile`, so a
+  call into one of those targets currently falls through to its empty
+  bytecode and STOPs — adding a new precompile is a self-contained
+  edit to `Precompile.run`. The four `*PrecompileSuccess` / `*PrecompileOog`
+  rules in `Step.lean` reuse `enterCall` then mutate the frame's `halt`
+  field, so the existing `resumeByHalt` machinery (success copy,
+  exception snapshot-rollback) handles the rest.
+- **Not yet implemented:** block validation, the eight unimplemented
+  precompiles listed above, full RLP (only `[address, nonce]` is
   encodable), and ECDSA-recovered tx senders (the runner uses a
   hard-coded sender for the corpus).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,

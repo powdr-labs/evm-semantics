@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.EVM.Step
+public import EvmSemantics.EVM.Precompile
 public import EvmSemantics.Data.Rlp
 
 /-!
@@ -712,6 +713,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
               let calldata := MachineState.readPadded s4.memory argsOff.toNat argsLen.toNat
+              -- YP §9 precompile dispatch is handled *after* this `enterCall`
+              -- by the generic precompile arm at the top of `stepF`'s
+              -- running branch — see the `Precompile.isPrecompile` check
+              -- there. This keeps the CALL handler oblivious to the
+              -- precompile-vs-bytecode distinction.
               .ok (s4.enterCall rest tgt value calldata callee.code
                      childGas retOff.toNat retLen.toNat)
             else .error .OutOfGas
@@ -752,7 +758,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- Pass the *caller's* address as the call target so
               -- `enterCall`'s self-transfer is a balance no-op and the
               -- callee's `address` stays the caller; supply the target
-              -- account's code as the new frame's code.
+              -- account's code as the new frame's code. Precompile
+              -- dispatch (keyed on `codeAddr`) happens at the top of
+              -- the next `stepF` iteration via the generic precompile
+              -- arm — but note that for CALLCODE the *frame address*
+              -- stays the caller, so the precompile arm won't fire and
+              -- the borrowed bytecode runs instead. (This matches the
+              -- YP: CALLCODE-ing into a precompile address just runs
+              -- the precompile's empty code in the caller's context.)
               .ok (s4.enterCall rest s4.executionEnv.address value calldata
                      codeSrc.code childGas retOff.toNat retLen.toNat)
             else .error .OutOfGas
@@ -777,8 +790,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
-            .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
-                   callee.code forwarded retOff.toNat retLen.toNat)
+            -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
+            let entered := s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
+                             callee.code forwarded retOff.toNat retLen.toNat
+            match Precompile.run tgt calldata forwarded with
+            | .success out gasUsed =>
+              .ok (State.installPrecompileSuccess entered out forwarded gasUsed)
+            | .outOfGas       => .ok (State.installPrecompileOog entered)
+            | .notAPrecompile => .ok entered
           else .error .OutOfGas
     | _ => underflow
   | .STATICCALL => match s.stack with
@@ -800,8 +819,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           if hfw : forwarded ≤ s2.gasAvailable then
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
-            .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
-                   callee.code forwarded retOff.toNat retLen.toNat)
+            -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
+            let entered := s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
+                             callee.code forwarded retOff.toNat retLen.toNat
+            match Precompile.run tgt calldata forwarded with
+            | .success out gasUsed =>
+              .ok (State.installPrecompileSuccess entered out forwarded gasUsed)
+            | .outOfGas       => .ok (State.installPrecompileOog entered)
+            | .notAPrecompile => .ok entered
           else .error .OutOfGas
     | _ => underflow
   | .SELFDESTRUCT => match s.stack with
