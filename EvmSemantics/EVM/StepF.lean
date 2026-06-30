@@ -916,8 +916,13 @@ end stepF
 -- Top-level dispatcher.
 ----------------------------------------------------------------------------
 
-/-- Top-level executable shadow — halt/decode/gas dispatch into per-group helpers. -/
-def stepF (s : State) : Except ExecutionException State := Id.run do
+/-- Top-level executable shadow — halt/decode/gas dispatch into per-group
+    helpers — in *Except-returning* form. This is the version covered by
+    `stepFE_sound` in `Equiv.lean`; the public `stepF` below wraps it
+    into a total `State → State` shape by folding in-frame exceptions
+    into `halt := .Exception e` so callers can drive a loop purely off
+    `isDone` without case-splitting on the result. -/
+def stepFE (s : State) : Except ExecutionException State := Id.run do
   match s.halt with
   | .Running =>
     match s.decoded with
@@ -955,11 +960,29 @@ def stepF (s : State) : Except ExecutionException State := Id.run do
   | _ =>
     -- The active frame has halted. If suspended callers remain, resume the
     -- top one (this is the executable mirror of the `StepReturn.callReturn*`
-    -- rules); otherwise the whole execution is done and `stepF` should not be
-    -- called.
+    -- rules); otherwise the whole execution is done — there is no
+    -- transition, so return `s` unchanged (`stepF` becomes the identity
+    -- on done states, which means `Tx.run`-style loops just need
+    -- `isDone` as their exit condition).
     match s.callStack with
-    | []        => .error .InvalidInstruction
+    | []        => .ok s
     | f :: rest => .ok (s.resumeByHalt f rest)
+
+/-- Public small-step: a *total* `State → State` shadow of `stepFE`.
+
+    The only adapter on top of `stepFE` is folding in-frame exceptions
+    into `halt := .Exception e` on the active frame. The next call to
+    `stepF` then sees a halted state with a non-empty call stack and
+    routes through `resumeByHalt` — i.e. exceptions now flow through
+    the exact same path as `.Reverted` halts. The done-state-identity
+    behaviour falls out of `stepFE` itself (which returns `.ok s` when
+    the active frame is halted and the call stack is empty), so
+    drivers can loop `s := stepF s` until `isDone` with no case-split
+    on the result. -/
+@[inline] def stepF (s : State) : State :=
+  match stepFE s with
+  | .ok s'  => s'
+  | .error e => { s with halt := .Exception e }
 
 end EVM
 end EvmSemantics

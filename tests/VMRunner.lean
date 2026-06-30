@@ -122,25 +122,9 @@ def buildStateWith (testObj : Json) (gas : Nat) : State :=
     End-of-code implicit STOP is handled by `Decode.decodeAt` (and thus the
     evaluator itself), so no harness compensation is needed here. -/
 partial def run (s : State) (fuel : Nat) : Except ExecutionException State :=
-  if fuel = 0 then .error .OutOfFuel else
-    -- A nested CALL/CREATE leaves the active frame halted while
-    -- `callStack` is non-empty; `stepF` then resumes the caller. So we
-    -- loop until the whole execution is *done* (halted with an empty
-    -- call stack), not merely until the active frame halts.
-    if s.isDone then .ok s else
-      match stepF s with
-      | .ok s'   => run s' (fuel - 1)
-      | .error e =>
-        -- A `stepF` error inside a sub-frame (callStack non-empty) is
-        -- the executable mirror of `StepReturn.{call,create}ReturnException`:
-        -- mark the active frame as `.Exception e`, then resume the
-        -- caller through `resumeByHalt` (which dispatches to
-        -- `resumeException` for CALL frames or `resumeCreateException`
-        -- for CREATE frames). Only a fault at the top frame aborts.
-        match s.callStack with
-        | []        => .error e
-        | f :: rest =>
-          run (({ s with halt := .Exception e }).resumeByHalt f rest) (fuel - 1)
+  if fuel = 0 then .error .OutOfFuel
+  else if s.isDone then .ok s
+  else run (stepF s) (fuel - 1)
 
 ----------------------------------------------------------------------------
 -- Outcome + comparison
