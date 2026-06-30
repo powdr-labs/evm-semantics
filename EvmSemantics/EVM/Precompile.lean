@@ -97,7 +97,8 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
     is fork-dependent — ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
     BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague —
     even though the only modelled entry today (`identity`) is
-    available in every fork. -/
+    available in every fork, so the body doesn't yet branch on it. -/
+@[nolint unusedArguments]
 def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
   addr = identityAddress
 
