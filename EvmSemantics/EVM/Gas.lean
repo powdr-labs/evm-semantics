@@ -139,43 +139,68 @@ def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
     `original` value (at frame start), `current` value (just before this
     write), and the `new` value being written.
 
-    **Constantinople** uses the pre-EIP-1283 schedule (EIP-1283 was
-    scheduled for Constantinople but reverted in Petersburg, and the
-    ethereum/tests legacy "Constantinople" corpus reflects the revert):
+    Four distinct schedules:
+
+    **Frontier..Byzantium and Petersburg** (pre-EIP-1283; Petersburg
+    reverted Constantinople's EIP-1283 activation):
 
     | Condition                              | Cost  |
     |----------------------------------------|------:|
     | `current = 0 ∧ new ≠ 0` (fresh set)    | 20000 |
     | otherwise (reset, clear, no-op)        |  5000 |
 
-    **Cancun** uses EIP-2200 net-metered semantics (without the EIP-2929
-    cold/warm bit, which we don't yet model — Cancun's cold surcharge
-    would add 2100 to the first SSTORE of a transaction):
+    **Constantinople** (EIP-1283 net-metered, active only on this fork):
+
+    | Condition                                          | Cost  |
+    |----------------------------------------------------|------:|
+    | `current = new` (no-op)                            |   200 |
+    | `original = current ∧ original = 0` (fresh set)    | 20000 |
+    | `original = current ∧ original ≠ 0` (clean reset)  |  5000 |
+    | otherwise (`original ≠ current`, "dirty")          |   200 |
+
+    **Istanbul..Berlin** (EIP-2200, like EIP-1283 with the 2300-stipend
+    sentry — that sentry is checked separately in `Gas.sstoreSentry`):
+
+    | Condition                                          | Cost  |
+    |----------------------------------------------------|------:|
+    | `current = new` (no-op)                            |   800 |
+    | `original = current ∧ original = 0` (fresh set)    | 20000 |
+    | `original = current ∧ original ≠ 0` (clean reset)  |  5000 |
+    | otherwise (dirty)                                  |   800 |
+
+    **London..Cancun** (EIP-2929 cold/warm; we use warm prices here, the
+    cold 2100-gas surcharge is not yet tracked):
 
     | Condition                                          | Cost  |
     |----------------------------------------------------|------:|
     | `current = new` (no-op)                            |   100 |
-    | `current = original ∧ original = 0` (fresh set)    | 20000 |
-    | `current = original ∧ original ≠ 0` (clean reset)  |  2900 |
-    | otherwise (`current ≠ original`, "dirty")          |   100 |
+    | `original = current ∧ original = 0` (fresh set)    | 20000 |
+    | `original = current ∧ original ≠ 0` (clean reset)  |  2900 |
+    | otherwise (dirty)                                  |   100 |
 
-    Refunds are tracked separately in `Substate.refundBalance` (not yet
-    populated). -/
+    Refunds are returned by `Gas.sstoreRefund` and accumulated by the
+    runner into the YP's `A_r` refund counter. -/
 def Gas.sstoreCost (fork : Fork) (original current new : UInt256) : Nat :=
-  -- The original Constantinople activated EIP-1283 net-metered SSTORE
-  -- (briefly; reverted by Petersburg). We target the legacy corpus's
-  -- _Constantinople variant which was generated against the pre-EIP-1283
-  -- rules, so our `Constantinople` tag matches Petersburg's behaviour.
-  if fork.atLeast .Istanbul then
-    -- EIP-2200 net-metered (Istanbul onwards). EIP-2929 cold/warm
-    -- (Berlin+) adds 2100 to the first SSTORE of a transaction; we
-    -- don't yet track that and use the warm price.
+  if fork.atLeast .London then
+    -- EIP-2929-era warm prices.
     if current.toNat = new.toNat then 100
     else if current.toNat = original.toNat then
       if original.toNat = 0 then 20000 else 2900
     else 100
+  else if fork.atLeast .Istanbul then
+    -- EIP-2200 net-metered.
+    if current.toNat = new.toNat then 800
+    else if current.toNat = original.toNat then
+      if original.toNat = 0 then 20000 else 5000
+    else 800
+  else if fork.toOrd = Fork.Constantinople.toOrd then
+    -- EIP-1283: net-metered, briefly active *only* in Constantinople.
+    if current.toNat = new.toNat then 200
+    else if current.toNat = original.toNat then
+      if original.toNat = 0 then 20000 else 5000
+    else 200
   else
-    -- Pre-EIP-1283 (Frontier..Byzantium + our Constantinople tag + Petersburg).
+    -- Pre-EIP-1283 (Frontier..Byzantium + Petersburg).
     if current.toNat = 0 ∧ new.toNat ≠ 0 then 20000 else 5000
 
 /-- Per-word copy cost (Yellow Paper `G_copy = 3`): `3 · ⌈size/32⌉`.
