@@ -1734,7 +1734,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                 pc := s.pc.succ
                 gasAvailable := s.gasAvailable - Gas.mstoreTotal s offset
                 memory := MachineState.writeBytes s.memory
-                            (MachineState.wordBytes value) offset.toNat
+                            (Data.Bytes.natToBytesPadded value.toNat 32) offset.toNat
                 activeWords := s.activeWordsAfterUInt256 offset.toNat 32 } : State) := by
           simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
                 State.activeWordsAfterUInt256, Gas.mstoreTotal, UInt256.succ,

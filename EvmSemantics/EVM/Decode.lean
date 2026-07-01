@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Bytes
 public import EvmSemantics.EVM.Operation
 
 /-!
@@ -139,10 +140,6 @@ def opcodeOf (b : UInt8) : Option Operation :=
     else
       none
 
-/-- Read a big-endian word from a byte slice. -/
-def beToNat (bs : ByteArray) : Nat :=
-  bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
-
 /-- Read the (opcode, optional argument-value × width) at `pc` in `code`.
 
     Past the end of the bytecode (`pc ≥ code.size`) the machine reads an
@@ -156,7 +153,7 @@ def decodeAt (code : ByteArray) (pc : Nat) : Option (Operation × Option (UInt25
     match op with
     | .Push ⟨w, _⟩ =>
       let bs := code.extract (pc + 1) (pc + 1 + w)
-      let n := beToNat bs
+      let n := Data.Bytes.bytesToBigEndianNat bs
       return (op, some (UInt256.ofNat n, w))
     | .DupN _ =>
       -- 0xe6 followed by 1 immediate byte
