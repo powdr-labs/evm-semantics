@@ -125,14 +125,17 @@ def isEmpty (a : Account) : Bool :=
 
 /-- CREATE/CREATE2 target collision (Yellow Paper `ζ(a, σ) = ⊥`): an
     account *exists* in the sense that creating a new contract at this
-    address would overwrite a real one. Stricter than `isEmpty` because
-    balance is **not** part of the check — a pre-funded address with no
-    code and `nonce = 0` is still a valid creation target (the YP
-    explicitly allows this so a forwarding address can be turned into a
-    contract). Defined as `Bool` (not `Prop`) so `match` in `stepF`
-    yields clean branches for the Equiv proof. -/
+    address would overwrite a real one. Balance is **not** part of the
+    check — a pre-funded address with no code, `nonce = 0`, and no
+    storage is still a valid creation target (the YP explicitly allows
+    this so a forwarding address can be turned into a contract).
+    Storage **is** included: an address whose storage trie is already
+    populated is treated as colliding (matches geth's
+    `storageRoot != EmptyRootHash` check in `core/vm/evm.go`; later
+    codified as EIP-7610). Defined as `Bool` (not `Prop`) so `match`
+    in `stepF` yields clean branches for the Equiv proof. -/
 def isContract (a : Account) : Bool :=
-  a.code.size != 0 || a.nonce.toNat != 0
+  a.code.size != 0 || a.nonce.toNat != 0 || !a.storage.isEmpty
 
 end Account
 

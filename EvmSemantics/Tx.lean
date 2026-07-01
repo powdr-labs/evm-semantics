@@ -359,8 +359,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- Address-collision check for create tx: per YP, a target with code
   -- or non-zero nonce makes the create fail before any code runs.
   let preExisting := preMap newAddr
-  let collide : Bool :=
-    tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
+  let collide : Bool := tx.isCreate ∧ preExisting.isContract
   -- YP §6.2 validity: a transaction whose intrinsic gas `g₀` exceeds its
   -- `gasLimit` is *invalid* and is not applied — the world state is left
   -- entirely unchanged (no nonce bump, no upfront gas charge, no coinbase

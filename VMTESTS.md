@@ -11,7 +11,7 @@ Three harnesses exercise the verified evaluator (`stepF` / `run`):
   exercises a strict subset of what we now model. This is the bulk of
   the conformance coverage; the rest of this document is about it.
 - **`tests/StateTestRunner.lean`** (executable `statetests`) — runs the
-  BlockchainTests **GeneralStateTests** (a curated 32-dir subset of the
+  BlockchainTests **GeneralStateTests** (a curated 47-dir subset of the
   ~50 `st*` directories — the ones the evaluator currently passes
   cleanly; see the list near the bottom of this doc). Decodes each
   transaction, hands it to `EvmSemantics.Tx.execute`, and compares the
@@ -54,12 +54,16 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests (curated 44-dir subset, 17855 per-fork test cases across
+**StateTests (curated 47-dir subset, 19875 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=17775 full+=36 core+=18) fail=26 incon=0 crash=0
+pass(root=19543 full+=327 core+=5) fail=0 incon=0 crash=0
 ```
+Every test in the curated subset matches the corpus at least at the
+`pass_core` tier (storage / nonce / code identical to Geth) with no
+`fail`/`crash`; 19543 of 19875 also match at the world-state MPT root
+level (bit-identical postState).
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
@@ -92,22 +96,23 @@ otherwise stay in the trie).
   from that suffix and configures the gas schedule accordingly. Variants
   whose network isn't yet activated are skipped silently and don't count
   toward the tally.
-- **The 44 dirs in CI** (alphabetical):
+- **The 47 dirs in CI** (alphabetical):
   `stArgsZeroOneBalance`, `stAttackTest`, `stBadOpcode`, `stBugs`,
   `stCallCodes`, `stCallCreateCallCodeTest`,
   `stCallDelegateCodesCallCodeHomestead`,
   `stCallDelegateCodesHomestead`, `stChangedEIP150`, `stCodeCopyTest`,
   `stCodeSizeLimit`, `stCreateTest`, `stDelegatecallTestHomestead`,
   `stEIP150Specific`, `stEIP150singleCodeGasPrices`, `stEIP158Specific`,
-  `stExample`, `stHomesteadSpecific`, `stInitCodeTest`, `stLogTests`,
-  `stMemExpandingEIP150Calls`, `stMemoryStressTest`, `stMemoryTest`,
-  `stNonZeroCallsTest`, `stPreCompiledContracts`,
+  `stExample`, `stExtCodeHash`, `stHomesteadSpecific`, `stInitCodeTest`,
+  `stLogTests`, `stMemExpandingEIP150Calls`, `stMemoryStressTest`,
+  `stMemoryTest`, `stNonZeroCallsTest`, `stPreCompiledContracts`,
   `stPreCompiledContracts2`, `stQuadraticComplexityTest`, `stRandom`,
   `stRandom2`, `stRecursiveCreate`, `stRefundTest`, `stReturnDataTest`,
-  `stShift`, `stSolidityTest`, `stSpecialTest`, `stStackTests`,
-  `stStaticCall`, `stSystemOperationsTest`, `stTransactionTest`,
-  `stTransitionTest`, `stZeroCallsRevert`, `stZeroCallsTest`,
-  `stZeroKnowledge`, `stZeroKnowledge2`.
+  `stRevertTest`, `stSStoreTest`, `stShift`, `stSolidityTest`,
+  `stSpecialTest`, `stStackTests`, `stStaticCall`,
+  `stSystemOperationsTest`, `stTransactionTest`, `stTransitionTest`,
+  `stZeroCallsRevert`, `stZeroCallsTest`, `stZeroKnowledge`,
+  `stZeroKnowledge2`.
   Add a directory to the sparse-checkout in
   `.github/workflows/ci.yml` and regenerate the baseline once the
   evaluator passes every variant in that directory (`fail = 0`;
