@@ -18,20 +18,20 @@ Three harnesses exercise the verified evaluator (`stepF` / `run`):
   resulting `AccountMap` against the test's `postState`. Storage
   comparison covers the union of pre/post slot keys (so cleared-to-zero
   slots are caught). CI runs it as a separate, non-gating job against
-  `.github/statetests-baseline.txt`.
+  `.github/statetests-expected-failures.txt`.
 - **`tests/GeneralStateTestRunner.lean`** (executable `gstatetests`) — runs
   the **maintained** `ethereum/tests` GeneralStateTests in the modern
   `state_test` fixture format (shipped as `fixtures_general_state_tests.tgz`).
   This is the "lift" onto the current upstream suite; the other two consume
   the frozen `ethereum/legacytests` snapshot. See the dedicated section
   ["Modern GeneralStateTests"](#modern-generalstatetests-gstatetests) below.
-  Non-gating; baseline in `.github/gstatetests-baseline.txt`.
+  Non-gating; expected failures in `.github/gstatetests-expected-failures.txt`.
 
 ## How to run
 ```
 # one-time: fetch the corpus and pin it to the CORPUS_REV that CI uses and that
-# .github/vmtests-baseline.txt was generated against (the LegacyTests/ dir in
-# ethereum/tests is a submodule that points at this repo)
+# .github/vmtests-expected-failures.txt was generated against (the LegacyTests/
+# dir in ethereum/tests is a submodule that points at this repo)
 REV=$(grep -m1 'CORPUS_REV:' .github/workflows/ci.yml | awk '{print $2}')
 git clone https://github.com/ethereum/legacytests
 git -C legacytests checkout "$REV"
@@ -75,7 +75,7 @@ Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
   implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
   IDENTITY (0x04), MODEXP (0x05, Byzantium+), ECADD (0x06), ECMUL
   (0x07), ECPAIRING (0x08), BLAKE2F (0x09, Istanbul+). A future
-  pass -> fail transition against the pinned baseline is a
+  pass -> fail transition against the pinned expected-failures file is a
   regression. Individual precompile modules also ship with unit-test
   executables (`ecrecover_test`, `sha256_test`, `ripemd160_test`,
   `ecadd_ecmul_test`, `ecpairing_test`, `blake2f_test`) that pin
@@ -114,30 +114,35 @@ otherwise stay in the trie).
   `stZeroCallsRevert`, `stZeroCallsTest`, `stZeroKnowledge`,
   `stZeroKnowledge2`.
   Add a directory to the sparse-checkout in
-  `.github/workflows/ci.yml` and regenerate the baseline once the
-  evaluator passes every variant in that directory (`fail = 0`;
+  `.github/workflows/ci.yml` and regenerate the expected-failures file once
+  the evaluator passes every variant in that directory (`fail = 0`;
   `pass_full` / `pass_core` cases are still passes at a weaker tier
   and are allowed).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
 `.github/workflows/ci.yml`): it never blocks a merge, but compares the run
-against a committed baseline and surfaces any regression (a previously-passing
-test that now FAILs/CRASHes) as a GitHub warning plus a report in the run
-summary. The full output and normalized summary are uploaded as artifacts.
+against a committed *expected-failures* file and surfaces any regression (a
+previously-passing test that now FAILs/CRASHes) as a GitHub warning plus a
+report in the run summary. The full output and normalized summary are
+uploaded as artifacts.
 
-- Baseline: `.github/vmtests-baseline.txt` (aggregate counts + the set of
-  FAIL/CRASH test ids), generated against the corpus revision pinned as
-  `CORPUS_REV` in the workflow.
+- Expected-failures list: `.github/vmtests-expected-failures.txt`, one sorted
+  `<test_id>: <FAIL|CRASH>` line per non-passing test; no aggregate counts.
+  Merges stay conflict-free because fixing a test removes exactly one line at
+  a known sorted position and adding a new failure inserts one, with no
+  shared counter lines that different branches both touch. Generated against
+  the corpus revision pinned as `CORPUS_REV` in the workflow.
 - When an evaluator fix turns failures into passes, the report lists them as
-  improvements — refresh the baseline so it tracks the new floor:
+  improvements — refresh the file so it tracks the new floor:
   ```
   ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests > raw.txt
-  .github/scripts/vmtests_summary.sh raw.txt > .github/vmtests-baseline.txt
+  .github/scripts/vmtests_summary.sh raw.txt \
+    > .github/vmtests-expected-failures.txt
   ```
   If you regenerate against a newer corpus, bump `CORPUS_REV` in
-  `.github/workflows/ci.yml` in the same commit — the baseline and the pinned
-  corpus revision must always move together.
+  `.github/workflows/ci.yml` in the same commit — the expected-failures file
+  and the pinned corpus revision must always move together.
 
 ## How the harness works
 - **Single execution mode.** Every test runs through `stepF` with its
@@ -286,7 +291,7 @@ each with:
   2. **EIP-2929 cold/warm** access costs and **EIP-3651 warm-coinbase** are not
      modelled (a pre-existing gas gap).
   Storage/nonce/code are unaffected by either, so `passCore` is the honest,
-  expected tier. A passCore-heavy baseline is **not** a regression.
+  expected tier. A passCore-heavy result is **not** a regression.
 - **Transaction validity is only partially enforced.** The YP §6.2 intrinsic-gas
   gate *is* enforced: a tx with `g₀ > gasLimit` is rejected with zero state
   change (fixes the `INTRINSIC_GAS_TOO_LOW` `invalidTr` cases, which now pass at
@@ -331,19 +336,24 @@ lake build gstatetests
 ## CI regression check
 CI runs `gstatetests` over **(almost) the whole corpus** on every PR as a
 **non-gating** step, via the per-file subprocess-isolation wrapper
-`gstatetests_run.sh` (45s per-file wall cap, parallelism 4), and compares against
-`.github/gstatetests-baseline.txt` (keyed on the FAIL id set, so a pass → FAIL
-surfaces as a warning; a wall-timeout flip to `incon`, or a new `crash`, does
-not). Ids are directory-qualified (`<dir>_<file>_<Fork>_dNgNvN`) so same-named
-tests in different dirs don't collide. Refresh the baseline when an evaluator fix
+`gstatetests_run.sh` (45s per-file wall cap, parallelism 4), and compares
+against `.github/gstatetests-expected-failures.txt` — a sorted list of
+`<test_id>: <FAIL|INCON|CRASH>` lines, no aggregate counts. A test now at a
+*worse* tier than expected surfaces as a warning (`INCON → FAIL`,
+`FAIL → CRASH`, `pass → any`); a slow-runner wall-timeout that flips
+`pass → INCON` also surfaces (but does not fail the build in this non-gating
+job). Ids are directory-qualified (`<dir>_<file>_<Fork>_dNgNvN`) so same-named
+tests in different dirs don't collide. Refresh the file when an evaluator fix
 turns FAILs into passes:
 ```
 .github/scripts/gstatetests_run.sh <corpus>/GeneralStateTests 45 4 > raw.txt
-.github/scripts/gstatetests_summary.sh raw.txt > .github/gstatetests-baseline.txt
+.github/scripts/gstatetests_summary.sh raw.txt \
+  > .github/gstatetests-expected-failures.txt
 ```
 Only two dirs are excluded: `stTimeConsuming` (deliberately pathological
 ackermann/loop tests) and the non-GeneralStateTests internal `VMTests` dir. Bump
-`TESTS_REV` and the baseline in the same commit — never one alone.
+`TESTS_REV` and the expected-failures file in the same commit — never one
+alone.
 
 Current results (whole corpus minus the two excluded dirs, Cancun + Prague;
 ~80s wall at `-P4`):

@@ -220,15 +220,23 @@ Touch these in order, then rebuild + lint + run vmtests:
 1. Build `evm_semantics vmtests statetests gstatetests`, fail on any `warning:`.
 2. `lake lint`.
 3. VMTests on the full corpus — **non-gating**: compares against
-   `.github/vmtests-baseline.txt` (pinned to `CORPUS_REV`) and surfaces
+   `.github/vmtests-expected-failures.txt` (pinned to `CORPUS_REV`) and surfaces
    regressions as warnings without blocking the merge.
 4. StateTests (legacy BlockchainTests/GeneralStateTests, curated subset from
-   `ethereum/legacytests`) — compares against `.github/statetests-baseline.txt`;
-   the CALL-test gate fails the build on a pass → FAIL.
+   `ethereum/legacytests`) — compares against
+   `.github/statetests-expected-failures.txt`; the CALL-test gate fails the
+   build on any tier regression (pass → INCON/FAIL/CRASH, INCON → FAIL/CRASH,
+   FAIL → CRASH).
 5. Modern GeneralStateTests (`gstatetests`, ~whole corpus from the maintained
    `ethereum/tests` `fixtures_general_state_tests.tgz`, pinned to `TESTS_REV`,
    minus `stTimeConsuming` + internal `VMTests`) — **non-gating**: driven by the
    per-file subprocess-isolation wrapper `.github/scripts/gstatetests_run.sh` (so
    an OOM/panic in one file is a contained `crash`, not a batch abort) and
-   compared against `.github/gstatetests-baseline.txt`. Only legacy `gasPrice`
-   txs run; typed txs are `INCON`. See `VMTESTS.md`.
+   compared against `.github/gstatetests-expected-failures.txt`. Only legacy
+   `gasPrice` txs run; typed txs are `INCON`. See `VMTESTS.md`.
+
+The expected-failures files list one entry per non-passing test in the form
+`<test_id>: <FAIL|INCON|CRASH>` sorted alphabetically, with no aggregate counts.
+Merges stay conflict-free because fixing a test removes exactly one line at a
+known sorted position and adding a new failure inserts one, with no shared
+"counter" lines that different branches both touch.
