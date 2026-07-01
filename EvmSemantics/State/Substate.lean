@@ -34,11 +34,11 @@ structure LogEntry where
 /-- The ordered list of LOG records emitted during execution. -/
 abbrev LogSeries := Array LogEntry
 
-/-- A set of addresses, as a predicate. -/
+/-- A set of addresses, as a predicate. Used for the reasoning-oriented
+    `selfDestructSet` / `touchedAccounts` fields (membership `s a`). The
+    EIP-2929 warm sets below instead use computable `List`s, since `stepF`
+    must *decide* warmth to pick the cold-vs-warm gas price. -/
 abbrev AddressSet : Type := AccountAddress → Prop
-
-/-- A set of (address, storage-key) pairs. -/
-abbrev StorageKeySet : Type := AccountAddress × UInt256 → Prop
 
 namespace AddressSet
 
@@ -56,19 +56,6 @@ def insert (S : AddressSet) (a : AccountAddress) : AddressSet :=
 @[simp] theorem mem_insert (S : AddressSet) (a a' : AccountAddress) :
     S.insert a a' ↔ a' = a ∨ S a' := Iff.rfl
 end AddressSet
-
-namespace StorageKeySet
-
-/-- The empty storage-key set. -/
-def empty : StorageKeySet := fun _ => False
-
-/-- Add the (address, key) pair `sk` to `S`. -/
-def insert (S : StorageKeySet) (sk : AccountAddress × UInt256) : StorageKeySet :=
-  fun sk' => sk' = sk ∨ S sk'
-
-@[simp] theorem mem_insert (S : StorageKeySet) (sk sk' : AccountAddress × UInt256) :
-    S.insert sk sk' ↔ sk' = sk ∨ S sk' := Iff.rfl
-end StorageKeySet
 
 /-- The accrued substate `A` (Yellow Paper §6.1) tracked across an
     execution: addresses self-destructed, addresses touched, refund
@@ -90,10 +77,15 @@ structure Substate where
   touchedAccounts     : AddressSet
   /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
   refundBalance       : UInt256
-  /-- `Aₐ` — accounts already accessed in this transaction (warm). -/
-  accessedAccounts    : AddressSet
-  /-- `Aₖ` — storage slots already accessed in this transaction. -/
-  accessedStorageKeys : StorageKeySet
+  /-- `Aₐ` — accounts already accessed in this transaction (EIP-2929 warm
+      set). A computable `List` (not a `Prop` predicate) so `stepF` can
+      decide warmth to choose the cold-vs-warm gas price; may contain
+      duplicates (membership is all that matters). -/
+  accessedAccounts    : List AccountAddress
+  /-- `Aₖ` — storage slots already accessed in this transaction (EIP-2929
+      warm set), keyed by `(owning address, slot)`. Computable `List`, as
+      for `accessedAccounts`. -/
+  accessedStorageKeys : List (AccountAddress × UInt256)
   /-- `Aₗ` — ordered list of LOG records emitted so far. -/
   logSeries           : LogSeries
   /-- Snapshot of the storage at frame start, used by SSTORE to find the
@@ -110,8 +102,8 @@ def empty : Substate :=
     selfDestructList    := #[]
     touchedAccounts     := AddressSet.empty
     refundBalance       := ⟨0⟩
-    accessedAccounts    := AddressSet.empty
-    accessedStorageKeys := StorageKeySet.empty
+    accessedAccounts    := []
+    accessedStorageKeys := []
     logSeries           := #[]
     originalAccountMap  := AccountMap.empty }
 
@@ -120,13 +112,21 @@ def empty : Substate :=
 def originalStorage (A : Substate) (addr : AccountAddress) (key : UInt256) : UInt256 :=
   (A.originalAccountMap addr).storage key
 
+/-- Is account `a` warm (already accessed this tx)? EIP-2929. -/
+def isWarmAccount (A : Substate) (a : AccountAddress) : Bool :=
+  decide (a ∈ A.accessedAccounts)
+
+/-- Is storage slot `sk = (address, key)` warm (already accessed)? EIP-2929. -/
+def isWarmStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Bool :=
+  decide (sk ∈ A.accessedStorageKeys)
+
 /-- Mark `a` as a warm account in `A.accessedAccounts`. -/
 def addAccessedAccount (A : Substate) (a : AccountAddress) : Substate :=
-  { A with accessedAccounts := A.accessedAccounts.insert a }
+  { A with accessedAccounts := a :: A.accessedAccounts }
 
 /-- Mark `(addr, key)` as a warm storage slot in `A.accessedStorageKeys`. -/
 def addAccessedStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Substate :=
-  { A with accessedStorageKeys := A.accessedStorageKeys.insert sk }
+  { A with accessedStorageKeys := sk :: A.accessedStorageKeys }
 
 /-- Append a LOG record to the substate's `logSeries`. -/
 def appendLog (A : Substate) (entry : LogEntry) : Substate :=

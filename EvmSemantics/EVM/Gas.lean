@@ -17,11 +17,13 @@ public import EvmSemantics.EVM.State
 * `Gas.sstoreCost fork original current new` — the SSTORE dynamic cost,
   separated from `baseCost` because it depends on the storage state.
 
-The two supported forks (`Constantinople` and `Cancun`) mostly share their
-fixed fees; the differences (cold/warm-priced reads, modern SSTORE rules)
-are captured by branching on the `fork` argument. Cold/warm is not yet
-tracked in the substate, so the `Cancun` schedule uses **warm** prices
-throughout (which is a lower bound on the real cost).
+The forks mostly share their fixed fees; the differences (cold/warm-priced
+reads, modern SSTORE rules) are captured by branching on the `fork` argument.
+`Gas.baseCost` returns the **warm** price from Berlin; the EIP-2929 cold
+first-touch surcharge is modelled separately (`Gas.sloadColdSurcharge`,
+`Gas.sstoreColdSurcharge`, `Gas.accountColdSurcharge`), added on top by the
+per-op `*Total`/`*Committed` functions, and driven by the accessed-account /
+accessed-storage-key sets tracked in `Substate`.
 
 Reference Yellow-Paper constants:
 
@@ -479,15 +481,25 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
   + Gas.copyWordCost sz
 
+/-- EIP-2929 cold-access surcharge for an account read (BALANCE /
+    EXTCODESIZE / EXTCODEHASH / EXTCODECOPY) and the CALL family: `2500`
+    (= cold `2600` − warm `100`) when Berlin+ and account `a` is not yet
+    warm, else `0`. The warm price is the static `Gas.baseCost` (`100` from
+    Berlin). -/
+@[inline] def Gas.accountColdSurcharge (s : State) (a : AccountAddress) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin && !s.substate.isWarmAccount a
+  then 2500 else 0
+
 /-- Total gas cost of `EXTCODECOPY` at `s` for stack args
     `_addr, destOff, _srcOff, sz`: static base (which already absorbs the
     `Constantinople`-era flat 700 access fee — see `Gas.baseCost`) +
     memory-expansion delta for `[destOff, destOff+sz)` + per-word copy
-    cost `3 · ⌈sz/32⌉`. EIP-2929 cold/warm pricing is not yet modelled. -/
-@[inline] def Gas.extcodecopyTotal (s : State) (destOff sz : UInt256) : Nat :=
+    cost `3 · ⌈sz/32⌉` + the EIP-2929 cold surcharge for the target account. -/
+@[inline] def Gas.extcodecopyTotal (s : State) (addr destOff sz : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .EXTCODECOPY
   + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
-  + Gas.copyWordCost sz
+  + (Gas.copyWordCost sz
+     + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr))
 
 /-- Total gas cost of `RETURNDATACOPY` at `s` for stack args
     `destOff, _srcOff, sz`: static base + memory-expansion delta for the
@@ -529,17 +541,57 @@ def Gas.refundDenom (fork : Fork) : Nat :=
       destOff.toNat sz.toNat srcOff.toNat sz.toNat
   + Gas.copyWordCost sz
 
-/-- Total gas cost of `SSTORE` at `s` for stack args `key, value`:
-    static base (0 in current schedules) + the EIP-2200 net-metered
-    dynamic cost `Gas.sstoreCost fork original current new`, where
-    `original` is the per-tx original value from `Substate.originalStorage`
-    and `current` is the live storage value. -/
+/-- EIP-2929 cold-access surcharge for `SSTORE`: the full cold-SLOAD cost
+    `2100` when Berlin+ and the slot `(address, key)` is not yet warm, else
+    `0`. Added on top of the EIP-2200 net-metered `Gas.sstoreCost` (which
+    already uses the warm `100` as its SLOAD component from Berlin). -/
+@[inline] def Gas.sstoreColdSurcharge (s : State) (key : UInt256) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin
+     && !s.substate.isWarmStorageKey (s.executionEnv.address, key)
+  then 2100 else 0
+
+/-- Total gas cost of `SSTORE` at `s` for stack args `key, value`: static
+    base (0 in current schedules) + the EIP-2200 net-metered dynamic cost
+    `Gas.sstoreCost` + the EIP-2929 cold surcharge (`Gas.sstoreColdSurcharge`),
+    where `original` is the per-tx original value from
+    `Substate.originalStorage` and `current` is the live storage value. -/
 @[inline] def Gas.sstoreTotal (s : State) (key value : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SSTORE
-  + Gas.sstoreCost s.executionEnv.fork
-      (s.substate.originalStorage s.executionEnv.address key)
-      ((s.accountMap s.executionEnv.address).storage key)
-      value
+  + (Gas.sstoreCost s.executionEnv.fork
+        (s.substate.originalStorage s.executionEnv.address key)
+        ((s.accountMap s.executionEnv.address).storage key)
+        value
+      + Gas.sstoreColdSurcharge s key)
+
+/-- EIP-2929 cold-access surcharge for `SLOAD`: `2000` (= cold `2100` −
+    warm `100`) when Berlin+ and the slot `(address, key)` is not yet warm,
+    else `0`. The warm price itself is the static `Gas.baseCost .SLOAD`
+    (`100` from Berlin), so this is the extra charged on a cold first touch. -/
+@[inline] def Gas.sloadColdSurcharge (s : State) (key : UInt256) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin
+     && !s.substate.isWarmStorageKey (s.executionEnv.address, key)
+  then 2000 else 0
+
+/-- Total gas cost of `SLOAD` at `s` for stack arg `key`: the static warm
+    base plus the EIP-2929 cold surcharge (`Gas.sloadColdSurcharge`). -/
+@[inline] def Gas.sloadTotal (s : State) (key : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .SLOAD + Gas.sloadColdSurcharge s key
+
+/-- Total gas cost of `BALANCE` at `s` for stack arg `addr`: static warm
+    base + EIP-2929 cold surcharge for the target account. -/
+@[inline] def Gas.balanceTotal (s : State) (addr : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .BALANCE
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)
+
+/-- Total gas cost of `EXTCODESIZE` at `s` for stack arg `addr`. -/
+@[inline] def Gas.extcodesizeTotal (s : State) (addr : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .EXTCODESIZE
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)
+
+/-- Total gas cost of `EXTCODEHASH` at `s` for stack arg `addr`. -/
+@[inline] def Gas.extcodehashTotal (s : State) (addr : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .EXTCODEHASH
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)
 
 /-- Total gas cost of `RETURN` at `s` for stack args `offset, size`:
     static base + memory-expansion delta for the read range
@@ -565,35 +617,42 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
-      (Gas.callTargetIsNew s.executionEnv.fork s.accountMap
-        (AccountAddress.ofUInt256 toArg))
+  + (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
+        (Gas.callTargetIsNew s.executionEnv.fork s.accountMap
+          (AccountAddress.ofUInt256 toArg))
+      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `CALLCODE`:
-    static base + memory-expansion delta + value-transfer surcharge.
-    CALLCODE never creates a new account, so `targetEmpty = false`. -/
+    static base + memory-expansion delta + value-transfer surcharge +
+    EIP-2929 cold surcharge for the code-source account. CALLCODE never
+    creates a new account, so `targetEmpty = false`. -/
 @[inline] def Gas.callcodeCommitted (s : State) (value : UInt256)
-    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALLCODE
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false
+  + (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false
+      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `DELEGATECALL`:
-    static base + memory-expansion delta. No value, so no surcharge. -/
+    static base + memory-expansion delta + EIP-2929 cold surcharge for the
+    code-source account. No value, so no value/new-account surcharge. -/
 @[inline] def Gas.delegatecallCommitted (s : State)
-    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .DELEGATECALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
 
 /-- Gas charged to the parent frame before forwarding for a `STATICCALL`:
-    static base + memory-expansion delta. No value, so no surcharge. -/
+    static base + memory-expansion delta + EIP-2929 cold surcharge for the
+    target account. No value, so no value/new-account surcharge. -/
 @[inline] def Gas.staticcallCommitted (s : State)
-    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .STATICCALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
 
 /-- Gas charged to the parent frame before forwarding for `CREATE`:
     static base + memory-expansion delta for the init-code window. -/

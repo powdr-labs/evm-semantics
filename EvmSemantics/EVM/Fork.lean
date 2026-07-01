@@ -10,9 +10,9 @@ We cover the forks present in the legacy ethereum/tests
 GeneralStateTests corpus's `network` field — `Frontier`, `Homestead`,
 `TangerineWhistle` (Tangerine Whistle), `SpuriousDragon` (Spurious Dragon), `Byzantium`,
 `Constantinople` (with EIP-1283 net-metered SSTORE), and `Petersburg`
-(= `ConstantinopleFix`, EIP-1283 reverted) — through `Cancun`. EIP-2929
-cold/warm access lists are *not* yet modelled — Cancun uses warm-priced
-placeholders.
+(= `ConstantinopleFix`, EIP-1283 reverted) — through `Cancun`/`Prague`.
+EIP-2929 cold/warm access pricing *is* modelled from Berlin (see the
+`*ColdSurcharge` helpers in `Gas.lean` and the accessed sets in `Substate`).
 
 `Fork.atLeast a b` is the convenient `a ≥ b` ordering on the activation
 sequence; gas helpers branch on this instead of writing many `match`

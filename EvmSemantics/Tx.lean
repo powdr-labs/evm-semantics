@@ -183,7 +183,23 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
         activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
-    substate     := { Substate.empty with originalAccountMap := accountMap }
+    -- EIP-2929 initial warm set: the tx sender and recipient/created
+    -- address, the fork's precompiles, and — from Shanghai (EIP-3651) —
+    -- the coinbase. The precompile range grows by fork: 0x01..0x09 through
+    -- Shanghai, +0x0a (KZG point eval, EIP-4844) at Cancun, +0x0b..0x11
+    -- (BLS12-381, EIP-2537) at Prague. Pre-Berlin the accessed set is
+    -- unused (the cold surcharge is gated on Berlin+), so this is harmless.
+    substate     :=
+      let numPrecompiles : Nat :=
+        if fork.atLeast .Prague then 0x11
+        else if fork.atLeast .Cancun then 0x0a
+        else 9
+      { Substate.empty with
+          originalAccountMap := accountMap
+          accessedAccounts :=
+            tx.sender :: toAddr
+              :: ((List.range numPrecompiles).map (fun i => AccountAddress.ofNat (i + 1))
+                    ++ (if fork.atLeast .Shanghai then [header.coinbase] else [])) }
     executionEnv := execEnv
     pc           := ⟨0⟩
     stack        := []
