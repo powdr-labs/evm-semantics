@@ -706,6 +706,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let valNZ    : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge s.fork valNZ
                            (Gas.callTargetIsNew s.fork s2.accountMap tgt)
+                         + Gas.accountColdSurcharge s tgt
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -766,6 +767,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge s.fork valNZ false
+                         + Gas.accountColdSurcharge s codeAddr
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -814,26 +816,32 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
-        -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
-        -- before the depth silent-fail, mirroring the CALL/CALLCODE
-        -- ordering — see the comment in `.CALL`. DELEGATECALL first
-        -- appeared in Homestead (pre-EIP-150), so the uncapped
-        -- `forwardGas = gasArg` branch is reachable.
-        let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
-        if hfw : forwarded ≤ s2.gasAvailable then
-          if s2.executionEnv.depth ≥ 1024 then
-            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                   (UInt256.ofNat 0 :: rest))
-          else
-            let s3       := s2.consumeGas forwarded hfw
-            let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
-            -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
-            -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
-            -- generic precompile arm's job at the top of the next
-            -- iteration; the frame's `codeAddr := tgt` is set by
-            -- `enterCallFor` so the arm has the right key.
-            .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
-                   callee.code forwarded retOff.toNat retLen.toNat)
+        -- EIP-2929 cold-access surcharge for the target, charged before
+        -- forwarding (mirrors CALL/CALLCODE's `surcharge` stage).
+        let coldSur  := Gas.accountColdSurcharge s tgt
+        if hcs : coldSur ≤ s2.gasAvailable then
+          let s2c := s2.consumeGas coldSur hcs
+          -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
+          -- before the depth silent-fail, mirroring the CALL/CALLCODE
+          -- ordering — see the comment in `.CALL`. DELEGATECALL first
+          -- appeared in Homestead (pre-EIP-150), so the uncapped
+          -- `forwardGas = gasArg` branch is reachable.
+          let forwarded := Gas.forwardGas s.fork s2c.gasAvailable gasArg.toNat
+          if hfw : forwarded ≤ s2c.gasAvailable then
+            if s2c.executionEnv.depth ≥ 1024 then
+              .ok ({ s2c with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              let s3       := s2c.consumeGas forwarded hfw
+              let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
+              -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
+              -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
+              -- generic precompile arm's job at the top of the next
+              -- iteration; the frame's `codeAddr := tgt` is set by
+              -- `enterCallFor` so the arm has the right key.
+              .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
+                     callee.code forwarded retOff.toNat retLen.toNat)
+          else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
   | .STATICCALL => match s.stack with
@@ -847,25 +855,31 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
-        -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
-        -- caps at `g - g/64` and `hfw` is trivial — but we still keep
-        -- the check at the outer position to mirror the shape of
-        -- CALL/CALLCODE/DELEGATECALL and let the spec share the same
-        -- premise structure across the call family.
-        let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
-        if hfw : forwarded ≤ s2.gasAvailable then
-          if s2.executionEnv.depth ≥ 1024 then
-            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                   (UInt256.ofNat 0 :: rest))
-          else
-            let s3       := s2.consumeGas forwarded hfw
-            let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
-            -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
-            -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
-            -- generic precompile arm's job at the top of the next
-            -- iteration.
-            .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
-                   callee.code forwarded retOff.toNat retLen.toNat)
+        -- EIP-2929 cold-access surcharge for the target, charged before
+        -- forwarding (mirrors CALL/CALLCODE's `surcharge` stage).
+        let coldSur  := Gas.accountColdSurcharge s tgt
+        if hcs : coldSur ≤ s2.gasAvailable then
+          let s2c := s2.consumeGas coldSur hcs
+          -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
+          -- caps at `g - g/64` and `hfw` is trivial — but we still keep
+          -- the check at the outer position to mirror the shape of
+          -- CALL/CALLCODE/DELEGATECALL and let the spec share the same
+          -- premise structure across the call family.
+          let forwarded := Gas.forwardGas s.fork s2c.gasAvailable gasArg.toNat
+          if hfw : forwarded ≤ s2c.gasAvailable then
+            if s2c.executionEnv.depth ≥ 1024 then
+              .ok ({ s2c with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              let s3       := s2c.consumeGas forwarded hfw
+              let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
+              -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
+              -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
+              -- generic precompile arm's job at the top of the next
+              -- iteration.
+              .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
+                     callee.code forwarded retOff.toNat retLen.toNat)
+          else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
   | .SELFDESTRUCT => match s.stack with

@@ -171,11 +171,14 @@ implemented:** block validation, the eight unimplemented precompiles
   value/new-account surcharge (`Gas.callSurcharge`; CALLCODE passes
   `targetEmpty = false` since it never creates an account) plus 63/64
   forwarding (`Gas.allButOneSixtyFourth`), and memory expansion via
-  `chargeMem`/`chargeMem2`. The only *unmodelled* dynamic costs are the
-  EIP-2929 cold/warm split on `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
-  `EXTCODEHASH` (`100` on Cancun is a warm-priced placeholder pending an
-  `accessedAccounts` set in `Substate`; Constantinople uses the proper
-  EIP-150 / EIP-1052 values 400 / 700) and `Gas.create2HashCost` for
+  `chargeMem`/`chargeMem2`. **EIP-2929 cold/warm** is modelled from Berlin:
+  the `Substate` accessed-account / accessed-storage-key sets drive
+  `Gas.{sload,sstore,account}ColdSurcharge`, charged on SLOAD/SSTORE, the
+  account-read opcodes (`BALANCE`/`EXTCODESIZE`/`EXTCODEHASH`/`EXTCODECOPY`)
+  and the CALL family; `Tx.buildInitState` pre-warms sender/recipient/
+  precompiles/coinbase, and `enterCall`/`enterCallFor`/`enterCreate` warm the
+  call/create target. Remaining *unmodelled* dynamic costs: EIP-1559 base-fee
+  burn, SSTORE gas refunds (EIP-3529), and `Gas.create2HashCost` for
   CREATE2's address-derivation hash. The VMRunner no longer maintains a
   gas-comparable filter — every test runs with its declared
   `exec.gas` budget and (when it has a `post` block) compares the

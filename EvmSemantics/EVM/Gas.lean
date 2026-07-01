@@ -17,11 +17,13 @@ public import EvmSemantics.EVM.State
 * `Gas.sstoreCost fork original current new` — the SSTORE dynamic cost,
   separated from `baseCost` because it depends on the storage state.
 
-The two supported forks (`Constantinople` and `Cancun`) mostly share their
-fixed fees; the differences (cold/warm-priced reads, modern SSTORE rules)
-are captured by branching on the `fork` argument. Cold/warm is not yet
-tracked in the substate, so the `Cancun` schedule uses **warm** prices
-throughout (which is a lower bound on the real cost).
+The forks mostly share their fixed fees; the differences (cold/warm-priced
+reads, modern SSTORE rules) are captured by branching on the `fork` argument.
+`Gas.baseCost` returns the **warm** price from Berlin; the EIP-2929 cold
+first-touch surcharge is modelled separately (`Gas.sloadColdSurcharge`,
+`Gas.sstoreColdSurcharge`, `Gas.accountColdSurcharge`), added on top by the
+per-op `*Total`/`*Committed` functions, and driven by the accessed-account /
+accessed-storage-key sets tracked in `Substate`.
 
 Reference Yellow-Paper constants:
 
@@ -615,35 +617,42 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
-      (Gas.callTargetIsNew s.executionEnv.fork s.accountMap
-        (AccountAddress.ofUInt256 toArg))
+  + (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
+        (Gas.callTargetIsNew s.executionEnv.fork s.accountMap
+          (AccountAddress.ofUInt256 toArg))
+      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `CALLCODE`:
-    static base + memory-expansion delta + value-transfer surcharge.
-    CALLCODE never creates a new account, so `targetEmpty = false`. -/
+    static base + memory-expansion delta + value-transfer surcharge +
+    EIP-2929 cold surcharge for the code-source account. CALLCODE never
+    creates a new account, so `targetEmpty = false`. -/
 @[inline] def Gas.callcodeCommitted (s : State) (value : UInt256)
-    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALLCODE
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false
+  + (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false
+      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `DELEGATECALL`:
-    static base + memory-expansion delta. No value, so no surcharge. -/
+    static base + memory-expansion delta + EIP-2929 cold surcharge for the
+    code-source account. No value, so no value/new-account surcharge. -/
 @[inline] def Gas.delegatecallCommitted (s : State)
-    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .DELEGATECALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
 
 /-- Gas charged to the parent frame before forwarding for a `STATICCALL`:
-    static base + memory-expansion delta. No value, so no surcharge. -/
+    static base + memory-expansion delta + EIP-2929 cold surcharge for the
+    target account. No value, so no value/new-account surcharge. -/
 @[inline] def Gas.staticcallCommitted (s : State)
-    (argsOff argsLen retOff retLen : UInt256) : Nat :=
+    (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .STATICCALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
 
 /-- Gas charged to the parent frame before forwarding for `CREATE`:
     static base + memory-expansion delta for the init-code window. -/

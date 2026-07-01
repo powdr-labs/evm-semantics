@@ -279,6 +279,14 @@ def enterCall (sc : State) (rest : List UInt256)
     (tgt codeAddr : AccountAddress) (value : UInt256)
     (calldata calleeCode : ByteArray)
     (childGas retOffset retSize : Nat) : State :=
+  -- EIP-2929: accessing the call target warms it. Marking here (before the
+  -- snapshot) covers all four call kinds — `codeAddr` is the borrowed-from
+  -- (target) address for CALL/STATICCALL (= `tgt`) and CALLCODE/DELEGATECALL
+  -- (≠ `tgt`, which is the caller's storage context) — and the created
+  -- address for CREATE. The mark lands in both the child's substate (it
+  -- inherits `sc.substate`) and `snapSubstate`, so it survives a revert, as
+  -- EIP-2929 requires (accessed sets are never rolled back).
+  let sc := { sc with substate := sc.substate.addAccessedAccount codeAddr }
   let frame : Frame :=
     { pc           := sc.pc + UInt256.ofNat 1
       stack        := rest
@@ -403,6 +411,10 @@ def calleeEnvFor (sc : State) (kind : CallKind) (tgt : AccountAddress)
 def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
     (tgt : AccountAddress) (value : UInt256) (calldata calleeCode : ByteArray)
     (childGas retOffset retSize : Nat) : State :=
+  -- EIP-2929: warm the target `tgt` (the DELEGATECALL/STATICCALL callee).
+  -- Marking before the snapshot puts it in both the child's inherited
+  -- substate and `snapSubstate`, so it survives a revert.
+  let sc := { sc with substate := sc.substate.addAccessedAccount tgt }
   let frame : Frame :=
     { pc           := sc.pc + UInt256.ofNat 1
       stack        := rest
@@ -532,6 +544,10 @@ def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
 def enterCreate (sc : State) (rest : List UInt256)
     (newAddr : AccountAddress) (value : UInt256) (initCode : ByteArray)
     (childGas : Nat) : State :=
+  -- EIP-2929: the created address is warmed (and stays warm even if the
+  -- CREATE reverts). Marking before the snapshot puts it in both the child's
+  -- inherited substate and `snapSubstate`.
+  let sc := { sc with substate := sc.substate.addAccessedAccount newAddr }
   let caller := sc.executionEnv.address
   let callerAcc := sc.accountMap caller
   -- Bump the creator nonce first. The bump must persist even if init
