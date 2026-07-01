@@ -1,6 +1,6 @@
 module
 
-public import EvmSemantics.Crypto.FF
+public import EvmSemantics.Crypto.Weierstrass
 
 /-!
 `EvmSemantics.Crypto.Bn254` — the alt_bn128 / BN254 curve constants
@@ -57,25 +57,25 @@ abbrev Fp := Fin p
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
 /-- The BN254 curve packaged for the generic point operations. -/
-def curve : EvmSemantics.Crypto.FF.Curve p := { b := Fin.ofNat _ 3 }
+def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { b := Fin.ofNat _ 3 }
 
 /-- The BN254 generator point `G = (1, 2)`. -/
 def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
 
 /-- Double a BN254 point. -/
 @[inline] def doublePoint (P : Point) : Point :=
-  EvmSemantics.Crypto.FF.doublePoint curve P
+  EvmSemantics.Crypto.Weierstrass.doublePoint curve P
 
 /-- Add two BN254 points. -/
 @[inline] def addPoint (P Q : Point) : Point :=
-  EvmSemantics.Crypto.FF.addPoint curve P Q
+  EvmSemantics.Crypto.Weierstrass.addPoint curve P Q
 
 /-- Scalar multiplication on BN254. -/
 @[inline] def scalarMul (k : Nat) (P : Point) : Point :=
-  EvmSemantics.Crypto.FF.scalarMul curve k P
+  EvmSemantics.Crypto.Weierstrass.scalarMul curve k P
 
 /-- Curve-membership check. -/
 @[inline] def onCurve (x y : Fp) : Bool :=
-  EvmSemantics.Crypto.FF.onCurve curve x y
+  EvmSemantics.Crypto.Weierstrass.onCurve curve x y
 
 end EvmSemantics.Crypto.Bn254

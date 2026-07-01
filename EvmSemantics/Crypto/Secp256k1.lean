@@ -1,6 +1,6 @@
 module
 
-public import EvmSemantics.Crypto.FF
+public import EvmSemantics.Crypto.Weierstrass
 
 /-!
 `EvmSemantics.Crypto.Secp256k1` — the secp256k1 curve constants +
@@ -8,7 +8,7 @@ concrete `Fp := Fin Secp256k1.p` / `Curve p` bindings.
 
 secp256k1 is the short-Weierstrass curve `y² = x³ + 7` (mod `p`) with
 `a = 0`, used by Ethereum's ECRECOVER (0x01). All modular arithmetic
-and generic point operations live in `EvmSemantics.Crypto.FF`; this
+and generic point operations live in `EvmSemantics.Crypto.Weierstrass`; this
 module just pins the numeric parameters and re-exports the concrete
 type-instantiations of the ops.
 -/
@@ -53,33 +53,33 @@ abbrev Fp := Fin p
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
 /-- The secp256k1 curve packaged for the generic point operations. -/
-def curve : EvmSemantics.Crypto.FF.Curve p := { b := Fin.ofNat _ 7 }
+def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { b := Fin.ofNat _ 7 }
 
 /-- The secp256k1 generator point `G`. -/
 def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
 
 /-- Double a secp256k1 point. -/
 @[inline] def doublePoint (P : Point) : Point :=
-  EvmSemantics.Crypto.FF.doublePoint curve P
+  EvmSemantics.Crypto.Weierstrass.doublePoint curve P
 
 /-- Add two secp256k1 points. -/
 @[inline] def addPoint (P Q : Point) : Point :=
-  EvmSemantics.Crypto.FF.addPoint curve P Q
+  EvmSemantics.Crypto.Weierstrass.addPoint curve P Q
 
 /-- Scalar multiplication on secp256k1. -/
 @[inline] def scalarMul (k : Nat) (P : Point) : Point :=
-  EvmSemantics.Crypto.FF.scalarMul curve k P
+  EvmSemantics.Crypto.Weierstrass.scalarMul curve k P
 
 /-- Simultaneous double-scalar multiplication (Shamir's trick). -/
 @[inline] def scalarMul2 (k1 : Nat) (P1 : Point) (k2 : Nat) (P2 : Point) : Point :=
-  EvmSemantics.Crypto.FF.scalarMul2 curve k1 P1 k2 P2
+  EvmSemantics.Crypto.Weierstrass.scalarMul2 curve k1 P1 k2 P2
 
 /-- Curve-membership check. -/
 @[inline] def onCurve (x y : Fp) : Bool :=
-  EvmSemantics.Crypto.FF.onCurve curve x y
+  EvmSemantics.Crypto.Weierstrass.onCurve curve x y
 
 /-- Point decompression: recover `y` from `x` and a parity bit. -/
 @[inline] def decompress (x : Fp) (yOdd : Bool) : Option Point :=
-  EvmSemantics.Crypto.FF.decompress curve x yOdd
+  EvmSemantics.Crypto.Weierstrass.decompress curve x yOdd
 
 end EvmSemantics.Crypto.Secp256k1
