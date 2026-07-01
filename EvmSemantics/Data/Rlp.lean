@@ -1,5 +1,6 @@
 module
 
+public import EvmSemantics.Data.Bytes
 public import EvmSemantics.State.Account
 
 /-!
@@ -39,41 +40,18 @@ when transaction processing / block validation / MPT state proofs land.
 namespace EvmSemantics
 namespace Rlp
 
+-- Bring the shared bytes helpers (`natToBytesPadded`, `intToBytes`,
+-- `intToBytesAux`) into scope for the rest of this file. They live
+-- in `EvmSemantics.Data.Bytes` (also used by MODEXP's input parser,
+-- the MPT trie, and MachineState); no `export` alias — one
+-- canonical name per helper, `open` just skips the `Data.Bytes.`
+-- prefix inside this namespace.
+open EvmSemantics.Data.Bytes
+
 ----------------------------------------------------------------------------
--- `intToBytes` — big-endian Nat → ByteArray, used by the long-form
--- length prefix. Terminates via `Nat.div_lt_self` on `k / 256 < k`.
+-- `AccountAddress` / `UInt256` byte-encoding shortcuts around the
+-- shared `natToBytesPadded`.
 ----------------------------------------------------------------------------
-
-/-- Inner loop of `intToBytes`: peel off LSB-first into `acc`
-    (which is implicitly big-endian when read left-to-right).
-    Terminates because `k / 256 < k` whenever `k ≠ 0`. -/
-def intToBytesAux (k : Nat) (acc : List UInt8) : List UInt8 :=
-  if h : k = 0 then acc
-  else intToBytesAux (k / 256) (UInt8.ofNat (k % 256) :: acc)
-termination_by k
-decreasing_by exact Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
-
-/-- Big-endian byte representation of `n` with leading zeros stripped.
-    `intToBytes 0 = ByteArray.empty` — RLP encodes the integer `0` as
-    the empty byte string (whose RLP encoding is then the single byte
-    `0x80`, via `encodeBytes` below). -/
-def intToBytes (n : Nat) : ByteArray := ByteArray.mk (intToBytesAux n []).toArray
-
-/-- Big-endian *padded* representation of `n` into exactly `width`
-    bytes. Used for fixed-width fields like `AccountAddress` (20 bytes)
-    and 32-byte hash slots, where RLP wants the leading zeros kept.
-    Bits above the `width`-byte window are silently truncated. -/
-def natToBytesPadded (n width : Nat) : ByteArray := Id.run do
-  let mut bs : Array UInt8 := Array.mkEmpty width
-  let mut k := n
-  let mut le : Array UInt8 := Array.mkEmpty width
-  -- Pull off `width` little-endian bytes.
-  for _ in [0:width] do
-    le := le.push (UInt8.ofNat (k % 256))
-    k := k / 256
-  -- Reverse into big-endian.
-  for i in [0:width] do bs := bs.push le[width - 1 - i]!
-  return ByteArray.mk bs
 
 /-- Big-endian 20-byte representation of an `AccountAddress`. -/
 def addressBytes (addr : AccountAddress) : ByteArray :=
