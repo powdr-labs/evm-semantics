@@ -1,65 +1,92 @@
 #!/usr/bin/env bash
 #
-# Compare a freshly generated vmtests summary against the committed baseline and
-# emit a Markdown regression report on stdout (intended for $GITHUB_STEP_SUMMARY).
+# Compare a freshly generated vmtests summary against the committed
+# *expected-failures* file (sorted "<id>: <tier>" lines) and emit a Markdown
+# regression report on stdout (for $GITHUB_STEP_SUMMARY).
 #
 # This is a REPORT, not a gate: it always exits 0. Regressions are surfaced as
-# GitHub `::warning::` annotations and in the report, but never fail the job.
+# GitHub `::warning::` annotations and in the report. Regression / improvement
+# classification is tier-aware (severity order: pass < FAIL < CRASH); VMTests
+# has no INCON tier.
 #
-# Usage: vmtests_check.sh <baseline-file> <current-summary-file>
+# The aggregate count table is read from the runner's raw output, so the
+# committed file never contains numbers that different branches would both
+# touch.
+#
+# Usage: vmtests_check.sh <expected-failures-file> <current-summary-file> <raw-output-file>
 set -uo pipefail
 
-baseline="${1:?usage: vmtests_check.sh <baseline> <current>}"
-current="${2:?usage: vmtests_check.sh <baseline> <current>}"
+expected="${1:?usage: vmtests_check.sh <expected> <current> <raw>}"
+current="${2:?usage: vmtests_check.sh <expected> <current> <raw>}"
+raw="${3:?usage: vmtests_check.sh <expected> <current> <raw>}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-grep '^test=' "$baseline" | sort -u > "$tmp/base.set"
-grep '^test=' "$current"  | sort -u > "$tmp/cur.set"
+awk '
+  BEGIN { sev["pass"]=0; sev["FAIL"]=2; sev["CRASH"]=3 }
+  function tier(line, a) { split(line, a, ": "); return a[2] }
+  function id(line, a)   { split(line, a, ": "); return a[1] }
+  FNR==NR { base[id($0)] = tier($0); next }
+  {
+    i = id($0); c = tier($0); b = (i in base) ? base[i] : "pass"
+    delete base[i]
+    if (sev[c] > sev[b]) print "REG " i " " b " " c
+    else if (sev[c] < sev[b]) print "IMP " i " " b " " c
+  }
+  END {
+    for (i in base) print "IMP " i " " base[i] " pass"
+  }
+' "$expected" "$current" | sort -u > "$tmp/diff"
 
-# Regressions: non-passing now, but not in the baseline (i.e. were passing).
-mapfile -t regressions < <(comm -13 "$tmp/base.set" "$tmp/cur.set" | sed 's/^test=//')
-# Improvements: in the baseline's non-passing set, but passing now.
-mapfile -t improvements < <(comm -23 "$tmp/base.set" "$tmp/cur.set" | sed 's/^test=//')
+mapfile -t regressions < <(grep '^REG ' "$tmp/diff" || true)
+mapfile -t improvements < <(grep '^IMP ' "$tmp/diff" || true)
 
-cval() { sed -nE "s/^$2=([0-9]+)$/\1/p" "$1"; }
+# vmtests aggregate line: "pass=602 fail=0 incon=7 crash=0 (total 609)"
+total_line="$(grep -E 'pass=[0-9]+ fail=[0-9]+' "$raw" | tail -1 || true)"
+num() { sed -nE "s/.*(^|[ (])$1=([0-9]+).*/\2/p" <<<"$total_line"; }
 
 echo "## VMTests regression report"
 echo
 echo "_Full ethereum/legacytests VMTests suite, run against the evaluator. Non-gating._"
 echo
-echo "| metric | baseline | current | Δ |"
-echo "| --- | ---: | ---: | ---: |"
-for key in pass fail crash incon total; do
-  b="$(cval "$baseline" "$key")"; c="$(cval "$current" "$key")"
-  b="${b:-0}"; c="${c:-0}"
-  d=$((c - b))
-  [ "$d" -gt 0 ] && d="+$d"
-  echo "| \`$key\` | $b | $c | $d |"
-done
-echo
+if [ -n "$total_line" ]; then
+  echo "| metric | count |"
+  echo "| --- | ---: |"
+  for key in pass fail crash incon; do
+    echo "| \`$key\` | $(num "$key") |"
+  done
+  echo "| \`total\` | $(sed -nE 's/.*total ([0-9]+).*/\1/p' <<<"$total_line") |"
+  echo
+else
+  echo "> Note: no aggregate line found in the raw output — count table omitted."
+  echo
+fi
 
 if [ "${#regressions[@]}" -gt 0 ]; then
-  echo "### ⚠️ ${#regressions[@]} regression(s) — previously passing, now FAIL/CRASH"
+  echo "### ⚠️ ${#regressions[@]} regression(s) — worse tier than expected"
   echo
-  for t in "${regressions[@]}"; do
-    echo "- \`$t\`"
-    echo "::warning title=VMTests regression::$t was passing in the baseline and now FAILs/CRASHes"
+  for line in "${regressions[@]}"; do
+    read -r _ id b c <<<"$line"
+    echo "- \`$id\`: expected \`$b\`, got \`$c\`"
+    echo "::warning title=VMTests regression::$id regressed ($b -> $c)"
   done
   echo
 else
-  echo "### ✅ No regressions (no previously-passing test now fails or crashes)"
+  echo "### ✅ No regressions"
   echo
 fi
 
 if [ "${#improvements[@]}" -gt 0 ]; then
-  echo "### 🎉 ${#improvements[@]} improvement(s) — baseline FAIL/CRASH now passing"
+  echo "### 🎉 ${#improvements[@]} improvement(s) — better tier than expected"
   echo
-  for t in "${improvements[@]}"; do echo "- \`$t\`"; done
+  for line in "${improvements[@]}"; do
+    read -r _ id b c <<<"$line"
+    echo "- \`$id\`: expected \`$b\`, got \`$c\`"
+  done
   echo
-  echo "> Refresh the baseline once these are intentional:"
-  echo "> \`.github/scripts/vmtests_summary.sh <raw-output> > .github/vmtests-baseline.txt\`"
+  echo "> Refresh the expected-failures file once these are intentional:"
+  echo "> \`.github/scripts/vmtests_summary.sh <raw> > .github/vmtests-expected-failures.txt\`"
   echo
 fi
 
