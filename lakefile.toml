@@ -36,6 +36,10 @@ name = "statetests"
 root = "tests.StateTestRunner"
 
 [[lean_exe]]
+name = "gstatetests"
+root = "tests.GeneralStateTestRunner"
+
+[[lean_exe]]
 name = "keccak_test"
 root = "tests.KeccakTest"
 
@@ -50,6 +54,14 @@ root = "tests.Ripemd160Test"
 [[lean_exe]]
 name = "ecrecover_test"
 root = "tests.EcrecoverTest"
+
+[[lean_exe]]
+name = "ecadd_ecmul_test"
+root = "tests.EcaddEcmulTest"
+
+[[lean_exe]]
+name = "ecpairing_test"
+root = "tests.EcpairingTest"
 
 [[lean_exe]]
 name = "blake2f_test"

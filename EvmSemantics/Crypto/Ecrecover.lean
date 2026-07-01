@@ -2,6 +2,7 @@ module
 
 public import EvmSemantics.Crypto.Secp256k1
 public import EvmSemantics.Crypto.Keccak256
+public import EvmSemantics.Crypto.Bytes
 
 /-!
 `EvmSemantics.Crypto.Ecrecover` — the ECDSA public-key recovery used by
@@ -37,26 +38,9 @@ the CALL-family caller sees `returnData.size = 0`.
 
 namespace EvmSemantics.Crypto.Ecrecover
 
+open EvmSemantics.Crypto.EC
 open EvmSemantics.Crypto.Secp256k1
-
-/-- Read a big-endian `Nat` from `bs[off..off+n)`, zero-padding past
-    the end. Little-endian would be a bigger rewrite of downstream
-    arithmetic; ECDSA canonicalises the wire format as big-endian
-    integers. -/
-def readBE (bs : ByteArray) (off n : Nat) : Nat := Id.run do
-  let mut w : Nat := 0
-  for i in [0:n] do
-    let b : Nat := if h : off + i < bs.size then bs[off + i].toNat else 0
-    w := w * 256 + b
-  return w
-
-/-- Write a `Nat` as a fixed-`width`-byte big-endian ByteArray. -/
-def writeBE (w width : Nat) : ByteArray := Id.run do
-  let mut acc : ByteArray := ByteArray.empty
-  for i in [0:width] do
-    let shift : Nat := 8 * (width - 1 - i)
-    acc := acc.push ((w >>> shift) &&& 0xff).toUInt8
-  return acc
+open EvmSemantics.Crypto.Bytes
 
 /-- Zero-pad the 20-byte address into a 32-byte precompile output
     (12 leading zeros). -/
@@ -75,18 +59,24 @@ def recoverAddress (h v r s : Nat) : Option ByteArray := do
   else if s = 0 ∨ s ≥ N then none
   else
     -- Recover R by decompressing (r, yOdd = v==28).
-    let R ← decompress r (v = 28)
-    -- e = h mod N.
-    let e := h % N
-    let rInv := modInv r N
-    -- Q = r⁻¹ · (s · R − e · G) = r⁻¹·s·R + r⁻¹·(−e)·G
-    let u1 := modMul (modNeg e N) rInv N
-    let u2 := modMul s rInv N
-    match scalarMul2 u1 G u2 R with
+    let R ← decompress (Fin.ofNat _ r) (v = 28)
+    -- Scalar arithmetic lives in `Fin N` (the group's *scalar* field —
+    -- `N` is prime so `Fin N` is a field). This gives us `⁻¹`, `*`,
+    -- `-` as operators; the `.val`s at the end extract the raw `Nat`
+    -- scalars that `scalarMul2` consumes.
+    --
+    -- Q = r⁻¹ · (s · R − e · G) = r⁻¹·s·R + r⁻¹·(−e)·G.
+    let rN : Fin N := Fin.ofNat _ r
+    let sN : Fin N := Fin.ofNat _ s
+    let eN : Fin N := Fin.ofNat _ h
+    let u1 : Fin N := -eN * rN⁻¹
+    let u2 : Fin N := sN * rN⁻¹
+    match scalarMul2 u1.val G u2.val R with
     | .infinity => none
     | .affine qx qy =>
-      -- Address = keccak256(qx ‖ qy)[12:32].
-      let preimage := writeBE qx 32 ++ writeBE qy 32
+      -- Address = keccak256(qx ‖ qy)[12:32]. `.val` peels the Fin
+      -- wrapper back to a Nat so we can serialise the 32-byte words.
+      let preimage := writeBE qx.val 32 ++ writeBE qy.val 32
       let digest := Keccak.hash preimage
       -- Take the last 20 bytes.
       let mut addr : ByteArray := ByteArray.empty
