@@ -392,12 +392,23 @@ def Gas.sstoreRefund (fork : Fork) (original current new : UInt256) : Int :=
   let c := current.toNat
   let n := new.toNat
   if c = n then 0
-  else if fork.atLeast .Istanbul then
-    -- Net-metered (EIP-2200 / EIP-3529).
+  else if fork.atLeast .Istanbul ∨ fork.toOrd = Fork.Constantinople.toOrd then
+    -- Net-metered schedule. Same shape for EIP-1283 (Constantinople
+    -- only), EIP-2200 (Istanbul/Berlin), and EIP-3529 (London+); only
+    -- the three refund constants differ. Petersburg / ConstantinopleFix
+    -- reverted EIP-1283 back to pre-1283, so it falls through to the
+    -- clear-to-zero branch below.
     let london := fork.atLeast .London
+    let eip1283 := fork.toOrd = Fork.Constantinople.toOrd
     let sclear : Int := if london then 4800 else 15000
-    let sresetMinusH : Int := if london then 2800 else 4200
-    let ssetMinusH   : Int := if london then 19900 else 19200
+    let sresetMinusH : Int :=
+      if london then 2800
+      else if eip1283 then 4800
+      else 4200
+    let ssetMinusH   : Int :=
+      if london then 19900
+      else if eip1283 then 19800
+      else 19200
     if o = c then
       if o ≠ 0 ∧ n = 0 then sclear else 0
     else
