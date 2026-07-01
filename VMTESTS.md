@@ -47,61 +47,38 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests (curated 32-dir subset, 9664 per-fork test cases across
+**StateTests (curated 34-dir subset, 13927 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=8181 full+=2 core+=119) fail=1362 incon=0 crash=0
+pass(root=13915 full+=0 core+=12) fail=0 incon=0 crash=0
 ```
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 8181 of 9664.
+  Geth would produce).
 - `pass_full` = every field the test's `postState` enumerates matches
-  (storage, nonce, code, *and* balance), but the MPT root differs —
-  usually because some account our run touched isn't in the test's
-  enumerated `postState`, or some slot we wrote to isn't in the
-  enumerated storage. 39 of 9664. Includes the two
-  `stAttackTest/ContractCreationSpam_d0g0v0` variants (`_Frontier`
-  and `_Homestead`) that spam-create ~8500 accounts, where the
-  divergence at scale hides a subtle CREATE-derivation or gas-cost
-  off-by-one that only shows up after thousands of nested CREATEs.
-- `pass_core` = storage / nonce / code match but balance is off. 119
-  of 9664. Dominated by (i) contracts that invoke unimplemented
-  precompiles (`0x05` MODEXP) — we treat the (empty) bytecode at
-  those addresses as STOP rather than applying the precompile's
-  gas-cost OOG, so the value transfer that the YP would have rolled
-  back gets committed; (ii) repeated `SELFDESTRUCT` of the same
-  account, where our `selfDestructSet` doesn't yet enforce "refund
-  once per account" (the underlying `AddressSet` is a `Prop`
-  predicate without decidable membership).
-- `fail = 1362` — 1,356 `modexp*` variants in `stPreCompiledContracts`
-  / `stPreCompiledContracts2` that exercise MODEXP (`sec80` included)
-  directly, plus 6 `identity_to_{bigger,smaller}_d0g0v0` cases with
-  an unrelated create-transaction nonce quirk. The MODEXP entries
-  have expected outputs that depend on the corresponding precompile
-  actually running; treating the address as empty-code STOP makes
-  the post-state visibly mismatch (nonces, return-write regions).
-  The set is pinned in the baseline so a *new* pass -> fail
-  transition is a regression. ECRECOVER (0x01), SHA-256 (0x02),
-  RIPEMD-160 (0x03), and IDENTITY (0x04) tests in these dirs all
-  pass.
-- **alt_bn128 precompiles (EIP-196 / EIP-197)** — `stZeroKnowledge`
-  and `stZeroKnowledge2` in the sparse checkout add ~4300 more
-  tests. ECADD (0x06), ECMUL (0x07), and ECPAIRING (0x08) all have
-  passing unit-test suites against known-good vectors (geth's
-  `chfast_add` / `chfast_mul` for the first two; the EIP-197
-  `pairingTest_d0` vector for the third; see
-  `tests/EcaddEcmulTest.lean` and `tests/EcpairingTest.lean`).
-  Of the ~4300 additional statetests: ~1200 pass_root, ~4400 fail.
-  Most of the fails are not a precompile-correctness issue — the
-  runner uses a hardcoded canonical sender
-  `0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b` but most
-  `stZeroKnowledge2` fixtures are signed by a different key
-  (recovering to `0x82a978b3f5962a5b0957d9ee9eef472ee55b42f1`), so
-  the tx-level nonce/balance assertions never match. Deriving the
-  sender via `ECRECOVER` from the tx's `(v, r, s)` is a separate
-  runner change tracked as future work.
+  (storage, nonce, code, *and* balance), but the MPT root differs.
+- `pass_core` = storage / nonce / code match but balance is off. Three
+  clusters remain, none of them missing precompile support: (i) a
+  few `stCallCreateCallCodeTest/callWith*HighValue*OOG*` Frontier
+  variants whose corpus expects a full-gasLimit top-level OOG that
+  our impl doesn't reproduce — the CALL with insufficient balance
+  silently fails in our evaluator, whereas the block header reports
+  `gasUsed = gasLimit`; (ii) `randomStatetest*` + `Call1024PreCalls`
+  cases with small ±4800/9600-wei coinbase-vs-sender drifts (likely
+  Constantinople-era SSTORE / CALL-depth refund accounting corners);
+  (iii) one `tx_e1c174e2_EIP150` with a large one-off diff.
+- `fail` — every "always-on" precompile the curated corpus exercises
+  is implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160
+  (0x03), IDENTITY (0x04), MODEXP (0x05, Byzantium+), ECADD (0x06),
+  ECMUL (0x07), ECPAIRING (0x08). A future pass -> fail transition
+  against the pinned baseline is a regression. Individual
+  precompile modules also ship with unit-test executables
+  (`ecrecover_test`, `sha256_test`, `ripemd160_test`,
+  `ecadd_ecmul_test`, `ecpairing_test`) that pin them to
+  known-good geth / EIP-197 test vectors independently of the
+  end-to-end statetests.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
@@ -117,7 +94,7 @@ otherwise stay in the trie).
   from that suffix and configures the gas schedule accordingly. Variants
   whose network isn't yet activated are skipped silently and don't count
   toward the tally.
-- **The 32 dirs in CI** (alphabetical):
+- **The 34 dirs in CI** (alphabetical):
   `stArgsZeroOneBalance`, `stAttackTest`, `stBadOpcode`, `stBugs`,
   `stCallCodes`, `stCallCreateCallCodeTest`,
   `stCallDelegateCodesCallCodeHomestead`,
@@ -128,7 +105,8 @@ otherwise stay in the trie).
   `stPreCompiledContracts`, `stPreCompiledContracts2`,
   `stMemoryStressTest`, `stMemoryTest`, `stRandom`, `stRecursiveCreate`,
   `stRefundTest`, `stShift`, `stSpecialTest`, `stStackTests`,
-  `stTransactionTest`, `stTransitionTest`, `stZeroCallsRevert`.
+  `stTransactionTest`, `stTransitionTest`, `stZeroCallsRevert`,
+  `stZeroKnowledge`, `stZeroKnowledge2`.
   Add a directory to the sparse-checkout in
   `.github/workflows/ci.yml` and regenerate the baseline once the
   evaluator passes every variant in that directory.
