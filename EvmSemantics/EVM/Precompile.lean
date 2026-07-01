@@ -18,6 +18,9 @@ public import EvmSemantics.Crypto.Bls12381G1Msm
 public import EvmSemantics.Crypto.Bls12381G2Add
 public import EvmSemantics.Crypto.Bls12381G2Msm
 public import EvmSemantics.Crypto.Bls12381PairingCheck
+public import EvmSemantics.Crypto.Bls12381MapFpToG1
+public import EvmSemantics.Crypto.Bls12381MapFp2ToG2
+public import EvmSemantics.Crypto.BlsKzg
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -534,6 +537,62 @@ def runBlsPairing (input : ByteArray) (childGas : Nat) : Result :=
   else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x0A KZG point evaluation (Cancun+, EIP-4844).
+----------------------------------------------------------------------------
+
+/-- Address `0x0A`. -/
+def kzgAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0a)
+
+/-- Gas: flat 50000 (EIP-4844). -/
+@[inline] def kzgGas : Nat := 50000
+
+/-- Run KZG point-evaluation precompile. -/
+def runKzg (input : ByteArray) (childGas : Nat) : Result :=
+  if kzgGas ≤ childGas then
+    match Crypto.BlsKzg.run? input with
+    | some output => .success output kzgGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x10 BLS12_MAP_FP_TO_G1 — Fp → G₁ via SSWU + 11-isogeny (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x10`. -/
+def blsMapFpToG1Address : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 0x10)
+
+/-- Gas: flat 5500 (EIP-2537). -/
+@[inline] def blsMapFpToG1Gas : Nat := 5500
+
+/-- Run BLS12_MAP_FP_TO_G1. -/
+def runBlsMapFpToG1 (input : ByteArray) (childGas : Nat) : Result :=
+  if blsMapFpToG1Gas ≤ childGas then
+    match Crypto.Bls12381MapFpToG1.run? input with
+    | some output => .success output blsMapFpToG1Gas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x11 BLS12_MAP_FP2_TO_G2 — Fp2 → G₂ via SSWU + 3-isogeny (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x11`. -/
+def blsMapFp2ToG2Address : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 0x11)
+
+/-- Gas: flat 23800 (EIP-2537). -/
+@[inline] def blsMapFp2ToG2Gas : Nat := 23800
+
+/-- Run BLS12_MAP_FP2_TO_G2. -/
+def runBlsMapFp2ToG2 (input : ByteArray) (childGas : Nat) : Result :=
+  if blsMapFp2ToG2Gas ≤ childGas then
+    match Crypto.Bls12381MapFp2ToG2.run? input with
+    | some output => .success output blsMapFp2ToG2Gas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
@@ -556,10 +615,12 @@ def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
       (addr = modexpAddress ||
        addr = ecaddAddress || addr = ecmulAddress || addr = ecpairingAddress)) ||
     (fork.atLeast .Istanbul && addr = blake2fAddress) ||
+    (fork.atLeast .Cancun && addr = kzgAddress) ||
     (fork.atLeast .Prague &&
       (addr = blsG1AddAddress || addr = blsG1MsmAddress ||
        addr = blsG2AddAddress || addr = blsG2MsmAddress ||
-       addr = blsPairingAddress))
+       addr = blsPairingAddress ||
+       addr = blsMapFpToG1Address || addr = blsMapFp2ToG2Address))
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -589,6 +650,8 @@ def run (fork : Fork) (addr : AccountAddress)
     runEcpairing fork input childGas
   else if h_bl : fork.atLeast .Istanbul ∧ addr = blake2fAddress then
     runBlake2f input childGas
+  else if h_kzg : fork.atLeast .Cancun ∧ addr = kzgAddress then
+    runKzg input childGas
   else if h_bg1 : addr = blsG1AddAddress then
     runBlsG1Add input childGas
   else if h_bm1 : addr = blsG1MsmAddress then
@@ -599,14 +662,19 @@ def run (fork : Fork) (addr : AccountAddress)
     runBlsG2Msm input childGas
   else if h_bp : addr = blsPairingAddress then
     runBlsPairing input childGas
+  else if h_mf1 : addr = blsMapFpToG1Address then
+    runBlsMapFpToG1 input childGas
+  else if h_mf2 : addr = blsMapFp2ToG2Address then
+    runBlsMapFp2ToG2 input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
     absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx,
-                                     h_add, h_mul, h_pair, h_bl,
-                                     h_bg1, h_bm1, h_bg2, h_bm2, h_bp])
+                                     h_add, h_mul, h_pair, h_bl, h_kzg,
+                                     h_bg1, h_bm1, h_bg2, h_bm2, h_bp,
+                                     h_mf1, h_mf2])
 
 end Precompile
 end EVM
