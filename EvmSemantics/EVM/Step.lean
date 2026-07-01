@@ -503,13 +503,15 @@ inductive StepRunning : State → State → Prop
 
   | balance (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .BALANCE)
-        (h_gas     : Gas.baseCost s.fork .BALANCE ≤ s.gasAvailable)
+        (h_gas     : Gas.balanceTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
       : StepRunning s
           { s with
               stack        := (s.accountMap (AccountAddress.ofUInt256 addr)).balance :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BALANCE }
+              gasAvailable := s.gasAvailable - Gas.balanceTotal s addr
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   | origin (s : State)
         (h_op      : s.decodedOp = some .ORIGIN)
@@ -615,7 +617,7 @@ inductive StepRunning : State → State → Prop
 
   | extcodesize (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .EXTCODESIZE)
-        (h_gas     : Gas.baseCost s.fork .EXTCODESIZE ≤ s.gasAvailable)
+        (h_gas     : Gas.extcodesizeTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
       : StepRunning s
           { s with
@@ -623,7 +625,9 @@ inductive StepRunning : State → State → Prop
                                 (s.accountMap (AccountAddress.ofUInt256 addr)).code.size
                               :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EXTCODESIZE }
+              gasAvailable := s.gasAvailable - Gas.extcodesizeTotal s addr
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   /-- EXTCODECOPY: pop addr, destOffset, srcOffset, size; copy external
       code bytes to memory. `Gas.extcodecopyTotal s destOff sz` bundles
@@ -632,18 +636,20 @@ inductive StepRunning : State → State → Prop
   | extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (rest : List UInt256)
         (h_op    : s.decodedOp = some .EXTCODECOPY)
         (h_stack : s.stack = addr :: destOff :: srcOff :: sz :: rest)
-        (h_gas   : Gas.extcodecopyTotal s destOff sz ≤ s.gasAvailable)
+        (h_gas   : Gas.extcodecopyTotal s addr destOff sz ≤ s.gasAvailable)
       : StepRunning s
           { s with
               stack        := rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s destOff sz
+              gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s addr destOff sz
               activeWords  := s.activeWordsAfterUInt256 destOff.toNat sz.toNat
               memory       := MachineState.writeBytes s.memory
                                 (MachineState.readPadded
                                   (s.accountMap (AccountAddress.ofUInt256 addr)).code
                                   srcOff.toNat sz.toNat)
-                                destOff.toNat }
+                                destOff.toNat
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   | returndatasize (s : State)
         (h_op      : s.decodedOp = some .RETURNDATASIZE)
@@ -676,13 +682,15 @@ inductive StepRunning : State → State → Prop
 
   | extcodehash (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .EXTCODEHASH)
-        (h_gas     : Gas.baseCost s.fork .EXTCODEHASH ≤ s.gasAvailable)
+        (h_gas     : Gas.extcodehashTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
       : StepRunning s
           { s with
               stack        := (s.accountMap (AccountAddress.ofUInt256 addr)).codeHash :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EXTCODEHASH }
+              gasAvailable := s.gasAvailable - Gas.extcodehashTotal s addr
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   ----------------------------------------------------------------------------
   -- Block-context reads.
@@ -951,16 +959,20 @@ inductive StepRunning : State → State → Prop
   -- Storage (persistent and transient).
   ----------------------------------------------------------------------------
 
-  /-- SLOAD: pop key; push storage[key] from the executing contract. -/
+  /-- SLOAD: pop key; push storage[key] from the executing contract.
+      `Gas.sloadTotal s key` bundles the static warm base and the EIP-2929
+      cold surcharge; the slot is marked warm in the substate afterwards. -/
   | sload (s : State) (key : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .SLOAD)
-        (h_gas     : Gas.baseCost s.fork .SLOAD ≤ s.gasAvailable)
+        (h_gas     : Gas.sloadTotal s key ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
       : StepRunning s
           { s with
               stack        := ((s.accountMap s.executionEnv.address).storage key) :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SLOAD }
+              gasAvailable := s.gasAvailable - Gas.sloadTotal s key
+              substate     := s.substate.addAccessedStorageKey
+                                (s.executionEnv.address, key) }
 
   /-- SSTORE: pop key, value; write storage[key] := value. Requires
       static-mode permission. `Gas.sstoreTotal s key value` bundles the
@@ -983,7 +995,7 @@ inductive StepRunning : State → State → Prop
                                     storage := (s.accountMap s.executionEnv.address).storage.set
                                                  key value }
               substate     :=
-                { s.substate with
+                { s.substate.addAccessedStorageKey (s.executionEnv.address, key) with
                     refundBalance :=
                       let δ := Gas.sstoreRefund s.fork
                                  (s.substate.originalStorage s.executionEnv.address key)
@@ -1241,20 +1253,20 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CALLCODE)
         (h_stack : s.stack =
                      gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
-        (h_gas   : Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+        (h_gas   : Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
                       (s.accountMap s.executionEnv.address).balance < value))
         (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                      gasArg.toNat)
         (h_afford : forwarded ≤ s.gasAvailable
-                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
-                                - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                                - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                                 - forwarded
                 activeWords  := s.activeWordsAfterUInt256_2
                                   argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
@@ -1274,23 +1286,23 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CALLCODE)
         (h_stack : s.stack =
                      gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
-        (h_gas   : Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+        (h_gas   : Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         -- Mirrors `callFail`'s `h_afford` premise: pre-EIP-150, silent
         -- fail is only legal when `gasArg` also fits — otherwise the
         -- transition is OOG rather than a `0`-push.
         (h_afford : Gas.forwardGas s.executionEnv.fork
                       (s.gasAvailable
-                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                       gasArg.toNat
                     ≤ s.gasAvailable
-                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
-                              - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                              - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                               + (bif (value.toNat != 0) then Gas.callStipend else 0)
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
@@ -1320,19 +1332,19 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .DELEGATECALL)
         (h_stack : s.stack =
                      gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
-        (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+        (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
         (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
                      gasArg.toNat)
         (h_afford : forwarded ≤ s.gasAvailable
-                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
-                                - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                                - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
                                 - forwarded
                 activeWords  := s.activeWordsAfterUInt256_2
                                   argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
@@ -1350,7 +1362,7 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .DELEGATECALL)
         (h_stack : s.stack =
                      gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
-        (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+        (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         -- Mirrors `callFail`'s `h_afford`: DELEGATECALL first appeared in
         -- Homestead (pre-EIP-150), so `gasArg > gasAvailable - commit`
@@ -1358,15 +1370,15 @@ inductive StepRunning : State → State → Prop
         -- `g - g/64` cap makes this trivial.
         (h_afford : Gas.forwardGas s.executionEnv.fork
                       (s.gasAvailable
-                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
                       gasArg.toNat
                     ≤ s.gasAvailable
-                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
-                              - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                              - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
@@ -1384,19 +1396,19 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .STATICCALL)
         (h_stack : s.stack =
                      gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
-        (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen
+        (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         (h_take  : ¬ s.executionEnv.depth ≥ 1024)
         (h_fwd   : forwarded = Gas.forwardGas s.executionEnv.fork
                      (s.gasAvailable
-                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
                      gasArg.toNat)
         (h_afford : forwarded ≤ s.gasAvailable
-                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
-                                - Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                                - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
                                 - forwarded
                 activeWords  := s.activeWordsAfterUInt256_2
                                   argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat }
@@ -1413,7 +1425,7 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .STATICCALL)
         (h_stack : s.stack =
                      gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
-        (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen
+        (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         -- Same `h_afford` as `callFail`. STATICCALL is Byzantium+ so
         -- post-EIP-150 always: the `g - g/64` cap makes this trivial,
@@ -1421,15 +1433,15 @@ inductive StepRunning : State → State → Prop
         -- call family.
         (h_afford : Gas.forwardGas s.executionEnv.fork
                       (s.gasAvailable
-                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
                       gasArg.toNat
                     ≤ s.gasAvailable
-                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
-                              - Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                              - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty

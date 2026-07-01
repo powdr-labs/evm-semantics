@@ -249,8 +249,12 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     .ok (s'.replaceStackAndIncrPC (s.executionEnv.address.toUInt256 :: s.stack))
   | .BALANCE => match s.stack with
     | a :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap (AccountAddress.ofUInt256 a)).balance :: rest))
+      if h : Gas.balanceTotal s a ≤ s.gasAvailable then
+        .ok ({ (s.consumeGas (Gas.balanceTotal s a) h) with
+                 substate := s.substate.addAccessedAccount
+                               (AccountAddress.ofUInt256 a) }.replaceStackAndIncrPC
+              ((s.accountMap (AccountAddress.ofUInt256 a)).balance :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .ORIGIN => .ok (s'.replaceStackAndIncrPC (s.executionEnv.origin.toUInt256 :: s.stack))
   | .CALLER => .ok (s'.replaceStackAndIncrPC (s.executionEnv.caller.toUInt256 :: s.stack))
@@ -300,14 +304,20 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
   | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
   | .EXTCODESIZE => match s.stack with
     | a :: rest =>
-      let sz := (s.accountMap (AccountAddress.ofUInt256 a)).code.size
-      .ok (s'.replaceStackAndIncrPC (UInt256.ofNat sz :: rest))
+      if h : Gas.extcodesizeTotal s a ≤ s.gasAvailable then
+        let sz := (s.accountMap (AccountAddress.ofUInt256 a)).code.size
+        .ok ({ (s.consumeGas (Gas.extcodesizeTotal s a) h) with
+                 substate := s.substate.addAccessedAccount
+                               (AccountAddress.ofUInt256 a) }.replaceStackAndIncrPC
+              (UInt256.ofNat sz :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .EXTCODECOPY => match s.stack with
     | a :: destOff :: srcOff :: sz :: rest =>
       match chargeMem s' destOff.toNat sz.toNat with
       | .ok s'' =>
         let dyn := Gas.copyWordCost sz
+                     + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
         if h : dyn ≤ s''.gasAvailable then
           let s''' := s''.consumeGas dyn h
           let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
@@ -315,7 +325,8 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
           let μ' : MachineState :=
             { s'''.toMachineState with
                 memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+          let sub' := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a)
+          .ok ({ s''' with toMachineState := μ', substate := sub' }.replaceStackAndIncrPC rest)
         else .error .OutOfGas
       | .error e => .error e
     | _ => underflow
@@ -343,8 +354,12 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | _ => underflow
   | .EXTCODEHASH => match s.stack with
     | a :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap (AccountAddress.ofUInt256 a)).codeHash :: rest))
+      if h : Gas.extcodehashTotal s a ≤ s.gasAvailable then
+        .ok ({ (s.consumeGas (Gas.extcodehashTotal s a) h) with
+                 substate := s.substate.addAccessedAccount
+                               (AccountAddress.ofUInt256 a) }.replaceStackAndIncrPC
+              ((s.accountMap (AccountAddress.ofUInt256 a)).codeHash :: rest))
+      else .error .OutOfGas
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -418,8 +433,14 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .SLOAD => match s.stack with
     | key :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap s.executionEnv.address).storage key :: rest))
+      -- EIP-2929: charge the full warm base + cold surcharge in one shot
+      -- (from `s`, not the base-only `s'`), then mark the slot warm.
+      if h : Gas.sloadTotal s key ≤ s.gasAvailable then
+        .ok ({ (s.consumeGas (Gas.sloadTotal s key) h) with
+                 substate := s.substate.addAccessedStorageKey
+                               (s.executionEnv.address, key) }.replaceStackAndIncrPC
+              ((s.accountMap s.executionEnv.address).storage key :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .SSTORE =>
     if ¬ s.executionEnv.permitStateMutation then static
@@ -434,6 +455,7 @@ def stackMemFlow (s s' : State) :
       let current  := acc.storage key
       let original := s.substate.originalStorage addr key
       let cost     := Gas.sstoreCost s.fork original current value
+                        + Gas.sstoreColdSurcharge s key
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
@@ -448,7 +470,8 @@ def stackMemFlow (s s' : State) :
         let rb : Int := (s.substate.refundBalance.toNat : Int) + refDelta
         let rb' : Nat := if rb < 0 then 0 else rb.toNat
         let sub' : Substate :=
-          { s.substate with refundBalance := UInt256.ofNat rb' }
+          { s.substate.addAccessedStorageKey (addr, key) with
+              refundBalance := UInt256.ofNat rb' }
         .ok ({ (s'.consumeGas cost h) with
                  accountMap := σ', substate := sub' }.replaceStackAndIncrPC rest)
       else .error .OutOfGas
@@ -683,6 +706,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let valNZ    : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge s.fork valNZ
                            (Gas.callTargetIsNew s.fork s2.accountMap tgt)
+                         + Gas.accountColdSurcharge s tgt
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -743,6 +767,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge s.fork valNZ false
+                         + Gas.accountColdSurcharge s codeAddr
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -791,26 +816,32 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
-        -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
-        -- before the depth silent-fail, mirroring the CALL/CALLCODE
-        -- ordering — see the comment in `.CALL`. DELEGATECALL first
-        -- appeared in Homestead (pre-EIP-150), so the uncapped
-        -- `forwardGas = gasArg` branch is reachable.
-        let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
-        if hfw : forwarded ≤ s2.gasAvailable then
-          if s2.executionEnv.depth ≥ 1024 then
-            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                   (UInt256.ofNat 0 :: rest))
-          else
-            let s3       := s2.consumeGas forwarded hfw
-            let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
-            -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
-            -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
-            -- generic precompile arm's job at the top of the next
-            -- iteration; the frame's `codeAddr := tgt` is set by
-            -- `enterCallFor` so the arm has the right key.
-            .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
-                   callee.code forwarded retOff.toNat retLen.toNat)
+        -- EIP-2929 cold-access surcharge for the target, charged before
+        -- forwarding (mirrors CALL/CALLCODE's `surcharge` stage).
+        let coldSur  := Gas.accountColdSurcharge s tgt
+        if hcs : coldSur ≤ s2.gasAvailable then
+          let s2c := s2.consumeGas coldSur hcs
+          -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
+          -- before the depth silent-fail, mirroring the CALL/CALLCODE
+          -- ordering — see the comment in `.CALL`. DELEGATECALL first
+          -- appeared in Homestead (pre-EIP-150), so the uncapped
+          -- `forwardGas = gasArg` branch is reachable.
+          let forwarded := Gas.forwardGas s.fork s2c.gasAvailable gasArg.toNat
+          if hfw : forwarded ≤ s2c.gasAvailable then
+            if s2c.executionEnv.depth ≥ 1024 then
+              .ok ({ s2c with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              let s3       := s2c.consumeGas forwarded hfw
+              let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
+              -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
+              -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
+              -- generic precompile arm's job at the top of the next
+              -- iteration; the frame's `codeAddr := tgt` is set by
+              -- `enterCallFor` so the arm has the right key.
+              .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
+                     callee.code forwarded retOff.toNat retLen.toNat)
+          else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
   | .STATICCALL => match s.stack with
@@ -824,25 +855,31 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
-        -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
-        -- caps at `g - g/64` and `hfw` is trivial — but we still keep
-        -- the check at the outer position to mirror the shape of
-        -- CALL/CALLCODE/DELEGATECALL and let the spec share the same
-        -- premise structure across the call family.
-        let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
-        if hfw : forwarded ≤ s2.gasAvailable then
-          if s2.executionEnv.depth ≥ 1024 then
-            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                   (UInt256.ofNat 0 :: rest))
-          else
-            let s3       := s2.consumeGas forwarded hfw
-            let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
-            -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
-            -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
-            -- generic precompile arm's job at the top of the next
-            -- iteration.
-            .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
-                   callee.code forwarded retOff.toNat retLen.toNat)
+        -- EIP-2929 cold-access surcharge for the target, charged before
+        -- forwarding (mirrors CALL/CALLCODE's `surcharge` stage).
+        let coldSur  := Gas.accountColdSurcharge s tgt
+        if hcs : coldSur ≤ s2.gasAvailable then
+          let s2c := s2.consumeGas coldSur hcs
+          -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
+          -- caps at `g - g/64` and `hfw` is trivial — but we still keep
+          -- the check at the outer position to mirror the shape of
+          -- CALL/CALLCODE/DELEGATECALL and let the spec share the same
+          -- premise structure across the call family.
+          let forwarded := Gas.forwardGas s.fork s2c.gasAvailable gasArg.toNat
+          if hfw : forwarded ≤ s2c.gasAvailable then
+            if s2c.executionEnv.depth ≥ 1024 then
+              .ok ({ s2c with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              let s3       := s2c.consumeGas forwarded hfw
+              let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
+              -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
+              -- Precompile dispatch (if `tgt` is in `0x01..0x09`) is the
+              -- generic precompile arm's job at the top of the next
+              -- iteration.
+              .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
+                     callee.code forwarded retOff.toNat retLen.toNat)
+          else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
   | .SELFDESTRUCT => match s.stack with

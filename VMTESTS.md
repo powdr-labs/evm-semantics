@@ -325,15 +325,17 @@ each with:
   reported `INCON` and skipped (`isTypedTx` keys on the presence of
   `maxFeePerGas` / a non-empty access list / blob hashes). ~99% of the corpus
   is legacy `gasPrice`.
-- **Cancun/Prague only** in the corpus. Two structural reasons keep most tests
-  at the **`passCore`** tier rather than `passFull`/`passRoot`:
-  1. `Tx.execute` performs **no EIP-1559 base-fee burn** — London+ burns
-     `baseFee * gasUsed`, so we overpay the coinbase and the sender/coinbase
-     balances (and the MPT root) differ whenever `currentBaseFee > 0`.
-  2. **EIP-2929 cold/warm** access costs and **EIP-3651 warm-coinbase** are not
-     modelled (a pre-existing gas gap).
-  Storage/nonce/code are unaffected by either, so `passCore` is the honest,
-  expected tier. A passCore-heavy result is **not** a regression.
+- **Cancun/Prague only** in the corpus. **EIP-2929** cold/warm access pricing
+  *is* now modelled (SLOAD/SSTORE storage-slot warmth; BALANCE/EXTCODESIZE/
+  EXTCODEHASH/EXTCODECOPY and the CALL family account warmth; tx pre-warming of
+  sender/recipient/precompiles/coinbase; CREATE/CALL-target warming), which
+  lifted ~6976 tests from `passCore` to `passFull` (exact balances). The main
+  remaining reason tests stay at `passCore` rather than `passRoot` is that
+  `Tx.execute` performs **no EIP-1559 base-fee burn** — London+ burns
+  `baseFee * gasUsed`, so the coinbase balance (and the MPT root) differ
+  whenever `currentBaseFee > 0`. **EIP-3651 warm-coinbase** is modelled;
+  SSTORE gas refunds (EIP-3529) are not, so refund-sensitive balances can still
+  differ. Storage/nonce/code are unaffected, so those cases land at `passCore`.
 - **Transaction validity is only partially enforced.** The YP §6.2 intrinsic-gas
   gate *is* enforced: a tx with `g₀ > gasLimit` is rejected with zero state
   change (fixes the `INTRINSIC_GAS_TOO_LOW` `invalidTr` cases, which now pass at

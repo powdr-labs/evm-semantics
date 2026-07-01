@@ -463,17 +463,20 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   (Gas.callTargetIsNew s.fork
                     ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).accountMap
-                    (AccountAddress.ofUInt256 toArg)) with hsurch
+                    (AccountAddress.ofUInt256 toArg))
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) with hsurch
             have h_surch_eq : surch = Gas.callSurcharge s.fork (value.toNat != 0)
                 (Gas.callTargetIsNew s.fork s.accountMap
-                  (AccountAddress.ofUInt256 toArg)) := by
+                  (AccountAddress.ofUInt256 toArg))
+                + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) := by
               simp [hsurch, State.consumeGas, State.consumeMemExp2]
             have h_committed :
                 Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                 ≤ s.gasAvailable := by
-              show base + md + Gas.callSurcharge s.fork (value.toNat != 0)
+              show base + md + (Gas.callSurcharge s.fork (value.toNat != 0)
                     (Gas.callTargetIsNew s.fork s.accountMap
                       (AccountAddress.ofUInt256 toArg))
+                    + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
                   ≤ s.gasAvailable
               rw [← h_surch_eq]
               simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
@@ -643,8 +646,10 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
         split at h
         · rename_i h_sc
           have h_committed :
-              Gas.callcodeCommitted s value argsOff argsLen retOff retLen ≤ s.gasAvailable := by
-            show base + md + Gas.callSurcharge s.fork (value.toNat != 0) false
+              Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
+                ≤ s.gasAvailable := by
+            show base + md + (Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
                 ≤ s.gasAvailable
             simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
                   MachineState.memExpansionDelta2, Gas.callSurcharge, Bool.and_false,
@@ -662,7 +667,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               -- LHS-after-replaceStackAndIncrPC, in two pieces.
               set s3 := ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                           retOff.toNat retLen.toNat h_mem).consumeGas
-                          (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc with hs3
+                          ((Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc with hs3
               have post_eq :
                   ({ (if (value.toNat != 0) then
                         { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
@@ -670,7 +676,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                   = ({ s with
                       gasAvailable := s.gasAvailable
-                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                         + (bif (value.toNat != 0) then Gas.callStipend else 0)
                       activeWords := s.activeWordsAfterUInt256_2
                         argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
@@ -688,10 +694,10 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               have h_afford :
                   Gas.forwardGas s.executionEnv.fork
                       (s.gasAvailable
-                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                       gasArg.toNat
                     ≤ s.gasAvailable
-                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen := by
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg := by
                 -- `set s3 := …` above rewrote `h_fw` to reference `s3`;
                 -- unfold via `hs3` before the consume-chain simp — same
                 -- pattern as `.CALL` above.
@@ -699,12 +705,14 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                 simp only [hs3, State.consumeGas, State.consumeMemExp2] at h
                 show Gas.forwardGas s.fork _ _ ≤ _
                 have eq : (s.gasAvailable
-                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                         = s.gasAvailable - base - md
-                          - Gas.callSurcharge s.fork (value.toNat != 0) false := by
+                          - (Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) := by
                   show _ = _
-                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen
-                          = base + md + Gas.callSurcharge s.fork (value.toNat != 0) false from
+                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
+                          = base + md + (Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) from
                         rfl]
                   omega
                 rw [eq]
@@ -719,23 +727,27 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               have post_eq :
                   ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas
-                      (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).consumeGas
+                      ((Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
                       (Gas.forwardGas s.fork
                         ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                          (Gas.callSurcharge s.fork (value.toNat != 0) false)
+                          ((Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)))
                           h_sc).gasAvailable) gasArg.toNat)
                       h_fw).enterCall rest
                     (((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                        (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).consumeGas
+                        ((Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
                         _ h_fw).executionEnv.address)
                     (AccountAddress.ofUInt256 toArg)
                     value
                     (MachineState.readPadded
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                        (Gas.callSurcharge s.fork (value.toNat != 0) false) h_sc).consumeGas
+                        ((Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
                         _ h_fw).memory argsOff.toNat argsLen.toNat)
                     (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).accountMap
@@ -743,16 +755,17 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     (Gas.forwardGas s.fork
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
-                        (Gas.callSurcharge s.fork (value.toNat != 0) false)
+                        ((Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)))
                         h_sc).gasAvailable) gasArg.toNat
                       + (bif (value.toNat != 0) then Gas.callStipend else 0))
                     retOff.toNat retLen.toNat
                   = (({ s with
                         gasAvailable := s.gasAvailable
-                          - Gas.callcodeCommitted s value argsOff argsLen retOff retLen
+                          - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                           - Gas.forwardGas s.fork
                               (s.gasAvailable
-                               - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                               - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                               gasArg.toNat
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
@@ -762,7 +775,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         (s.accountMap (AccountAddress.ofUInt256 toArg)).code
                         (Gas.forwardGas s.fork
                             (s.gasAvailable
-                             - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                             - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                             gasArg.toNat
                           + (bif (value.toNat != 0) then Gas.callStipend else 0))
                         retOff.toNat retLen.toNat) := by
@@ -775,20 +788,22 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               have h_afford :
                   Gas.forwardGas s.executionEnv.fork
                       (s.gasAvailable
-                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                       gasArg.toNat
                     ≤ s.gasAvailable
-                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen := by
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg := by
                 have h := h_fw
                 simp only [State.consumeGas, State.consumeMemExp2] at h
                 show Gas.forwardGas s.fork _ _ ≤ _
                 have eq : (s.gasAvailable
-                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                            - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                         = s.gasAvailable - base - md
-                          - Gas.callSurcharge s.fork (value.toNat != 0) false := by
+                          - (Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) := by
                   show _ = _
-                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen
-                          = base + md + Gas.callSurcharge s.fork (value.toNat != 0) false from
+                  rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
+                          = base + md + (Gas.callSurcharge s.fork (value.toNat != 0) false
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) from
                         rfl]
                   omega
                 rw [eq]
@@ -820,126 +835,135 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         argsOff.toNat argsLen.toNat)
                       retOff.toNat retLen.toNat)
                   - MachineState.memCost s.activeWords.toNat with hmd
-        have h_committed :
-            Gas.delegatecallCommitted s argsOff argsLen retOff retLen ≤ s.gasAvailable := by
-          show base + md ≤ s.gasAvailable
-          simp [State.canExpandMemory2, State.consumeGas,
-                MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem
-          omega
         split at h
-        · rename_i h_fw
+        · rename_i h_cs
+          set cold := Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) with hcold
+          have h_committed :
+              Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+                ≤ s.gasAvailable := by
+            show base + md + cold ≤ s.gasAvailable
+            simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
+                  MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem h_cs
+            omega
           split at h
-          · rename_i h_fail
-            cases h
-            have h_fail' : s.executionEnv.depth ≥ 1024 := by
-              simpa [State.consumeGas, State.consumeMemExp2] using h_fail
-            have post_eq :
-                ({ (s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                    retOff.toNat retLen.toNat h_mem with
-                    returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
-                = ({ s with
-                      gasAvailable := s.gasAvailable
-                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
-                      activeWords := s.activeWordsAfterUInt256_2
-                        argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                      returnData := .empty
-                      stack := UInt256.ofNat 0 :: rest
-                      pc := s.pc.succ } : State) := by
-              simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
-                    State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
-                    UInt256.succ, MachineState.memExpansionDelta2,
-                    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
-              grind
-            rw [post_eq]
-            have h_afford :
-                Gas.forwardGas s.executionEnv.fork
-                    (s.gasAvailable
-                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                    gasArg.toNat
-                  ≤ s.gasAvailable
-                    - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
-              have h := h_fw
-              simp only [State.consumeGas, State.consumeMemExp2] at h
-              show Gas.forwardGas s.fork _ _ ≤ _
-              have eq : (s.gasAvailable
-                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                      = s.gasAvailable - base - md := by
-                show _ = _
-                rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen
-                        = base + md from rfl]
-                omega
-              rw [eq]
-              exact h
-            exact StepRunning.delegatecallFail s gasArg toArg argsOff argsLen retOff retLen
-              rest h_dec h_stack h_committed h_afford h_fail'
-          · rename_i h_take
-            cases h
-            have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
-              simpa [State.consumeGas, State.consumeMemExp2] using h_take
-            have post_eq :
-                (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).consumeGas
-                    (Gas.forwardGas s.fork
-                      ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).gasAvailable gasArg.toNat)
-                    h_fw).enterCallFor
-                  .DelegateCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
-                  (MachineState.readPadded
-                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).consumeGas _ h_fw).memory
-                    argsOff.toNat argsLen.toNat)
-                  (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).accountMap
-                    (AccountAddress.ofUInt256 toArg)).code
-                  (Gas.forwardGas s.fork
-                    ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).gasAvailable gasArg.toNat)
-                  retOff.toNat retLen.toNat
-                = (({ s with
-                      gasAvailable := s.gasAvailable
-                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
-                        - Gas.forwardGas s.fork
-                            (s.gasAvailable
-                              - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                            gasArg.toNat
-                      activeWords := s.activeWordsAfterUInt256_2
-                        argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                    } : State).enterCallFor .DelegateCall rest
-                      (AccountAddress.ofUInt256 toArg) ⟨0⟩
-                      (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-                      (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+          · rename_i h_fw
+            split at h
+            · rename_i h_fail
+              cases h
+              have h_fail' : s.executionEnv.depth ≥ 1024 := by
+                simpa [State.consumeGas, State.consumeMemExp2] using h_fail
+              have post_eq :
+                  ({ (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                      retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs) with
+                      returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                  = ({ s with
+                        gasAvailable := s.gasAvailable
+                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+                        activeWords := s.activeWordsAfterUInt256_2
+                          argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+                        returnData := .empty
+                        stack := UInt256.ofNat 0 :: rest
+                        pc := s.pc.succ } : State) := by
+                simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
+                      State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
+                      UInt256.succ, MachineState.memExpansionDelta2,
+                      show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+                grind
+              rw [post_eq]
+              have h_afford :
+                  Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg := by
+                have h := h_fw
+                simp only [State.consumeGas, State.consumeMemExp2] at h
+                show Gas.forwardGas s.fork _ _ ≤ _
+                have eq : (s.gasAvailable
+                            - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+                        = s.gasAvailable - base - md - cold := by
+                  show _ = _
+                  rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+                          = base + md + cold from rfl]
+                  omega
+                rw [eq]
+                exact h
+              exact StepRunning.delegatecallFail s gasArg toArg argsOff argsLen retOff retLen
+                rest h_dec h_stack h_committed h_afford h_fail'
+            · rename_i h_take
+              cases h
+              have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
+                simpa [State.consumeGas, State.consumeMemExp2] using h_take
+              have post_eq :
+                  ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                    retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).consumeGas
                       (Gas.forwardGas s.fork
-                        (s.gasAvailable
-                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                        (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                          retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).gasAvailable
+                          gasArg.toNat)
+                      h_fw).enterCallFor
+                    .DelegateCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
+                    (MachineState.readPadded
+                      ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                        retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).consumeGas
+                          _ h_fw).memory
+                      argsOff.toNat argsLen.toNat)
+                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                        retOff.toNat retLen.toNat h_mem).accountMap
+                      (AccountAddress.ofUInt256 toArg)).code
+                    (Gas.forwardGas s.fork
+                      (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                        retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).gasAvailable
                         gasArg.toNat)
-                      retOff.toNat retLen.toNat) := by
-              simp [State.enterCallFor, State.consumeGas, State.consumeMemExp2,
-                    State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
-                    MachineState.memExpansionDelta2,
-                    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
-              grind
-            rw [post_eq]
-            have h_afford :
-                Gas.forwardGas s.executionEnv.fork
-                    (s.gasAvailable
-                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                    gasArg.toNat
-                  ≤ s.gasAvailable
-                    - Gas.delegatecallCommitted s argsOff argsLen retOff retLen := by
-              have h := h_fw
-              simp only [State.consumeGas, State.consumeMemExp2] at h
-              show Gas.forwardGas s.fork _ _ ≤ _
-              have eq : (s.gasAvailable
-                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
-                      = s.gasAvailable - base - md := by
-                show _ = _
-                rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen
-                        = base + md from rfl]
-                omega
-              rw [eq]
-              exact h
-            exact StepRunning.delegatecall s gasArg toArg argsOff argsLen retOff retLen
-              rest _ h_dec h_stack h_committed h_take' rfl h_afford
+                    retOff.toNat retLen.toNat
+                  = (({ s with
+                        gasAvailable := s.gasAvailable
+                          - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+                          - Gas.forwardGas s.fork
+                              (s.gasAvailable
+                                - Gas.delegatecallCommitted s argsOff argsLen retOff retLen
+                                  toArg)
+                              gasArg.toNat
+                        activeWords := s.activeWordsAfterUInt256_2
+                          argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+                      } : State).enterCallFor .DelegateCall rest
+                        (AccountAddress.ofUInt256 toArg) ⟨0⟩
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+                        (Gas.forwardGas s.fork
+                          (s.gasAvailable
+                            - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+                          gasArg.toNat)
+                        retOff.toNat retLen.toNat) := by
+                simp [State.enterCallFor, State.consumeGas, State.consumeMemExp2,
+                      State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
+                      MachineState.memExpansionDelta2,
+                      show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+                grind
+              rw [post_eq]
+              have h_afford :
+                  Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg := by
+                have h := h_fw
+                simp only [State.consumeGas, State.consumeMemExp2] at h
+                show Gas.forwardGas s.fork _ _ ≤ _
+                have eq : (s.gasAvailable
+                            - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+                        = s.gasAvailable - base - md - cold := by
+                  show _ = _
+                  rw [show Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+                          = base + md + cold from rfl]
+                  omega
+                rw [eq]
+                exact h
+              exact StepRunning.delegatecall s gasArg toArg argsOff argsLen retOff retLen
+                rest _ h_dec h_stack h_committed h_take' rfl h_afford
+          · nomatch h
         · nomatch h
       · simp [h_mem] at h
     | [], h                            => nomatch h
@@ -963,126 +987,135 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         argsOff.toNat argsLen.toNat)
                       retOff.toNat retLen.toNat)
                   - MachineState.memCost s.activeWords.toNat with hmd
-        have h_committed :
-            Gas.staticcallCommitted s argsOff argsLen retOff retLen ≤ s.gasAvailable := by
-          show base + md ≤ s.gasAvailable
-          simp [State.canExpandMemory2, State.consumeGas,
-                MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem
-          omega
         split at h
-        · rename_i h_fw
+        · rename_i h_cs
+          set cold := Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) with hcold
+          have h_committed :
+              Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+                ≤ s.gasAvailable := by
+            show base + md + cold ≤ s.gasAvailable
+            simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
+                  MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem h_cs
+            omega
           split at h
-          · rename_i h_fail
-            cases h
-            have h_fail' : s.executionEnv.depth ≥ 1024 := by
-              simpa [State.consumeGas, State.consumeMemExp2] using h_fail
-            have post_eq :
-                ({ (s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                    retOff.toNat retLen.toNat h_mem with
-                    returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
-                = ({ s with
-                      gasAvailable := s.gasAvailable
-                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen
-                      activeWords := s.activeWordsAfterUInt256_2
-                        argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                      returnData := .empty
-                      stack := UInt256.ofNat 0 :: rest
-                      pc := s.pc.succ } : State) := by
-              simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
-                    State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
-                    UInt256.succ, MachineState.memExpansionDelta2,
-                    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
-              grind
-            rw [post_eq]
-            have h_afford :
-                Gas.forwardGas s.executionEnv.fork
-                    (s.gasAvailable
-                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                    gasArg.toNat
-                  ≤ s.gasAvailable
-                    - Gas.staticcallCommitted s argsOff argsLen retOff retLen := by
-              have h := h_fw
-              simp only [State.consumeGas, State.consumeMemExp2] at h
-              show Gas.forwardGas s.fork _ _ ≤ _
-              have eq : (s.gasAvailable
-                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                      = s.gasAvailable - base - md := by
-                show _ = _
-                rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen
-                        = base + md from rfl]
-                omega
-              rw [eq]
-              exact h
-            exact StepRunning.staticcallFail s gasArg toArg argsOff argsLen retOff retLen
-              rest h_dec h_stack h_committed h_afford h_fail'
-          · rename_i h_take
-            cases h
-            have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
-              simpa [State.consumeGas, State.consumeMemExp2] using h_take
-            have post_eq :
-                (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                  retOff.toNat retLen.toNat h_mem).consumeGas
-                    (Gas.forwardGas s.fork
-                      ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).gasAvailable gasArg.toNat)
-                    h_fw).enterCallFor
-                  .StaticCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
-                  (MachineState.readPadded
-                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).consumeGas _ h_fw).memory
-                    argsOff.toNat argsLen.toNat)
-                  (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).accountMap
-                    (AccountAddress.ofUInt256 toArg)).code
-                  (Gas.forwardGas s.fork
-                    ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                      retOff.toNat retLen.toNat h_mem).gasAvailable gasArg.toNat)
-                  retOff.toNat retLen.toNat
-                = (({ s with
-                      gasAvailable := s.gasAvailable
-                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen
-                        - Gas.forwardGas s.fork
-                            (s.gasAvailable
-                              - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                            gasArg.toNat
-                      activeWords := s.activeWordsAfterUInt256_2
-                        argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-                    } : State).enterCallFor .StaticCall rest
-                      (AccountAddress.ofUInt256 toArg) ⟨0⟩
-                      (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-                      (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+          · rename_i h_fw
+            split at h
+            · rename_i h_fail
+              cases h
+              have h_fail' : s.executionEnv.depth ≥ 1024 := by
+                simpa [State.consumeGas, State.consumeMemExp2] using h_fail
+              have post_eq :
+                  ({ (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                      retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs) with
+                      returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                  = ({ s with
+                        gasAvailable := s.gasAvailable
+                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+                        activeWords := s.activeWordsAfterUInt256_2
+                          argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+                        returnData := .empty
+                        stack := UInt256.ofNat 0 :: rest
+                        pc := s.pc.succ } : State) := by
+                simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
+                      State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
+                      UInt256.succ, MachineState.memExpansionDelta2,
+                      show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+                grind
+              rw [post_eq]
+              have h_afford :
+                  Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg := by
+                have h := h_fw
+                simp only [State.consumeGas, State.consumeMemExp2] at h
+                show Gas.forwardGas s.fork _ _ ≤ _
+                have eq : (s.gasAvailable
+                            - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+                        = s.gasAvailable - base - md - cold := by
+                  show _ = _
+                  rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+                          = base + md + cold from rfl]
+                  omega
+                rw [eq]
+                exact h
+              exact StepRunning.staticcallFail s gasArg toArg argsOff argsLen retOff retLen
+                rest h_dec h_stack h_committed h_afford h_fail'
+            · rename_i h_take
+              cases h
+              have h_take' : ¬ s.executionEnv.depth ≥ 1024 := by
+                simpa [State.consumeGas, State.consumeMemExp2] using h_take
+              have post_eq :
+                  ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                    retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).consumeGas
                       (Gas.forwardGas s.fork
-                        (s.gasAvailable
-                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                        (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                          retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).gasAvailable
+                          gasArg.toNat)
+                      h_fw).enterCallFor
+                    .StaticCall rest (AccountAddress.ofUInt256 toArg) ⟨0⟩
+                    (MachineState.readPadded
+                      ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                        retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).consumeGas
+                          _ h_fw).memory
+                      argsOff.toNat argsLen.toNat)
+                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                        retOff.toNat retLen.toNat h_mem).accountMap
+                      (AccountAddress.ofUInt256 toArg)).code
+                    (Gas.forwardGas s.fork
+                      (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                        retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).gasAvailable
                         gasArg.toNat)
-                      retOff.toNat retLen.toNat) := by
-              simp [State.enterCallFor, State.consumeGas, State.consumeMemExp2,
-                    State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
-                    MachineState.memExpansionDelta2,
-                    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
-              grind
-            rw [post_eq]
-            have h_afford :
-                Gas.forwardGas s.executionEnv.fork
-                    (s.gasAvailable
-                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                    gasArg.toNat
-                  ≤ s.gasAvailable
-                    - Gas.staticcallCommitted s argsOff argsLen retOff retLen := by
-              have h := h_fw
-              simp only [State.consumeGas, State.consumeMemExp2] at h
-              show Gas.forwardGas s.fork _ _ ≤ _
-              have eq : (s.gasAvailable
-                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
-                      = s.gasAvailable - base - md := by
-                show _ = _
-                rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen
-                        = base + md from rfl]
-                omega
-              rw [eq]
-              exact h
-            exact StepRunning.staticcall s gasArg toArg argsOff argsLen retOff retLen
-              rest _ h_dec h_stack h_committed h_take' rfl h_afford
+                    retOff.toNat retLen.toNat
+                  = (({ s with
+                        gasAvailable := s.gasAvailable
+                          - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+                          - Gas.forwardGas s.fork
+                              (s.gasAvailable
+                                - Gas.staticcallCommitted s argsOff argsLen retOff retLen
+                                  toArg)
+                              gasArg.toNat
+                        activeWords := s.activeWordsAfterUInt256_2
+                          argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+                      } : State).enterCallFor .StaticCall rest
+                        (AccountAddress.ofUInt256 toArg) ⟨0⟩
+                        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+                        (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+                        (Gas.forwardGas s.fork
+                          (s.gasAvailable
+                            - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+                          gasArg.toNat)
+                        retOff.toNat retLen.toNat) := by
+                simp [State.enterCallFor, State.consumeGas, State.consumeMemExp2,
+                      State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
+                      MachineState.memExpansionDelta2,
+                      show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+                grind
+              rw [post_eq]
+              have h_afford :
+                  Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg := by
+                have h := h_fw
+                simp only [State.consumeGas, State.consumeMemExp2] at h
+                show Gas.forwardGas s.fork _ _ ≤ _
+                have eq : (s.gasAvailable
+                            - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+                        = s.gasAvailable - base - md - cold := by
+                  show _ = _
+                  rw [show Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+                          = base + md + cold from rfl]
+                  omega
+                rw [eq]
+                exact h
+              exact StepRunning.staticcall s gasArg toArg argsOff argsLen retOff retLen
+                rest _ h_dec h_stack h_committed h_take' rfl h_afford
+          · nomatch h
         · nomatch h
       · simp [h_mem] at h
     | [], h                            => nomatch h
@@ -1501,7 +1534,12 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | RETURNDATASIZE  => cases h; exact .returndatasize s h_dec h_gas
   | BALANCE =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .balance s a rest h_dec h_gas h_stack
+    | a :: rest, h =>
+      by_cases h_total : Gas.balanceTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .balance s a rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h       => nomatch h
   | CALLDATALOAD =>
     match h_stack : s.stack, h with
@@ -1509,11 +1547,21 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     | [], h       => nomatch h
   | EXTCODESIZE =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .extcodesize s a rest h_dec h_gas h_stack
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodesizeTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .extcodesize s a rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h       => nomatch h
   | EXTCODEHASH =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .extcodehash s a rest h_dec h_gas h_stack
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodehashTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .extcodehash s a rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h       => nomatch h
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
@@ -1627,7 +1675,8 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
           (s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
-        by_cases h_dyn : Gas.copyWordCost sz ≤
+        by_cases h_dyn : Gas.copyWordCost sz
+              + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a) ≤
             ((s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY))
                             h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
@@ -1636,31 +1685,38 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
           set md := MachineState.memCost
                       (MachineState.activeWordsAfter s.activeWords.toNat dOff.toNat sz.toNat)
                     - MachineState.memCost s.activeWords.toNat with hmd
-          have h_total : Gas.extcodecopyTotal s dOff sz ≤ s.gasAvailable := by
-            show base + md + Gas.copyWordCost sz ≤ s.gasAvailable
+          have h_total : Gas.extcodecopyTotal s a dOff sz ≤ s.gasAvailable := by
+            show base + md + (Gas.copyWordCost sz
+                    + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)) ≤ s.gasAvailable
             simp [State.canExpandMemory, State.consumeGas, State.consumeMemExp,
                   MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem h_dyn
             omega
           have post_eq :
               ({ ((s.consumeGas base h_gas).consumeMemExp dOff.toNat sz.toNat
-                    h_mem).consumeGas (Gas.copyWordCost sz) h_dyn with
+                    h_mem).consumeGas (Gas.copyWordCost sz
+                      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)) h_dyn with
                   toMachineState :=
                     { (((s.consumeGas base h_gas).consumeMemExp dOff.toNat sz.toNat
-                        h_mem).consumeGas (Gas.copyWordCost sz) h_dyn).toMachineState with
+                        h_mem).consumeGas (Gas.copyWordCost sz
+                          + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a))
+                          h_dyn).toMachineState with
                       memory := MachineState.writeBytes s.memory
                                   (MachineState.readPadded
                                     (s.accountMap (AccountAddress.ofUInt256 a)).code
                                     sOff.toNat sz.toNat) dOff.toNat }
+                  substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a)
                 }.replaceStackAndIncrPC rest)
               = ({ s with
                   stack := rest
                   pc := s.pc.succ
-                  gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s dOff sz
+                  gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s a dOff sz
                   memory := MachineState.writeBytes s.memory
                               (MachineState.readPadded
                                 (s.accountMap (AccountAddress.ofUInt256 a)).code
                                 sOff.toNat sz.toNat) dOff.toNat
-                  activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat } : State) := by
+                  activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat
+                  substate := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 a) } : State) := by
             simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
                   State.activeWordsAfterUInt256, Gas.extcodecopyTotal, UInt256.succ,
                   MachineState.memExpansionDelta,
@@ -1878,7 +1934,12 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     | [_], h    => nomatch h
   | SLOAD =>
     match h_stack : s.stack, h with
-    | key :: rest, h => cases h; exact .sload s key rest h_dec h_gas h_stack
+    | key :: rest, h =>
+      by_cases h_total : Gas.sloadTotal s key ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .sload s key rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h         => nomatch h
   | SSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -1900,6 +1961,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
             Gas.sstoreCost s.fork
                 (s.substate.originalStorage s.executionEnv.address key)
                 ((s.accountMap s.executionEnv.address).storage key) value
+              + Gas.sstoreColdSurcharge s key
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                     h_gas).gasAvailable
           · simp [h_dyn] at h
@@ -1907,7 +1969,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
             set base := Gas.baseCost s.fork (.StackMemFlow .SSTORE) with hbase
             set dyn := Gas.sstoreCost s.fork
                         (s.substate.originalStorage s.executionEnv.address key)
-                        ((s.accountMap s.executionEnv.address).storage key) value with hdyn
+                        ((s.accountMap s.executionEnv.address).storage key) value
+                        + Gas.sstoreColdSurcharge s key with hdyn
             have h_total : Gas.sstoreTotal s key value ≤ s.gasAvailable := by
               show base + dyn ≤ s.gasAvailable
               simp [State.consumeGas, ← hbase] at h_dyn
@@ -1919,7 +1982,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                        ((s.accountMap s.executionEnv.address).storage key) value
             let rb : Int := (s.substate.refundBalance.toNat : Int) + δ
             let sub' : Substate :=
-              { s.substate with
+              { s.substate.addAccessedStorageKey (s.executionEnv.address, key) with
                   refundBalance := UInt256.ofNat (if rb < 0 then 0 else rb.toNat) }
             have post_eq :
                 ({ (s.consumeGas base h_gas).consumeGas dyn h_dyn with
@@ -2761,7 +2824,17 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
   | GASPRICE | RETURNDATASIZE => nomatch h
   | BALANCE =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | a :: rest, h =>
+      by_cases h_total : Gas.balanceTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.balanceTotal s a) ?_ ?_
+        · show Gas.baseCost s.fork (.Env .BALANCE)
+               ≤ Gas.baseCost s.fork (.Env .BALANCE)
+                 + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
@@ -2773,13 +2846,33 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
   | EXTCODESIZE =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodesizeTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.extcodesizeTotal s a) ?_ ?_
+        · show Gas.baseCost s.fork (.Env .EXTCODESIZE)
+               ≤ Gas.baseCost s.fork (.Env .EXTCODESIZE)
+                 + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
   | EXTCODEHASH =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodehashTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.extcodehashTotal s a) ?_ ?_
+        · show Gas.baseCost s.fork (.Env .EXTCODEHASH)
+               ≤ Gas.baseCost s.fork (.Env .EXTCODEHASH)
+                 + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
@@ -2891,7 +2984,8 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
           (s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY)) h_gas).canExpandMemory
             destOff.toNat sz.toNat
       · simp [h_mem] at h
-        by_cases h_dyn : Gas.copyWordCost sz ≤
+        by_cases h_dyn : Gas.copyWordCost sz
+              + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a) ≤
             ((s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY))
                             h_gas).consumeMemExp destOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
@@ -2901,7 +2995,8 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
           set md := MachineState.memCost (MachineState.activeWordsAfter
                       s.activeWords.toNat destOff.toNat sz.toNat)
                     - MachineState.memCost s.activeWords.toNat with hmd
-          set cwc := Gas.copyWordCost sz with hcwc
+          set cwc := Gas.copyWordCost sz
+                       + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a) with hcwc
           have h_mem' : md ≤ s.gasAvailable - base := by
             simp only [State.canExpandMemory, State.consumeGas,
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem
@@ -3466,13 +3561,20 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
             argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
       · simp only [h_mem, dif_pos] at h
         set base := Gas.baseCost s.fork (.System .DELEGATECALL) with hbase
-        -- Outer split is now on `hfw` (gas-cap check); inner on depth.
+        -- Outermost split is now on `hcs` (EIP-2929 cold surcharge); then
+        -- `hfw` (gas-cap); then depth.
         split at h
-        · -- forwarded OK: both inner branches return .ok, so h is contradictory.
+        · -- cold surcharge affordable
           split at h
-          · cases h  -- depth-≥-1024 branch returns .ok
-          · cases h  -- forwarded + depth OK branch returns .ok
-        · cases h  -- forwarded OOG
+          · -- forwarded OK: both inner branches return .ok, so h is contradictory.
+            split at h
+            · cases h  -- depth-≥-1024 branch returns .ok
+            · cases h  -- forwarded + depth OK branch returns .ok
+          · cases h  -- forwarded OOG
+            refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+            · show base ≤ s.gasAvailable + 1; omega
+            · omega
+        · cases h  -- cold surcharge OOG
           refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
           · show base ≤ s.gasAvailable + 1; omega
           · omega
@@ -3509,12 +3611,17 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
             argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
       · simp only [h_mem, dif_pos] at h
         set base := Gas.baseCost s.fork (.System .STATICCALL) with hbase
-        -- Same outer-hfw / inner-depth ordering as DELEGATECALL above.
+        -- Same outer-hcs / hfw / depth ordering as DELEGATECALL above.
         split at h
         · split at h
-          · cases h  -- depth-≥-1024 returns .ok
-          · cases h  -- forwarded + depth OK returns .ok
-        · cases h  -- forwarded OOG
+          · split at h
+            · cases h  -- depth-≥-1024 returns .ok
+            · cases h  -- forwarded + depth OK returns .ok
+          · cases h  -- forwarded OOG
+            refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+            · show base ≤ s.gasAvailable + 1; omega
+            · omega
+        · cases h  -- cold surcharge OOG
           refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
           · show base ≤ s.gasAvailable + 1; omega
           · omega
@@ -3687,7 +3794,16 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
   | SLOAD =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | key :: rest, h =>
+      by_cases h_total : Gas.sloadTotal s key ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.sloadTotal s key) ?_ ?_
+        · show Gas.baseCost s.fork (.StackMemFlow .SLOAD)
+               ≤ Gas.baseCost s.fork (.StackMemFlow .SLOAD) + Gas.sloadColdSurcharge s key
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
@@ -3805,6 +3921,7 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
               Gas.sstoreCost s.fork
                 (s.substate.originalStorage s.executionEnv.address key)
                 ((s.accountMap s.executionEnv.address).storage key) value
+              + Gas.sstoreColdSurcharge s key
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                   h_gas).gasAvailable
           · simp [h_cost] at h
@@ -3813,7 +3930,8 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
             set base := Gas.baseCost s.fork (.StackMemFlow .SSTORE) with hbase
             set scost := Gas.sstoreCost s.fork
                   (s.substate.originalStorage s.executionEnv.address key)
-                  ((s.accountMap s.executionEnv.address).storage key) value with hscost
+                  ((s.accountMap s.executionEnv.address).storage key) value
+                  + Gas.sstoreColdSurcharge s key with hscost
             have h_cost' : ¬ scost ≤ s.gasAvailable - base := by
               simp only [State.consumeGas, ] at h_cost
               exact h_cost
