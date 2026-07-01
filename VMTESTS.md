@@ -51,21 +51,18 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=9661 full+=0 core+=3) fail=0 incon=0 crash=0
+pass(root=9663 full+=0 core+=1) fail=0 incon=0 crash=0
 ```
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 9661 of 9664.
+  Geth would produce). 9663 of 9664.
 - `pass_full` = every field the test's `postState` enumerates matches
   (storage, nonce, code, *and* balance), but the MPT root differs.
   Currently 0.
-- `pass_core` = storage / nonce / code match but balance is off. 3 of
-  9664: two `randomStatetestDEFAULT-Tue_07_58_41-…` variants
-  (Constantinople / ConstantinopleFix) whose drift comes from an
-  `EXTCODEHASH`-of-suicide-touched-empty-account edge case (our impl
-  returns `keccak256(∅)` where the corpus expects `0` per EIP-1052 /
-  EIP-161), plus one `tx_e1c174e2_EIP150` with a large one-off diff.
+- `pass_core` = storage / nonce / code match but balance is off. 1 of
+  9664 — a single `tx_e1c174e2_EIP150` case with a pre-EIP-158 CALL
+  `G_newaccount` accounting quirk (fix on a separate branch).
 - `fail = 0` — every precompile the curated corpus exercises is
   implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
   IDENTITY (0x04), and MODEXP (0x05, Byzantium+). A future
