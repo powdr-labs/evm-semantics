@@ -87,8 +87,8 @@ def untwist : G2.Point → Option (Fp12 × Fp12)
   | .infinity => none
   | .affine x' y' =>
     let w2 := Fp12.square p w
-    let w3 := Fp12.mul p w2 w
-    some (Fp12.mul p (fp12OfFp2 x') w2, Fp12.mul p (fp12OfFp2 y') w3)
+    let w3 := w2 * w
+    some (fp12OfFp2 x' * w2, fp12OfFp2 y' * w3)
 
 /-- Line function value at `P ∈ G₁` for a Miller step involving points
     `T`, `S` on the twist. Follows the py_ecc formulation: lift `T`,
@@ -104,19 +104,15 @@ def lineFunc (T S : Fp12 × Fp12) (P : Fp12 × Fp12) : Fp12 :=
   let (sx, sy) := S
   let (px, py) := P
   if ¬ Fp12.eq tx sx then
-    let m := Fp12.mul p (Fp12.sub p sy ty) (Fp12.inv p (Fp12.sub p sx tx))
-    Fp12.sub p (Fp12.mul p m (Fp12.sub p px tx)) (Fp12.sub p py ty)
+    let m := (sy - ty) * (sx - tx)⁻¹
+    m * (px - tx) - (py - ty)
   else if Fp12.eq ty sy then
     -- Doubling: assumes ty ≠ 0 (caller ensures this via T not being ∞).
-    let three : Fp12 := fp12OfNat 3
-    let two   : Fp12 := fp12OfNat 2
-    let num := Fp12.mul p three (Fp12.square p tx)
-    let den := Fp12.mul p two ty
-    let m := Fp12.mul p num (Fp12.inv p den)
-    Fp12.sub p (Fp12.mul p m (Fp12.sub p px tx)) (Fp12.sub p py ty)
+    let m := (fp12OfNat 3 * Fp12.square p tx) * (fp12OfNat 2 * ty)⁻¹
+    m * (px - tx) - (py - ty)
   else
     -- T = -S: vertical line, value px - tx.
-    Fp12.sub p px tx
+    px - tx
 
 /-- Add two `Fp12`-embedded curve points, without the sparse
     optimisation. Uses the affine addition formulas over `Fp12`. -/
@@ -124,18 +120,16 @@ def fp12Add (T S : Fp12 × Fp12) : Fp12 × Fp12 :=
   let (tx, ty) := T
   let (sx, sy) := S
   if ¬ Fp12.eq tx sx then
-    let m := Fp12.mul p (Fp12.sub p sy ty) (Fp12.inv p (Fp12.sub p sx tx))
-    let x3 := Fp12.sub p (Fp12.sub p (Fp12.square p m) tx) sx
-    let y3 := Fp12.sub p (Fp12.mul p m (Fp12.sub p tx x3)) ty
+    let m := (sy - ty) * (sx - tx)⁻¹
+    let x3 := Fp12.square p m - tx - sx
+    let y3 := m * (tx - x3) - ty
     (x3, y3)
   else if Fp12.eq ty sy then
     -- Doubling.
-    let three : Fp12 := fp12OfNat 3
-    let two   : Fp12 := fp12OfNat 2
-    let m := Fp12.mul p (Fp12.mul p three (Fp12.square p tx))
-                         (Fp12.inv p (Fp12.mul p two ty))
-    let x3 := Fp12.sub p (Fp12.square p m) (Fp12.mul p two tx)
-    let y3 := Fp12.sub p (Fp12.mul p m (Fp12.sub p tx x3)) ty
+    let two : Fp12 := fp12OfNat 2
+    let m := (fp12OfNat 3 * Fp12.square p tx) * (two * ty)⁻¹
+    let x3 := Fp12.square p m - two * tx
+    let y3 := m * (tx - x3) - ty
     (x3, y3)
   else
     -- Vertical (T + (-T)): the "point at infinity" case. Callers
@@ -149,11 +143,11 @@ def fp12Add (T S : Fp12 × Fp12) : Fp12 × Fp12 :=
 
 /-- Raise `ξ ∈ Fp2` to a `Nat` exponent via square-and-multiply. -/
 def fp2Pow (a : Fp2) (e : Nat) : Fp2 := Id.run do
-  let mut acc : Fp2 := Fp2.one
+  let mut acc : Fp2 := 1
   let mut base : Fp2 := a
   let mut n := e
   while n ≠ 0 do
-    if n % 2 = 1 then acc := Fp2.mul p acc base
+    if n % 2 = 1 then acc := acc * base
     base := Fp2.square p base
     n := n / 2
   return acc
@@ -170,8 +164,8 @@ structure Gammas where
 
 /-- Compute BN254 Frobenius constants. -/
 def gammas : Gammas :=
-  let ξ : Fp2 := { c0 := 9, c1 := 1 }
-  let γ := fp2Pow ξ ((p - 1) / 6)
+  let ξ  : Fp2 := { c0 := 9, c1 := 1 }
+  let γ  := fp2Pow ξ ((p - 1) / 6)
   let γ2 := Fp2.square p γ
   let γ4 := Fp2.square p γ2
   { γw := γ, γv := γ2, γv2 := γ4 }
@@ -197,22 +191,22 @@ def millerLoop (Q : G2.Point) (P : EC.Point) : Fp12 :=
       m := m / 2
     -- Main Miller loop, MSB-1 downto 0 (top bit is implicit).
     let mut R : Fp12 × Fp12 := Qf
-    let mut f : Fp12 := Fp12.one
+    let mut f : Fp12 := 1
     let mut i := bitlen - 1
     while i ≠ 0 do
       i := i - 1
-      f := Fp12.mul p (Fp12.square p f) (lineFunc R R Pf)
+      f := Fp12.square p f * lineFunc R R Pf
       R := fp12Add R R
       if (ateLoopCount >>> i) &&& 1 = 1 then
-        f := Fp12.mul p f (lineFunc R Qf Pf)
+        f := f * lineFunc R Qf Pf
         R := fp12Add R Qf
     -- Optimal-ate correction: add π(Q) and −π²(Q).
     let (qx, qy) := Qf
     let Qf1 : Fp12 × Fp12 := (frob qx, frob qy)
-    let Qf2 : Fp12 × Fp12 := (frob (frob qx), Fp12.neg p (frob (frob qy)))
-    f := Fp12.mul p f (lineFunc R Qf1 Pf)
+    let Qf2 : Fp12 × Fp12 := (frob (frob qx), - frob (frob qy))
+    f := f * lineFunc R Qf1 Pf
     R := fp12Add R Qf1
-    f := Fp12.mul p f (lineFunc R Qf2 Pf)
+    f := f * lineFunc R Qf2 Pf
     return f
 
 ----------------------------------------------------------------------------
@@ -231,15 +225,15 @@ def finalExp (f : Fp12) : Fp12 :=
   -- Easy part 1: f ↦ f^(p⁶ − 1) = frob⁶(f) · f⁻¹.
   --   On Fp12 = Fp6[w]/(w²−v), frob⁶ acts as conjugation
   --   (c₀ + c₁w) ↦ (c₀ − c₁w).
-  let step1 := Fp12.mul p (Fp12.conj p f) (Fp12.inv p f)
+  let step1 := Fp12.conj p f * f⁻¹
   -- Easy part 2: step1 ↦ step1^(p² + 1) = frob²(step1) · step1.
   let g := gammas
   let frob (x : Fp12) : Fp12 := Fp12.frobenius p g.γw g.γv g.γv2 x
-  let step2 := Fp12.mul p (frob (frob step1)) step1
+  let step2 := frob (frob step1) * step1
   -- Hard part: step2 ↦ step2^((p⁴ − p² + 1)/N). Direct
   -- square-and-multiply — ~256 Fp12 squarings.
   let hardExp := ((p^4) - (p^2) + 1) / N
-  Fp12.pow p step2 hardExp
+  step2 ^ hardExp
 
 /-- The full BN254 optimal ate pairing: `e(P, Q) ∈ μ_N ⊂ F_p¹²*`. -/
 def pairing (P : EC.Point) (Q : G2.Point) : Fp12 :=
@@ -248,9 +242,7 @@ def pairing (P : EC.Point) (Q : G2.Point) : Fp12 :=
 /-- Compute `∏ e(P_i, Q_i)` without the final exponentiation applied
     to each term — final-exp all at once at the end (bilinearity). -/
 def multiPairing (pairs : List (EC.Point × G2.Point)) : Fp12 :=
-  let miller := pairs.foldl
-    (fun acc (P, Q) => Fp12.mul p acc (millerLoop Q P))
-    Fp12.one
+  let miller := pairs.foldl (fun acc (P, Q) => acc * millerLoop Q P) 1
   finalExp miller
 
 end EvmSemantics.Crypto.Pairing
