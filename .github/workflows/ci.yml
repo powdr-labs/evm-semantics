@@ -96,6 +96,9 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stRecursiveCreate \
             Constantinople/BlockchainTests/GeneralStateTests/stRefundTest \
             Constantinople/BlockchainTests/GeneralStateTests/stShift \
+            Constantinople/BlockchainTests/GeneralStateTests/stExtCodeHash \
+            Constantinople/BlockchainTests/GeneralStateTests/stRevertTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stSStoreTest \
             Constantinople/BlockchainTests/GeneralStateTests/stSpecialTest \
             Constantinople/BlockchainTests/GeneralStateTests/stStackTests \
             Constantinople/BlockchainTests/GeneralStateTests/stTransactionTest \

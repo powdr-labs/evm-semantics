@@ -47,18 +47,19 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests (curated 32-dir subset, 9664 per-fork test cases across
+**StateTests (curated 35-dir subset, 11684 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=9664 full+=0 core+=0) fail=0 incon=0 crash=0
+pass(root=11369 full+=231 core+=84) fail=0 incon=0 crash=0
 ```
-Every test in the curated subset matches the corpus at the world-state
-MPT root level (bit-identical to what Geth would produce). Precompiles
-implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
-IDENTITY (0x04), MODEXP (0x05, Byzantium+), BLAKE2F (0x09, Istanbul+).
-A future pass -> fail transition against the pinned baseline is a
-regression.
+Every test in the curated subset matches the corpus at least at the
+`pass_core` tier (storage / nonce / code identical to Geth) with no
+`fail`/`crash`. 11369 of 11684 also match at the world-state MPT root
+level (bit-identical postState). Precompiles implemented: ECRECOVER
+(0x01), SHA-256 (0x02), RIPEMD-160 (0x03), IDENTITY (0x04),
+MODEXP (0x05, Byzantium+), BLAKE2F (0x09, Istanbul+). A future
+`pass -> fail` transition against the pinned baseline is a regression.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
@@ -74,21 +75,23 @@ otherwise stay in the trie).
   from that suffix and configures the gas schedule accordingly. Variants
   whose network isn't yet activated are skipped silently and don't count
   toward the tally.
-- **The 32 dirs in CI** (alphabetical):
+- **The 35 dirs in CI** (alphabetical):
   `stArgsZeroOneBalance`, `stAttackTest`, `stBadOpcode`, `stBugs`,
   `stCallCodes`, `stCallCreateCallCodeTest`,
   `stCallDelegateCodesCallCodeHomestead`,
   `stCallDelegateCodesHomestead`, `stChangedEIP150`, `stCodeCopyTest`,
   `stCodeSizeLimit`, `stDelegatecallTestHomestead`, `stEIP150Specific`,
-  `stEIP150singleCodeGasPrices`, `stExample`, `stHomesteadSpecific`,
-  `stInitCodeTest`, `stLogTests`, `stMemExpandingEIP150Calls`,
-  `stPreCompiledContracts`, `stPreCompiledContracts2`,
-  `stMemoryStressTest`, `stMemoryTest`, `stRandom`, `stRecursiveCreate`,
-  `stRefundTest`, `stShift`, `stSpecialTest`, `stStackTests`,
-  `stTransactionTest`, `stTransitionTest`, `stZeroCallsRevert`.
+  `stEIP150singleCodeGasPrices`, `stExample`, `stExtCodeHash`,
+  `stHomesteadSpecific`, `stInitCodeTest`, `stLogTests`,
+  `stMemExpandingEIP150Calls`, `stMemoryStressTest`, `stMemoryTest`,
+  `stPreCompiledContracts`, `stPreCompiledContracts2`, `stRandom`,
+  `stRecursiveCreate`, `stRefundTest`, `stRevertTest`, `stSStoreTest`,
+  `stShift`, `stSpecialTest`, `stStackTests`, `stTransactionTest`,
+  `stTransitionTest`, `stZeroCallsRevert`.
   Add a directory to the sparse-checkout in
   `.github/workflows/ci.yml` and regenerate the baseline once the
-  evaluator passes every variant in that directory.
+  evaluator `fail`s zero variants in that directory (`pass_full` and
+  `pass_core` are passes at weaker tiers and are allowed).
 
 ## CI regression check
 CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in

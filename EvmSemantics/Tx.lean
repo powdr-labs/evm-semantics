@@ -360,7 +360,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- or non-zero nonce makes the create fail before any code runs.
   let preExisting := preMap newAddr
   let collide : Bool :=
-    tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
+    tx.isCreate ∧ preExisting.isContract
   if collide then rollback
   else
     -- Tx-level precompile dispatch is *not* a special case here: a tx
