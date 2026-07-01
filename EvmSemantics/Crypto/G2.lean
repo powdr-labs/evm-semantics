@@ -1,14 +1,13 @@
 module
 
-public import EvmSemantics.Crypto.Fp2
+public import EvmSemantics.Crypto.Bn254
 
 /-!
 `EvmSemantics.Crypto.G2` — the twist curve `G₂` for BN254 pairing.
 
 BN254's `G₂` is the group of points on the sextic twist
 `E': y² = x³ + b'` over `F_p²`, where `b' = b / ξ = 3 / (9 + u)`.
-Points are affine `Fp2` pairs plus an `infinity` marker; the tower
-carries the modulus, so no `p` is threaded at runtime.
+Points are affine `Fp2 Bn254.p` pairs plus an `infinity` marker.
 
 EIP-197 wire format for a `G₂` point is 128 bytes:
 `X.c1 ‖ X.c0 ‖ Y.c1 ‖ Y.c0` — imaginary part first per `Fp2`
@@ -27,7 +26,7 @@ the spec only requires on-curve.
 
 namespace EvmSemantics.Crypto.G2
 
-open EvmSemantics.Crypto.Fp2 (Fp2)
+open EvmSemantics.Crypto.Bn254 (Fp2)
 
 /-- Point on the BN254 twist in affine form (or infinity). -/
 inductive Point where
@@ -35,18 +34,19 @@ inductive Point where
   | affine (x y : Fp2)
   deriving Inhabited
 
-/-- The twist coefficient `b' = 3 / (9 + u)`. Cached as a `def` — the
-    compiler evaluates it once at load time. -/
-def twistB : Fp2 := Fp2.mulByFp (Fp2.inv { c0 := 9, c1 := 1 }) 3
+/-- The twist coefficient `b' = 3 / (9 + u)` on `Fp2 Bn254.p`. -/
+def twistB : Fp2 := _root_.Fp2.mulByFp
+  (_root_.Fp2.inv { c0 := 9, c1 := 1 }) 3
 
 /-- `(x, y) ∈ E'(Fp²)` iff `y² = x³ + b'`. -/
-def onCurve (x y : Fp2) : Bool := Fp2.eq (y^2) (x * x^2 + twistB)
+def onCurve (x y : Fp2) : Bool :=
+  _root_.Fp2.eq (y^2) (x * x^2 + twistB)
 
 /-- Double a G₂ point. -/
 def doublePoint : Point → Point
   | .infinity => .infinity
   | .affine x y =>
-    if Fp2.eq y Fp2.zero then .infinity
+    if _root_.Fp2.eq y 0 then .infinity
     else
       let lam := (3 * x^2) * (2 * y)⁻¹
       let x' := lam^2 - 2 * x
@@ -58,8 +58,8 @@ def addPoint : Point → Point → Point
   | .infinity, Q => Q
   | P, .infinity => P
   | .affine x1 y1, .affine x2 y2 =>
-    if Fp2.eq x1 x2 then
-      if Fp2.eq (y1 + y2) Fp2.zero then .infinity
+    if _root_.Fp2.eq x1 x2 then
+      if _root_.Fp2.eq (y1 + y2) 0 then .infinity
       else doublePoint (.affine x1 y1)
     else
       let lam := (y2 - y1) * (x2 - x1)⁻¹

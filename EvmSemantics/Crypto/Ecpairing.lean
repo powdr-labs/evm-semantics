@@ -38,8 +38,7 @@ curve) makes the precompile fail with all-gas consumed (mapped to
 namespace EvmSemantics.Crypto.Ecpairing
 
 open EvmSemantics.Crypto.EC
-open EvmSemantics.Crypto.Fp2 (Fp2)
-open EvmSemantics.Crypto.Fp12 (Fp12)
+open EvmSemantics.Crypto.Pairing (Fp2Bn Fp12Bn)
 open EvmSemantics.Crypto.G2
 open EvmSemantics.Crypto.Bn254 (p Fp)
 open EvmSemantics.Crypto.Bytes
@@ -67,8 +66,8 @@ def decodeG2 (input : ByteArray) (off : Nat) : Option G2.Point :=
   if x0 ≥ p ∨ x1 ≥ p ∨ y0 ≥ p ∨ y1 ≥ p then none
   else if x0 = 0 ∧ x1 = 0 ∧ y0 = 0 ∧ y1 = 0 then some .infinity
   else
-    let X : Fp2 := { c0 := Fin.ofNat _ x0, c1 := Fin.ofNat _ x1 }
-    let Y : Fp2 := { c0 := Fin.ofNat _ y0, c1 := Fin.ofNat _ y1 }
+    let X : Fp2Bn := { c0 := Fin.ofNat _ x0, c1 := Fin.ofNat _ x1 }
+    let Y : Fp2Bn := { c0 := Fin.ofNat _ y0, c1 := Fin.ofNat _ y1 }
     if G2.onCurve X Y then some (.affine X Y)
     else none
 

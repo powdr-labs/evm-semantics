@@ -1,6 +1,9 @@
 module
 
 public import EvmSemantics.Crypto.Weierstrass
+public import EvmSemantics.Crypto.Fp2
+public import EvmSemantics.Crypto.Fp6
+public import EvmSemantics.Crypto.Fp12
 
 /-!
 `EvmSemantics.Crypto.Bn254` — the alt_bn128 / BN254 curve constants
@@ -53,6 +56,16 @@ def Gy : Nat := 2
     `Nat` in place of an `Fp` here is a type error). -/
 abbrev Fp := Fin p
 
+/-- BN254 `Fp2` — the polymorphic tower type pinned to `p`. -/
+abbrev Fp2 := _root_.Fp2 p
+
+/-- BN254 `Fp6` — pinned. Requires the `SexticNonResidue` instance
+    below. -/
+abbrev Fp6 := _root_.Fp6 p
+
+/-- BN254 `Fp12` — pinned. Same as `Fp6`. -/
+abbrev Fp12 := _root_.Fp12 p
+
 /-- BN254 G₁ point over `Fp`. -/
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
@@ -79,3 +92,11 @@ def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
   EvmSemantics.Crypto.Weierstrass.onCurve curve x y
 
 end EvmSemantics.Crypto.Bn254
+
+/-- BN254's sextic non-residue is `ξ = 9 + u ∈ Fp2`. Multiplication
+    by `ξ` has a fast specialised form:
+    `(a₀ + a₁·u) · (9 + u) = (9a₀ − a₁) + (a₀ + 9a₁)·u`.
+    Two constant-multiplications-by-9 + two additions rather than the
+    generic Fp2 mul's three base-field muls. -/
+@[inline] instance : SexticNonResidue EvmSemantics.Crypto.Bn254.p where
+  mulByXi a := { c0 := 9 * a.c0 - a.c1, c1 := a.c0 + 9 * a.c1 }
