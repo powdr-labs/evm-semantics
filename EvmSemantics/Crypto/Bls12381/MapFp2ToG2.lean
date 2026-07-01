@@ -1,8 +1,8 @@
 module
 
-public import EvmSemantics.Crypto.Bls12381
-public import EvmSemantics.Crypto.Bls12381Codec
-public import EvmSemantics.Crypto.Bls12381G2Add
+public import EvmSemantics.Crypto.Bls12381.Curve
+public import EvmSemantics.Crypto.Bls12381.Codec
+public import EvmSemantics.Crypto.Bls12381.G2Add
 public import EvmSemantics.Crypto.Fp2
 
 /-!

@@ -1,6 +1,6 @@
 module
 
-public import EvmSemantics.Crypto.Bls12381
+public import EvmSemantics.Crypto.Bls12381.Curve
 public import EvmSemantics.Data.Bytes
 
 /-!

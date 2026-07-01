@@ -1,7 +1,7 @@
 module
 
-public import EvmSemantics.Crypto.Bls12381
-public import EvmSemantics.Crypto.Bls12381Codec
+public import EvmSemantics.Crypto.Bls12381.Curve
+public import EvmSemantics.Crypto.Bls12381.Codec
 
 /-!
 `EvmSemantics.Crypto.Bls12381G2Add` — EIP-2537 `0x0D BLS12_G2ADD`.

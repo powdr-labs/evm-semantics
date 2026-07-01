@@ -5,7 +5,7 @@ public import EvmSemantics.Crypto.Fp2
 public import EvmSemantics.Crypto.Fp6
 public import EvmSemantics.Crypto.Fp12
 public import EvmSemantics.Crypto.G2
-public import EvmSemantics.Crypto.Bls12381
+public import EvmSemantics.Crypto.Bls12381.Curve
 
 /-!
 `EvmSemantics.Crypto.Bls12381Pairing` — BLS12-381 optimal ate

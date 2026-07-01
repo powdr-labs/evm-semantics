@@ -9,18 +9,18 @@ public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
 public import EvmSemantics.Crypto.Ripemd160
 public import EvmSemantics.Crypto.Ecrecover
-public import EvmSemantics.Crypto.Ecadd
-public import EvmSemantics.Crypto.Ecmul
-public import EvmSemantics.Crypto.Ecpairing
+public import EvmSemantics.Crypto.Bn254.Ecadd
+public import EvmSemantics.Crypto.Bn254.Ecmul
+public import EvmSemantics.Crypto.Bn254.Ecpairing
 public import EvmSemantics.Crypto.Blake2f
-public import EvmSemantics.Crypto.Bls12381G1Add
-public import EvmSemantics.Crypto.Bls12381G1Msm
-public import EvmSemantics.Crypto.Bls12381G2Add
-public import EvmSemantics.Crypto.Bls12381G2Msm
-public import EvmSemantics.Crypto.Bls12381PairingCheck
-public import EvmSemantics.Crypto.Bls12381MapFpToG1
-public import EvmSemantics.Crypto.Bls12381MapFp2ToG2
-public import EvmSemantics.Crypto.BlsKzg
+public import EvmSemantics.Crypto.Bls12381.G1Add
+public import EvmSemantics.Crypto.Bls12381.G1Msm
+public import EvmSemantics.Crypto.Bls12381.G2Add
+public import EvmSemantics.Crypto.Bls12381.G2Msm
+public import EvmSemantics.Crypto.Bls12381.PairingCheck
+public import EvmSemantics.Crypto.Bls12381.MapFpToG1
+public import EvmSemantics.Crypto.Bls12381.MapFp2ToG2
+public import EvmSemantics.Crypto.Bls12381.Kzg
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at

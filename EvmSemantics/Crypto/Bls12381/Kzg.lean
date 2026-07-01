@@ -1,9 +1,9 @@
 module
 
-public import EvmSemantics.Crypto.Bls12381
-public import EvmSemantics.Crypto.Bls12381Pairing
-public import EvmSemantics.Crypto.Bls12381G1Add
-public import EvmSemantics.Crypto.Bls12381MapFp2ToG2
+public import EvmSemantics.Crypto.Bls12381.Curve
+public import EvmSemantics.Crypto.Bls12381.Pairing
+public import EvmSemantics.Crypto.Bls12381.G1Add
+public import EvmSemantics.Crypto.Bls12381.MapFp2ToG2
 public import EvmSemantics.Crypto.Sha256
 public import EvmSemantics.Data.Bytes
 public import EvmSemantics.Crypto.FF

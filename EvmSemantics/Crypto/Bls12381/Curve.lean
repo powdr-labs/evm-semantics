@@ -40,17 +40,18 @@ namespace EvmSemantics.Crypto.Bls12381
     negative-`u` half — see `Bls12381.Pairing`). -/
 def absU : Nat := 0xd201000000010000
 
-/-- BLS12-381 base-field prime `p`. Formula: `p = (u−1)² · (u⁴ − u² + 1)/3 + u`
-    where `u` is signed. Hex:
+/-- BLS12-381 base-field prime. The Barreto–Lynn–Scott formula is
+    `p = (u−1)² · (u⁴ − u² + 1)/3 + u` with `u` signed. Substituting
+    `u = −absU` — even powers of `u` are even powers of `absU`, and
+    `(u−1)² = (absU+1)²` — the `+u` at the end becomes `−absU`. Hex:
     `0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab`. -/
-def p : Nat :=
-  0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab
+def p : Nat := (absU + 1)^2 * (absU^4 - absU^2 + 1) / 3 - absU
 
-/-- BLS12-381 subgroup order (aka `r`). Formula: `N = u⁴ − u² + 1`.
+/-- BLS12-381 subgroup order (aka `r`). Formula `N = u⁴ − u² + 1`;
+    since only even powers of `u` appear, `N = absU⁴ − absU² + 1`.
     Hex:
     `0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001`. -/
-def N : Nat :=
-  0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
+def N : Nat := absU^4 - absU^2 + 1
 
 /-- `p` is nonzero — required for `Fin p`'s numeric-tower instances. -/
 instance : NeZero p := ⟨by unfold p; decide⟩

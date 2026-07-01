@@ -4,13 +4,16 @@ public import EvmSemantics.Crypto.EC
 public import EvmSemantics.Crypto.Fp2
 public import EvmSemantics.Crypto.Fp12
 public import EvmSemantics.Crypto.G2
-public import EvmSemantics.Crypto.Bn254
+public import EvmSemantics.Crypto.Bn254.Curve
 public import EvmSemantics.Crypto.Bytes
-public import EvmSemantics.Crypto.Pairing
+public import EvmSemantics.Crypto.Bn254.Pairing
 
 /-!
-`EvmSemantics.Crypto.Ecpairing` — Ethereum's `0x08 ECPAIRING` precompile
-(EIP-197, Byzantium+).
+`EvmSemantics.Crypto.Bn254.Ecpairing` — Ethereum's `0x08 ECPAIRING`
+precompile driver (EIP-197, Byzantium+). **This is the precompile
+wrapper — wire format, input validation, boolean output.** The
+underlying pairing algebra (Miller loop + final exponentiation on
+BN254 `Fp12`) lives in `EvmSemantics.Crypto.Bn254.Pairing`.
 
 Wire format: input is `k · 192` bytes for some `k ≥ 0`, arranged as
 `k` back-to-back point pairs:

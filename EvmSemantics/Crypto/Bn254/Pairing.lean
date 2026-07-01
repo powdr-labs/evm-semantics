@@ -5,17 +5,20 @@ public import EvmSemantics.Crypto.Fp2
 public import EvmSemantics.Crypto.Fp6
 public import EvmSemantics.Crypto.Fp12
 public import EvmSemantics.Crypto.G2
-public import EvmSemantics.Crypto.Bn254
+public import EvmSemantics.Crypto.Bn254.Curve
 
 /-!
-`EvmSemantics.Crypto.Pairing` — BN254 optimal ate pairing.
+`EvmSemantics.Crypto.Bn254.Pairing` — the BN254 optimal ate pairing
+itself. Pure elliptic-curve math: takes two curve points, returns
+an `Fp12` element. **This is not the precompile.** The Ethereum
+`0x08 ECPAIRING` precompile (EIP-197 — wire format, gas, boolean
+output) is in `EvmSemantics.Crypto.Bn254.Ecpairing`, which calls
+into this module for the algebra.
 
 The optimal ate pairing takes `P ∈ G₁ ⊂ E(F_p)` and
 `Q ∈ G₂ ⊂ E'(F_p²)` and produces an element of `μ_N ⊂ F_p¹²*`
 (the `N`-th roots of unity). Bilinearity:
-`e(a·P, b·Q) = e(P, Q)^(a·b)`.
-
-The precompile (`0x08 ECPAIRING`, EIP-197) reduces the pairing
+`e(a·P, b·Q) = e(P, Q)^(a·b)`. The precompile reduces the pairing
 product `∏ e(Pᵢ, Qᵢ)` to a boolean: `1 iff product = 1 ∈ F_p¹²`.
 
 Algorithm (Vercauteren 2010): the optimal ate pairing on BN254 is

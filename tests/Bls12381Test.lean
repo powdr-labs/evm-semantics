@@ -1,4 +1,4 @@
-import EvmSemantics.Crypto.Bls12381Pairing
+import EvmSemantics.Crypto.Bls12381.Pairing
 
 open EvmSemantics.Crypto.Bls12381 (G G2 addPoint)
 open EvmSemantics.Crypto.G2 (negate)
