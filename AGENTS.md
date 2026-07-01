@@ -13,11 +13,13 @@ conformance harness). This file stays terse and operational.
 
 ```sh
 lake build                          # build the default target only (evm_semantics exe + lib)
-lake build evm_semantics vmtests    # build both binaries — what CI builds; use this after touching VMRunner
+lake build evm_semantics vmtests statetests gstatetests  # all runner binaries — what CI builds
 lake exe cache get                  # fetch Mathlib prebuilt oleans (after `lake update`)
 lake lint                           # Batteries runLinter over the EvmSemantics namespace
 .lake/build/bin/evm_semantics       # run the demo (PUSH1 5; PUSH1 3; ADD; STOP -> [8])
-.lake/build/bin/vmtests <corpus>    # run the VMTests conformance suite
+.lake/build/bin/vmtests <corpus>    # legacy VMTests conformance suite
+.lake/build/bin/statetests <dir>    # legacy BlockchainTests/GeneralStateTests
+.lake/build/bin/gstatetests <dir>   # MODERN ethereum/tests GeneralStateTests (state_test fixtures)
 ```
 
 - Cold build is ~10 min (compiles Mathlib); cached, ~30 s. Always `lake exe
@@ -215,8 +217,18 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 ## CI gates (`.github/workflows/ci.yml`)
 
-1. Build `evm_semantics vmtests`, fail on any `warning:`.
+1. Build `evm_semantics vmtests statetests gstatetests`, fail on any `warning:`.
 2. `lake lint`.
 3. VMTests on the full corpus — **non-gating**: compares against
    `.github/vmtests-baseline.txt` (pinned to `CORPUS_REV`) and surfaces
    regressions as warnings without blocking the merge.
+4. StateTests (legacy BlockchainTests/GeneralStateTests, curated subset from
+   `ethereum/legacytests`) — compares against `.github/statetests-baseline.txt`;
+   the CALL-test gate fails the build on a pass → FAIL.
+5. Modern GeneralStateTests (`gstatetests`, ~whole corpus from the maintained
+   `ethereum/tests` `fixtures_general_state_tests.tgz`, pinned to `TESTS_REV`,
+   minus `stTimeConsuming` + internal `VMTests`) — **non-gating**: driven by the
+   per-file subprocess-isolation wrapper `.github/scripts/gstatetests_run.sh` (so
+   an OOM/panic in one file is a contained `crash`, not a batch abort) and
+   compared against `.github/gstatetests-baseline.txt`. Only legacy `gasPrice`
+   txs run; typed txs are `INCON`. See `VMTESTS.md`.

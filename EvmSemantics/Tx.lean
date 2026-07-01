@@ -361,7 +361,15 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   let preExisting := preMap newAddr
   let collide : Bool :=
     tx.isCreate ∧ (preExisting.nonce.toNat > 0 ∨ preExisting.code.size > 0)
-  if collide then rollback
+  -- YP §6.2 validity: a transaction whose intrinsic gas `g₀` exceeds its
+  -- `gasLimit` is *invalid* and is not applied — the world state is left
+  -- entirely unchanged (no nonce bump, no upfront gas charge, no coinbase
+  -- credit). Without this gate `gasAvailable := gasLimit - g₀` underflows to
+  -- `0` in `Nat` and the tx would otherwise run as though it had no gas,
+  -- wrongly bumping the sender nonce (fixtures flag this `INTRINSIC_GAS_TOO_LOW`).
+  if tx.gasLimit < intrinsicGas fork tx.isCreate tx.data then
+    { finalAccounts := preMap, outcome := .exceptional }
+  else if collide then rollback
   else
     -- Tx-level precompile dispatch is *not* a special case here: a tx
     -- whose recipient is a precompile address arrives at `run s0 fuel`
