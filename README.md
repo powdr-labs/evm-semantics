@@ -102,12 +102,15 @@ trivial program.
   (where `codeAddr = tgt = address`), `CALLCODE` / `DELEGATECALL`
   (where `codeAddr = tgt ≠ address`), and a transaction whose `to`
   is itself a precompile address (where `Tx.buildInitState` sets
-  `codeAddr := tx.recipient`). Currently implemented: **0x04
-  `identity`** (gas `15 + 3·⌈|input|/32⌉`); the YP precompile set
-  beyond that (`0x01 ecrecover`, `0x02 sha256`, `0x03 ripemd160`,
-  `0x05 modexp`, `0x06–0x09` BN254 + BLAKE2F, plus the Cancun KZG
-  and Prague BLS12-381 set) is not yet in `isPrecompile`'s `true`
-  case, so a call into those addresses falls through to their
+  `codeAddr := tx.recipient`). Currently implemented: **0x02 `sha256`**
+  (gas `60 + 12·⌈|input|/32⌉`, Frontier+), **0x04 `identity`** (gas
+  `15 + 3·⌈|input|/32⌉`, Frontier+), and **0x05 `modexp`** (EIP-198
+  Byzantium pricing: `mult_complexity(max Bsize Msize) ·
+  max(adj_exp_len, 1) / 20`); the YP precompile set beyond that
+  (`0x01 ecrecover`, `0x03 ripemd160`, `0x06–0x09` BN254 +
+  BLAKE2F, plus the Cancun KZG and Prague BLS12-381 set) is not
+  yet in `isPrecompile`'s `true` case, so a call into those
+  addresses falls through to their
   (empty) bytecode and STOPs — adding a new precompile is a
   synchronized edit to `isPrecompile` and `run` (the totality proof
   enforces they stay aligned). The spec side in `Step.lean` exposes

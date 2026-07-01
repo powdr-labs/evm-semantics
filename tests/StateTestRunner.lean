@@ -65,12 +65,33 @@ def mkAccount (j : Json) : Account :=
 -- Transaction / header decode.
 ----------------------------------------------------------------------------
 
+/-- Guess the tx sender from the pre-state. Real Ethereum recovers it
+    from the ECDSA signature `(v, r, s)`; we don't model secp256k1, so
+    we take the pre-state EOA (`code = ∅`) whose nonce matches the
+    tx's declared `nonce`. This is unambiguous for every test in the
+    curated CI subset — every fork variant has exactly one such EOA
+    (except a handful with none, where we fall back to the corpus's
+    hard-coded `txSender` default). -/
+def guessSender (preEntries : List (String × Json)) (txNonce : Nat) :
+    AccountAddress :=
+  let candidates := preEntries.filterMap (fun (addrHex, accJson) =>
+    let code := hexToBytes (strField accJson "code")
+    let nonce := hexToUInt256 (strField accJson "nonce")
+    if code.size = 0 && nonce.toNat = txNonce then
+      some (hexToAddress addrHex)
+    else none)
+  match candidates with
+  | [a] => a
+  | _   => txSender
+
 /-- Decode a BlockchainTest transaction JSON into a
     `EvmSemantics.Tx.Transaction`. `to = ""` (or missing) marks a
     contract-creating tx, signalled here as `recipient = none`. -/
-def decodeTx (tx : Json) : EvmSemantics.Tx.Transaction :=
+def decodeTx (tx : Json) (preEntries : List (String × Json)) :
+    EvmSemantics.Tx.Transaction :=
   let toStr := strField tx "to"
-  { sender    := txSender
+  let nonce := hexToNat (strField tx "nonce")
+  { sender    := guessSender preEntries nonce
     recipient := if toStr = "" then none else some (hexToAddress toStr)
     value     := hexToUInt256 (strField tx "value")
     data      := hexToBytes   (strField tx "data")
@@ -250,7 +271,8 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let txObj  := decodeTx tx
+      let preEntries := objEntries testObj "pre"
+      let txObj  := decodeTx tx preEntries
       let header := decodeHeader (subObj block "blockHeader")
       let blobHashes := decodeBlobHashes tx
       -- Fuel: every non-halting opcode costs ≥1 gas and every CALL

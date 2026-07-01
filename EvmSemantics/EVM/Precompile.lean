@@ -1,7 +1,9 @@
 module
 
 public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Rlp
 public import EvmSemantics.State.Account
+public import EvmSemantics.Machine.MachineState
 public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
 
@@ -86,6 +88,131 @@ def runSha256 (input : ByteArray) (childGas : Nat) : Result :=
   else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x05 MODEXP — modular exponentiation `B^E mod M` (EIP-198, Byzantium+).
+--
+-- Input layout (each length field is a 32-byte big-endian integer):
+--
+--   [0..32)   Bsize        length of `B` in bytes
+--   [32..64)  Esize        length of `E` in bytes
+--   [64..96)  Msize        length of `M` in bytes
+--   [96..96+Bsize)         B (base)
+--   [.. +Esize)            E (exponent)
+--   [.. +Msize)            M (modulus)
+--
+-- Missing input bytes are treated as trailing zeros (per EIP-198's
+-- input-normalisation rule); this is what our `bytesToNatPadded`
+-- helper does implicitly via `ByteArray.extract`.
+--
+-- Output: `M`-byte big-endian encoding of `B^E mod M`, or all zeros
+-- of length `Msize` if `M == 0`.
+--
+-- Gas (Byzantium pricing, EIP-198):
+--   gas = mult_complexity(max(Bsize, Msize)) * max(ADJ, 1) / 20
+-- where `mult_complexity(x)` and `ADJ` follow the spec's piecewise
+-- definitions (below). EIP-2565 (Berlin) reduces the divisor from
+-- 20 to 3 with a different `mult_complexity`; EIP-7883 (Osaka)
+-- tweaks it again. We only implement the Byzantium schedule — the
+-- current corpus is Constantinople-era so nothing else fires.
+----------------------------------------------------------------------------
+
+/-- The MODEXP precompile's address `0x05`. -/
+def modexpAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 5)
+
+/-- Read `width` bytes from `bs` starting at `offset`, zero-padding
+    with trailing zeros if the input is short (per EIP-198's
+    input-normalisation rule), and interpret them big-endian as a
+    `Nat`. Composition of `MachineState.readPadded` (which already
+    zero-pads at the tail) and `MachineState.bytesToBigEndianNat`. -/
+def bytesToNatPadded (bs : ByteArray) (offset width : Nat) : Nat :=
+  MachineState.bytesToBigEndianNat (MachineState.readPadded bs offset width)
+
+/-- Square-and-multiply modular exponentiation for arbitrary-precision
+    `Nat`. `modPow b e 0 = 0` (matches YP/EIP-198's `M = 0 → zero
+    output` convention when the caller propagates the modulus). -/
+def modPowAux (base acc modulus e : Nat) : Nat :=
+  if h : e = 0 then acc
+  else
+    let acc' := if e % 2 = 1 then (acc * base) % modulus else acc
+    modPowAux ((base * base) % modulus) acc' modulus (e / 2)
+  termination_by e
+  decreasing_by exact Nat.div_lt_self (Nat.pos_of_ne_zero h) (by decide)
+
+/-- `modPow b e m = b^e mod m`. Fast (square-and-multiply) exponent.
+    `m = 0` returns `0` (matches EIP-198's `M = 0 → zero output`); `m
+    = 1` returns `0` (every residue mod 1 is 0). Wraps `modPowAux`
+    with the initial reduction `b % modulus` so the recursion never
+    sees intermediate values larger than `modulus^2`. -/
+def modPow (b e modulus : Nat) : Nat :=
+  if modulus = 0 then 0
+  else if modulus = 1 then 0
+  else modPowAux (b % modulus) 1 modulus e
+
+/-- Big-endian encoding of `n` into `width` bytes (leading zeros).
+    Truncates bits above `width * 8` (unreachable for `n < 256^width`,
+    which the caller guarantees). Delegates to `Rlp.natToBytesPadded`. -/
+@[inline] def natToBytes (n width : Nat) : ByteArray :=
+  Rlp.natToBytesPadded n width
+
+/-- EIP-198 `mult_complexity` piecewise definition. `x` is the max of
+    Bsize and Msize (in bytes). -/
+def multComplexity (x : Nat) : Nat :=
+  if x ≤ 64 then x * x
+  else if x ≤ 1024 then x * x / 4 + 96 * x - 3072
+  else x * x / 16 + 480 * x - 199680
+
+/-- EIP-198 adjusted-exponent-length. `esize` is the exponent's byte
+    length; `expHead` is the big-endian numeric value of the *first
+    32 bytes* of the exponent (zero-padded at the tail if the
+    exponent is shorter than 32 bytes).
+
+    * `esize ≤ 32 ∧ expHead == 0`: `0`.
+    * `esize ≤ 32`: `⌊log₂ expHead⌋` (highest set bit, 0-indexed).
+    * `esize > 32 ∧ expHead == 0`: `8 * (esize - 32)`.
+    * `esize > 32`: `8 * (esize - 32) + ⌊log₂ expHead⌋`. -/
+def adjustedExpLen (esize expHead : Nat) : Nat :=
+  if esize ≤ 32 then
+    if expHead = 0 then 0 else Nat.log2 expHead
+  else
+    let base := 8 * (esize - 32)
+    if expHead = 0 then base else base + Nat.log2 expHead
+
+/-- Byzantium MODEXP gas cost per EIP-198: `mult_complexity(max
+    Bsize Msize) * max(adjustedExpLen, 1) / 20`. -/
+def modexpGas (bsize esize msize expHead : Nat) : Nat :=
+  let adj := Nat.max (adjustedExpLen esize expHead) 1
+  multComplexity (Nat.max bsize msize) * adj / 20
+
+/-- Run the `0x05 MODEXP` precompile. Parses `(Bsize, Esize, Msize,
+    B, E, M)` out of `input` (with EIP-198's trailing-zero
+    normalisation), computes the gas cost, and — if it fits in
+    `childGas` — returns `B^E mod M` as a `Msize`-byte big-endian
+    output. -/
+def runModexp (input : ByteArray) (childGas : Nat) : Result :=
+  let bsize := bytesToNatPadded input 0 32
+  let esize := bytesToNatPadded input 32 32
+  let msize := bytesToNatPadded input 64 32
+  -- First 32 bytes of the exponent (or fewer if `esize < 32`), used
+  -- only to derive the gas cost via `adjustedExpLen`. Zero-padded at
+  -- the tail if `esize < 32`.
+  let expHead :=
+    let n := Nat.min esize 32
+    bytesToNatPadded input (96 + bsize) n
+  let cost := modexpGas bsize esize msize expHead
+  if cost ≤ childGas then
+    -- Special YP §4.1 edge case: `Msize = 0` returns the empty byte
+    -- string (no bytes to encode). This is the natural output of
+    -- `modPow _ _ 0 = 0` restricted to 0 bytes.
+    if msize = 0 then .success ByteArray.empty cost
+    else
+      let b := bytesToNatPadded input 96 bsize
+      let e := bytesToNatPadded input (96 + bsize) esize
+      let m := bytesToNatPadded input (96 + bsize + esize) msize
+      let r := modPow b e m
+      .success (natToBytes r msize) cost
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- 0x04 IDENTITY — return calldata unchanged.
 ----------------------------------------------------------------------------
 
@@ -109,19 +236,13 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
 ----------------------------------------------------------------------------
 
 /-- True iff `addr` is one of the precompile addresses *we model* in
-    `fork`. Currently: SHA-256 (`0x02`) and IDENTITY (`0x04`), both
-    available since Frontier. As we add precompiles, this function
-    grows in lockstep with `run`'s branches; `run`'s totality proof
-    tracks that they stay aligned.
-
-    The `fork` argument is part of the signature because the YP set
-    is fork-dependent — ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
-    BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague —
-    even though the entries modelled today (SHA-256, IDENTITY) are
-    available in every fork, so the body doesn't yet branch on it. -/
-@[nolint unusedArguments]
-def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
-  addr = sha256Address || addr = identityAddress
+    `fork`. Currently: SHA-256 (`0x02`) and IDENTITY (`0x04`) since
+    Frontier, MODEXP (`0x05`) since Byzantium (EIP-198). As we add
+    precompiles, this function grows in lockstep with `run`'s
+    branches; `run`'s totality proof tracks that they stay aligned. -/
+def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
+  addr = sha256Address || addr = identityAddress ||
+    (fork.atLeast .Byzantium && addr = modexpAddress)
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -137,12 +258,14 @@ def run (fork : Fork) (addr : AccountAddress)
     runSha256 input childGas
   else if h_id : addr = identityAddress then
     runIdentity input childGas
+  else if h_mx : fork.atLeast .Byzantium ∧ addr = modexpAddress then
+    runModexp input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
-    absurd h (by simp [isPrecompile, h_sha, h_id])
+    absurd h (by simp [isPrecompile, h_sha, h_id, h_mx])
 
 end Precompile
 end EVM
