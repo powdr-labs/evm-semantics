@@ -8,9 +8,12 @@ public import EvmSemantics.State.Account
 execution updates: log entries, accessed accounts/keys for EIP-2929 warm
 pricing, the self-destruct set, and the refund counter.
 
-Address/key *sets* are modelled as predicates `α → Prop`. Membership is
-`s a` (read: "`a` is in `s`"); union adds an alternative; the empty set
-is `fun _ => False`. We're optimising for reasoning, not enumeration.
+Address / (address × key) sets are `Std.HashSet` for decidable
+membership at runtime — that's what EIP-2929 needs for warm-vs-cold
+gas pricing, and it also lets `SELFDESTRUCT` refund idempotency
+(YP §7 "each address contributes at most once") be expressed directly.
+The previous `Prop`-valued predicate representation forced a parallel
+`Array` mirror; that redundancy is gone.
 
 The `logSeries` stays an `Array` since we genuinely need to inspect it
 in order (and append at the end).
@@ -34,41 +37,26 @@ structure LogEntry where
 /-- The ordered list of LOG records emitted during execution. -/
 abbrev LogSeries := Array LogEntry
 
-/-- A set of addresses, as a predicate. -/
-abbrev AddressSet : Type := AccountAddress → Prop
+/-- A decidable-membership set of addresses. -/
+abbrev AddressSet : Type := Std.HashSet AccountAddress
 
-/-- A set of (address, storage-key) pairs. -/
-abbrev StorageKeySet : Type := AccountAddress × UInt256 → Prop
+/-- A decidable-membership set of `(address, storage-key)` pairs. -/
+abbrev StorageKeySet : Type := Std.HashSet (AccountAddress × UInt256)
 
 namespace AddressSet
-
-/-- The empty address set — nothing is in it. -/
-def empty : AddressSet := fun _ => False
-
-/-- Add `a` to `S`. Membership in `S.insert a` is "either equals `a` or
-    was already in `S`". -/
-def insert (S : AddressSet) (a : AccountAddress) : AddressSet :=
-  fun a' => a' = a ∨ S a'
-
-@[simp] theorem empty_def (a : AccountAddress) : (empty : AddressSet) a ↔ False :=
-  Iff.rfl
-
-@[simp] theorem mem_insert (S : AddressSet) (a a' : AccountAddress) :
-    S.insert a a' ↔ a' = a ∨ S a' := Iff.rfl
+/-- The empty address set. -/
+def empty : AddressSet := ∅
 end AddressSet
 
 namespace StorageKeySet
-
 /-- The empty storage-key set. -/
-def empty : StorageKeySet := fun _ => False
-
-/-- Add the (address, key) pair `sk` to `S`. -/
-def insert (S : StorageKeySet) (sk : AccountAddress × UInt256) : StorageKeySet :=
-  fun sk' => sk' = sk ∨ S sk'
-
-@[simp] theorem mem_insert (S : StorageKeySet) (sk sk' : AccountAddress × UInt256) :
-    S.insert sk sk' ↔ sk' = sk ∨ S sk' := Iff.rfl
+def empty : StorageKeySet := ∅
 end StorageKeySet
+
+-- `insert` and `contains` on both sets go straight through the underlying
+-- `Std.HashSet` methods — no wrapping needed since `AddressSet` and
+-- `StorageKeySet` are `abbrev`s. Consumers write `S.insert a`, `S.contains a`
+-- verbatim.
 
 /-- The accrued substate `A` (Yellow Paper §6.1) tracked across an
     execution: addresses self-destructed, addresses touched, refund
@@ -80,19 +68,17 @@ structure Substate where
   selfDestructSet     : AddressSet
   /-- Iterable parallel to `selfDestructSet`: the list of addresses that
       `SELFDESTRUCT`ed in this transaction, in insertion order. Used by
-      `Tx.execute`'s end-of-tx cleanup pass (the YP §6.1 deletion of
-      accounts in `Aₛ` from the world state), which can't iterate the
-      `Prop`-valued `selfDestructSet` directly. May contain duplicates
-      if `selfDestructTo` fires twice on the same account; the cleanup
-      is idempotent (set-to-empty), so duplicates are harmless. -/
+      `Tx.execute`'s end-of-tx cleanup pass (YP §6.1). The set gives
+      idempotent-refund membership; the list gives ordered iteration
+      that the set can't (HashSet has no defined iteration order). -/
   selfDestructList    : Array AccountAddress
   /-- `Aₜ` — addresses that have been "touched" (read or written). -/
   touchedAccounts     : AddressSet
   /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
   refundBalance       : UInt256
-  /-- `Aₐ` — accounts already accessed in this transaction (warm). -/
+  /-- `Aₐ` — accounts already accessed in this transaction (warm — EIP-2929). -/
   accessedAccounts    : AddressSet
-  /-- `Aₖ` — storage slots already accessed in this transaction. -/
+  /-- `Aₖ` — storage slots already accessed in this transaction (EIP-2929). -/
   accessedStorageKeys : StorageKeySet
   /-- `Aₗ` — ordered list of LOG records emitted so far. -/
   logSeries           : LogSeries
@@ -124,9 +110,17 @@ def originalStorage (A : Substate) (addr : AccountAddress) (key : UInt256) : UIn
 def addAccessedAccount (A : Substate) (a : AccountAddress) : Substate :=
   { A with accessedAccounts := A.accessedAccounts.insert a }
 
+/-- `true` iff `a` is already warm — EIP-2929 gas-pricing predicate. -/
+def isWarmAccount (A : Substate) (a : AccountAddress) : Bool :=
+  A.accessedAccounts.contains a
+
 /-- Mark `(addr, key)` as a warm storage slot in `A.accessedStorageKeys`. -/
 def addAccessedStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Substate :=
   { A with accessedStorageKeys := A.accessedStorageKeys.insert sk }
+
+/-- `true` iff `(addr, key)` is already warm — EIP-2929 gas-pricing predicate. -/
+def isWarmStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Bool :=
+  A.accessedStorageKeys.contains sk
 
 /-- Append a LOG record to the substate's `logSeries`. -/
 def appendLog (A : Substate) (entry : LogEntry) : Substate :=
