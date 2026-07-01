@@ -90,6 +90,8 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stMemExpandingEIP150Calls \
             Constantinople/BlockchainTests/GeneralStateTests/stMemoryStressTest \
             Constantinople/BlockchainTests/GeneralStateTests/stMemoryTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stPreCompiledContracts \
+            Constantinople/BlockchainTests/GeneralStateTests/stPreCompiledContracts2 \
             Constantinople/BlockchainTests/GeneralStateTests/stRandom \
             Constantinople/BlockchainTests/GeneralStateTests/stRecursiveCreate \
             Constantinople/BlockchainTests/GeneralStateTests/stRefundTest \
