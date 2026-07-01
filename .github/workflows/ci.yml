@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Build, lint, VMTests, and StateTests
+    name: Build, lint, VMTests, StateTests, and modern GeneralStateTests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,7 +31,7 @@ jobs:
           # linters re-emit their diagnostics, then fail if any appear.
           rm -rf .lake/build
           set -o pipefail
-          lake build evm_semantics vmtests statetests 2>&1 | tee build.log
+          lake build evm_semantics vmtests statetests gstatetests 2>&1 | tee build.log
           if grep -E "warning:" build.log; then
             echo "::error::Linter warnings detected — see the build log above."
             exit 1
@@ -115,6 +115,42 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stZeroKnowledge2
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
+
+      # Fetch the MAINTAINED ethereum/tests GeneralStateTests, which ship as a
+      # single ~9 MB tarball (`fixtures_general_state_tests.tgz`) at the repo
+      # root rather than as checked-in dirs. A blobless partial clone +
+      # single-file sparse checkout downloads only that tarball; we then extract
+      # a curated subset of `GeneralStateTests/*` dirs. Pin TESTS_REV together
+      # with .github/gstatetests-baseline.txt, never alone.
+      - name: Fetch modern GeneralStateTests corpus
+        env:
+          # tag v17.2
+          TESTS_REV: c67e485ff8b5be9abc8ad15345ec21aa22e290d9
+        run: |
+          mkdir ethtests && cd ethtests
+          git init -q
+          git remote add origin https://github.com/ethereum/tests
+          git sparse-checkout init
+          # Sparse to the single tarball file (can't sparse *inside* a tarball,
+          # so the whole ~9 MB blob still downloads — that's fine).
+          git sparse-checkout set --no-cone fixtures_general_state_tests.tgz
+          git fetch --depth 1 --filter=blob:none origin "$TESTS_REV"
+          git checkout -q FETCH_HEAD
+          # Extract only the curated dirs the runner is exercised on cleanly.
+          # In-archive prefix is `GeneralStateTests/` (no `fixtures/` prefix).
+          mkdir -p ../gstcorpus
+          tar xzf fixtures_general_state_tests.tgz -C ../gstcorpus \
+            GeneralStateTests/stExample \
+            GeneralStateTests/stStackTests \
+            GeneralStateTests/stShift \
+            GeneralStateTests/stCodeCopyTest
+          cd ..
+          # Guard: a wrong in-archive path would silently extract nothing, the
+          # runner would print `total 0`, the summary would find no aggregate
+          # line and the comparison would be skipped as a false green. Fail loud.
+          count=$(find gstcorpus -name '*.json' | wc -l)
+          echo "Extracted $count GeneralStateTests json files."
+          [ "$count" -gt 0 ] || { echo "::error::no GeneralStateTests extracted — check TESTS_REV / archive paths"; exit 1; }
 
       # Non-gating: this step reports the VMTests pass/fail picture and flags
       # regressions, but never blocks the PR. The known-failure baseline lives
@@ -202,3 +238,41 @@ jobs:
           path: |
             statetests-output.txt
             statetests-summary.txt
+
+      # Non-gating: reports the modern GeneralStateTests conformance picture
+      # against the curated subset extracted above and flags regressions. The
+      # known-state baseline lives in .github/gstatetests-baseline.txt. The
+      # curated dirs are fast and panic-free, so the binary is invoked directly
+      # (its own --timeout bounds any pathological test); a per-test wall cap of
+      # 45s at parallelism 4 mirrors the CALL statetests job.
+      - name: Run modern GeneralStateTests (curated subset)
+        if: always()
+        continue-on-error: true
+        run: |
+          ./.lake/build/bin/gstatetests -v -j 4 --timeout 45000 \
+            gstcorpus/GeneralStateTests | tee gstatetests-output.txt
+
+      - name: Summarize and compare modern GeneralStateTests against baseline
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/gstatetests_summary.sh gstatetests-output.txt > gstatetests-summary.txt; then
+            .github/scripts/gstatetests_check.sh \
+              .github/gstatetests-baseline.txt gstatetests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=GeneralStateTests::gstatetests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## GeneralStateTests (modern) regression report"
+              echo
+              echo "⚠️ The gstatetests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`gstatetests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload GeneralStateTests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gstatetests-report
+          path: |
+            gstatetests-output.txt
+            gstatetests-summary.txt

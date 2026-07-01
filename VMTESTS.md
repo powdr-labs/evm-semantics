@@ -1,6 +1,6 @@
 # Conformance harnesses
 
-Two harnesses exercise the verified evaluator (`stepF` / `run`):
+Three harnesses exercise the verified evaluator (`stepF` / `run`):
 
 - **`tests/VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
   **VMTests** suite, the *single-frame* corpus (no inter-contract calls,
@@ -19,6 +19,13 @@ Two harnesses exercise the verified evaluator (`stepF` / `run`):
   comparison covers the union of pre/post slot keys (so cleared-to-zero
   slots are caught). CI runs it as a separate, non-gating job against
   `.github/statetests-baseline.txt`.
+- **`tests/GeneralStateTestRunner.lean`** (executable `gstatetests`) — runs
+  the **maintained** `ethereum/tests` GeneralStateTests in the modern
+  `state_test` fixture format (shipped as `fixtures_general_state_tests.tgz`).
+  This is the "lift" onto the current upstream suite; the other two consume
+  the frozen `ethereum/legacytests` snapshot. See the dedicated section
+  ["Modern GeneralStateTests"](#modern-generalstatetests-gstatetests) below.
+  Non-gating; baseline in `.github/gstatetests-baseline.txt`.
 
 ## How to run
 ```
@@ -222,5 +229,102 @@ Already modelled: memory expansion (Yellow-Paper quadratic),
       Track written keys to close this blind spot.
 
 ### Scope expansion
-- [ ] Once calls/transaction processing land, target **GeneralStateTests** (the
-      current/maintained suite) in addition to the frozen legacy VMTests.
+- [x] Target the maintained `ethereum/tests` **GeneralStateTests** in addition
+      to the frozen legacy VMTests — done; see below (`gstatetests`).
+
+# Modern GeneralStateTests (`gstatetests`)
+
+`tests/GeneralStateTestRunner.lean` lifts the harness onto the **maintained**
+`ethereum/tests` repository. Where the other two harnesses read the frozen
+`ethereum/legacytests` snapshot, this one reads the current upstream
+GeneralStateTests in the modern `state_test` fixture format.
+
+## The `state_test` fixture format
+Upstream no longer checks GeneralStateTests in as directories; it ships them as
+`fixtures_general_state_tests.tgz` at the repo root. Each JSON file holds one or
+more test objects keyed like
+`GeneralStateTests/stExample/add11.json::add11-fork_[Cancun-Prague]-d0g0v0`,
+each with:
+- `env` — flat block context (`currentCoinbase`, `currentGasLimit`,
+  `currentNumber`, `currentTimestamp`, `currentBaseFee`, `currentRandom`,
+  `currentExcessBlobGas`).
+- `pre` — `{ addr: {balance, code, nonce, storage} }`.
+- `transaction` — a *template*: `data`/`gasLimit`/`value` are **arrays**, plus
+  scalar `gasPrice`, `to`, and **`sender`** (given directly — no ECDSA recovery
+  needed, unlike the legacy BlockchainTests runner).
+- `post` — `{ ForkName: [ { indexes:{data,gas,value}, state, hash, logs,
+  txbytes } ] }`. Each entry selects one tx variant via `indexes` and carries
+  an **expanded `state`** (compared per-account) and a state-root **`hash`**
+  (compared via the world MPT root).
+
+## How the runner works
+- `parseForkExact` maps a bare fork name (`"Cancun"`) to a `Fork` (skip if
+  unmodelled). `decodeEnv` builds the `BlockHeader` — note `prevRandao ←
+  currentRandom` (post-Merge), **not** the legacy `difficulty` mapping.
+- For each `post[fork][i]`: select the `(data,gas,value)` variant, build a
+  `Tx.Transaction`, run `Tx.execute`, and classify with the same tiered outcome
+  as the legacy statetests runner (`passCore ⊂ passFull ⊂ passRoot`): `core` =
+  storage/nonce/code match, `full` also exact balances, `root` also the world
+  MPT `stateRoot` equals the fixture's `hash`.
+- Result ids are `<base>_<Fork>_d<d>g<g>v<v>` (one per entry).
+
+## Scope and known gaps (minimal framework)
+- **Legacy transactions only.** Typed transactions (EIP-1559/2930/4844) are
+  reported `INCON` and skipped (`isTypedTx` keys on the presence of
+  `maxFeePerGas` / a non-empty access list / blob hashes). ~99% of the corpus
+  is legacy `gasPrice`.
+- **Cancun/Prague only** in the corpus. Two structural reasons keep most tests
+  at the **`passCore`** tier rather than `passFull`/`passRoot`:
+  1. `Tx.execute` performs **no EIP-1559 base-fee burn** — London+ burns
+     `baseFee * gasUsed`, so we overpay the coinbase and the sender/coinbase
+     balances (and the MPT root) differ whenever `currentBaseFee > 0`.
+  2. **EIP-2929 cold/warm** access costs and **EIP-3651 warm-coinbase** are not
+     modelled (a pre-existing gas gap).
+  Storage/nonce/code are unaffected by either, so `passCore` is the honest,
+  expected tier. A passCore-heavy baseline is **not** a regression.
+- **Transaction-validity rejection is not modelled.** Fixtures marked
+  `expectException` (e.g. `INTRINSIC_GAS_TOO_LOW`) expect the tx fully rejected
+  with zero state change; our tx layer still bumps the sender nonce, so those
+  show as `FAIL` (baselined — the two `invalidTr` cases).
+- **Logs** (`logsHash`) are not compared (no RLP-of-logs encoder), same as the
+  legacy statetests runner.
+
+## How to run
+```
+# Fetch just the ~9 MB GeneralStateTests tarball at the pinned rev and extract
+# the curated dirs (matching what CI does):
+REV=$(grep -m1 'TESTS_REV:' .github/workflows/ci.yml | awk '{print $2}')
+mkdir ethtests && cd ethtests && git init -q
+git remote add origin https://github.com/ethereum/tests
+git sparse-checkout init
+git sparse-checkout set --no-cone fixtures_general_state_tests.tgz
+git fetch --depth 1 --filter=blob:none origin "$REV" && git checkout -q FETCH_HEAD
+mkdir -p ../gstcorpus
+tar xzf fixtures_general_state_tests.tgz -C ../gstcorpus \
+  GeneralStateTests/stExample GeneralStateTests/stStackTests \
+  GeneralStateTests/stShift GeneralStateTests/stCodeCopyTest
+cd ..
+
+lake build gstatetests
+./.lake/build/bin/gstatetests -v gstcorpus/GeneralStateTests   # -j N, --timeout MS
+./.lake/build/bin/gstatetests --file .../add11.json            # single file
+```
+
+## CI regression check
+CI runs `gstatetests` over the curated subset on every PR as a **non-gating**
+step and compares against `.github/gstatetests-baseline.txt` (keyed on the FAIL
+id set, so a pass → FAIL surfaces as a warning; a wall-timeout flip to `incon`
+does not). Refresh the baseline when an evaluator fix turns FAILs into passes:
+```
+./.lake/build/bin/gstatetests -v <corpus>/GeneralStateTests > raw.txt
+.github/scripts/gstatetests_summary.sh raw.txt > .github/gstatetests-baseline.txt
+```
+The curated dirs are `stExample`, `stStackTests`, `stShift`, `stCodeCopyTest`
+(fast, panic-free, ≥1 non-INCON each). Add a dir to the `tar xzf` list in
+`.github/workflows/ci.yml` and regenerate the baseline together. Bump
+`TESTS_REV` and the baseline in the same commit — never one alone.
+
+Current results (curated subset, Cancun + Prague):
+```
+pass(root=0 full+=387 core+=517) fail=2 incon=10 crash=0 (total 916)
+```
