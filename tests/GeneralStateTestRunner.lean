@@ -322,12 +322,16 @@ partial def collectJson (dir : System.FilePath) :
     else if path.toString.endsWith ".json" then out := out.push path
   return out.qsort (fun a b => a.toString < b.toString)
 
-/-- Derive a stable, colon-free, per-entry id: `<base>_<Fork>_d<d>g<g>v<v>`
-    where `base` is the test name (the segment after `::`, before `-fork_`). -/
+/-- Derive a stable, colon-free, per-entry id: `<dir>_<file>_<Fork>_d<d>g<g>v<v>`.
+    The modern test key is `<path>::<name>-fork_…`; the `<path>` segment (e.g.
+    `GeneralStateTests/stCallCodes/Call1024OOG.json`) is used — with the
+    `GeneralStateTests/` prefix and `.json` suffix stripped and `/` → `_` — so
+    that same-named tests in different directories get distinct ids (a
+    name-only id collides, masking a regression). -/
 def entryId (testKey forkName : String) (d g v : Nat) : String :=
-  let afterColons := (testKey.splitOn "::").getLast!
-  let base := (afterColons.splitOn "-fork_").head!
-  s!"{base}_{forkName}_d{d}g{g}v{v}"
+  let pathPart := (testKey.splitOn "::").head!
+  let dirFile := (((pathPart.replace "GeneralStateTests/" "").replace ".json" "")).replace "/" "_"
+  s!"{dirFile}_{forkName}_d{d}g{g}v{v}"
 
 /-- Run every `(fork, entry)` in one file; one `(tag, id, msg)` per entry
     (`tag ∈ {PASS_ROOT, PASS_FULL, PASS_CORE, FAIL, INCON, CRASH}`). Forks we

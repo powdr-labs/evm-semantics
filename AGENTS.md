@@ -225,7 +225,10 @@ Touch these in order, then rebuild + lint + run vmtests:
 4. StateTests (legacy BlockchainTests/GeneralStateTests, curated subset from
    `ethereum/legacytests`) — compares against `.github/statetests-baseline.txt`;
    the CALL-test gate fails the build on a pass → FAIL.
-5. Modern GeneralStateTests (`gstatetests`, curated subset from the maintained
-   `ethereum/tests` `fixtures_general_state_tests.tgz`, pinned to `TESTS_REV`) —
-   **non-gating**: compares against `.github/gstatetests-baseline.txt`. Only
-   legacy `gasPrice` txs run; typed txs are `INCON`. See `VMTESTS.md`.
+5. Modern GeneralStateTests (`gstatetests`, ~whole corpus from the maintained
+   `ethereum/tests` `fixtures_general_state_tests.tgz`, pinned to `TESTS_REV`,
+   minus `stTimeConsuming` + internal `VMTests`) — **non-gating**: driven by the
+   per-file subprocess-isolation wrapper `.github/scripts/gstatetests_run.sh` (so
+   an OOM/panic in one file is a contained `crash`, not a batch abort) and
+   compared against `.github/gstatetests-baseline.txt`. Only legacy `gasPrice`
+   txs run; typed txs are `INCON`. See `VMTESTS.md`.

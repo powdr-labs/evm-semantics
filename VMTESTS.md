@@ -290,11 +290,19 @@ each with:
   fixtures that hinge on those may still diverge.
 - **Logs** (`logsHash`) are not compared (no RLP-of-logs encoder), same as the
   legacy statetests runner.
+- **Two files crash (contained).** `Cancun/…/MCOPY_memory_expansion_cost` and
+  `stRandom2/randomStatetest649` hit the evaluator's *unbounded* huge-offset
+  memory allocation (`readPadded`/`writeBytes`) → `INTERNAL PANIC: out of
+  memory`. Because `gstatetests` runs files as in-process `Task`s, a panic would
+  abort the whole run — so CI drives it through the per-file subprocess-isolation
+  wrapper `gstatetests_run.sh`, which contains each panic as a `crash` for that
+  one file and keeps going. Fixing the allocation itself is a separate
+  memory-model change.
 
 ## How to run
 ```
-# Fetch just the ~9 MB GeneralStateTests tarball at the pinned rev and extract
-# the curated dirs (matching what CI does):
+# Fetch just the ~9 MB GeneralStateTests tarball at the pinned rev, extract the
+# whole tree, and drop the two dirs CI excludes (see below):
 REV=$(grep -m1 'TESTS_REV:' .github/workflows/ci.yml | awk '{print $2}')
 mkdir ethtests && cd ethtests && git init -q
 git remote add origin https://github.com/ethereum/tests
@@ -302,31 +310,43 @@ git sparse-checkout init
 git sparse-checkout set --no-cone fixtures_general_state_tests.tgz
 git fetch --depth 1 --filter=blob:none origin "$REV" && git checkout -q FETCH_HEAD
 mkdir -p ../gstcorpus
-tar xzf fixtures_general_state_tests.tgz -C ../gstcorpus \
-  GeneralStateTests/stExample GeneralStateTests/stStackTests \
-  GeneralStateTests/stShift GeneralStateTests/stCodeCopyTest
+tar xzf fixtures_general_state_tests.tgz -C ../gstcorpus GeneralStateTests
+rm -rf ../gstcorpus/GeneralStateTests/stTimeConsuming \
+       ../gstcorpus/GeneralStateTests/VMTests
 cd ..
 
 lake build gstatetests
-./.lake/build/bin/gstatetests -v gstcorpus/GeneralStateTests   # -j N, --timeout MS
-./.lake/build/bin/gstatetests --file .../add11.json            # single file
+# Whole corpus, isolated per file (recommended — survives the OOM crashers):
+.github/scripts/gstatetests_run.sh gstcorpus/GeneralStateTests 45 4
+# Or in-process for a single dir/file (faster, but a panic aborts the batch):
+./.lake/build/bin/gstatetests -v gstcorpus/GeneralStateTests/stExample  # -j N, --timeout MS
+./.lake/build/bin/gstatetests --file .../add11.json                     # single file
 ```
 
 ## CI regression check
-CI runs `gstatetests` over the curated subset on every PR as a **non-gating**
-step and compares against `.github/gstatetests-baseline.txt` (keyed on the FAIL
-id set, so a pass → FAIL surfaces as a warning; a wall-timeout flip to `incon`
-does not). Refresh the baseline when an evaluator fix turns FAILs into passes:
+CI runs `gstatetests` over **(almost) the whole corpus** on every PR as a
+**non-gating** step, via the per-file subprocess-isolation wrapper
+`gstatetests_run.sh` (45s per-file wall cap, parallelism 4), and compares against
+`.github/gstatetests-baseline.txt` (keyed on the FAIL id set, so a pass → FAIL
+surfaces as a warning; a wall-timeout flip to `incon`, or a new `crash`, does
+not). Ids are directory-qualified (`<dir>_<file>_<Fork>_dNgNvN`) so same-named
+tests in different dirs don't collide. Refresh the baseline when an evaluator fix
+turns FAILs into passes:
 ```
-./.lake/build/bin/gstatetests -v <corpus>/GeneralStateTests > raw.txt
+.github/scripts/gstatetests_run.sh <corpus>/GeneralStateTests 45 4 > raw.txt
 .github/scripts/gstatetests_summary.sh raw.txt > .github/gstatetests-baseline.txt
 ```
-The curated dirs are `stExample`, `stStackTests`, `stShift`, `stCodeCopyTest`
-(fast, panic-free, ≥1 non-INCON each). Add a dir to the `tar xzf` list in
-`.github/workflows/ci.yml` and regenerate the baseline together. Bump
+Only two dirs are excluded: `stTimeConsuming` (deliberately pathological
+ackermann/loop tests) and the non-GeneralStateTests internal `VMTests` dir. Bump
 `TESTS_REV` and the baseline in the same commit — never one alone.
 
-Current results (curated subset, Cancun + Prague):
+Current results (whole corpus minus the two excluded dirs, Cancun + Prague;
+~80s wall at `-P4`):
 ```
-pass(root=2 full+=387 core+=517) fail=0 incon=10 crash=0 (total 916)
+pass(root=46 full+=2446 core+=19727) fail=1709 incon=2180 crash=2 (total 26110)
 ```
+The large `fail` count is expected and traces to the documented gaps, not to the
+runner: the top failing dirs are `precompsEIP2929Cancun`, `modexpTests`,
+`ecpairing`, `eip2929`, `CreateAddressWarmAfterFail` — i.e. EIP-2929 cold/warm
+and precompile-gas cases where wrong gas changes the halt and hence the observed
+storage/code. `incon` is overwhelmingly the skipped typed transactions.

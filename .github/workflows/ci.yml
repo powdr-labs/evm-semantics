@@ -136,14 +136,16 @@ jobs:
           git sparse-checkout set --no-cone fixtures_general_state_tests.tgz
           git fetch --depth 1 --filter=blob:none origin "$TESTS_REV"
           git checkout -q FETCH_HEAD
-          # Extract only the curated dirs the runner is exercised on cleanly.
-          # In-archive prefix is `GeneralStateTests/` (no `fixtures/` prefix).
+          # Extract the whole GeneralStateTests tree (in-archive prefix is
+          # `GeneralStateTests/`, no `fixtures/` prefix), then drop the two dirs
+          # that don't fit CI: `stTimeConsuming` (deliberately pathological —
+          # ackermann/loops that would each eat the per-file wall cap) and the
+          # non-GeneralStateTests internal `VMTests` dir. Everything else runs
+          # under the per-file subprocess isolation in gstatetests_run.sh.
           mkdir -p ../gstcorpus
-          tar xzf fixtures_general_state_tests.tgz -C ../gstcorpus \
-            GeneralStateTests/stExample \
-            GeneralStateTests/stStackTests \
-            GeneralStateTests/stShift \
-            GeneralStateTests/stCodeCopyTest
+          tar xzf fixtures_general_state_tests.tgz -C ../gstcorpus GeneralStateTests
+          rm -rf ../gstcorpus/GeneralStateTests/stTimeConsuming \
+                 ../gstcorpus/GeneralStateTests/VMTests
           cd ..
           # Guard: a wrong in-archive path would silently extract nothing, the
           # runner would print `total 0`, the summary would find no aggregate
@@ -240,17 +242,17 @@ jobs:
             statetests-summary.txt
 
       # Non-gating: reports the modern GeneralStateTests conformance picture
-      # against the curated subset extracted above and flags regressions. The
-      # known-state baseline lives in .github/gstatetests-baseline.txt. The
-      # curated dirs are fast and panic-free, so the binary is invoked directly
-      # (its own --timeout bounds any pathological test); a per-test wall cap of
-      # 45s at parallelism 4 mirrors the CALL statetests job.
-      - name: Run modern GeneralStateTests (curated subset)
+      # over (almost) the whole corpus and flags regressions. The known-state
+      # baseline lives in .github/gstatetests-baseline.txt. Run via the per-file
+      # subprocess-isolation wrapper (45s cap, parallelism 4): a panic/OOM in one
+      # pathological test (the evaluator's unbounded huge-offset memory alloc) is
+      # contained as a `crash` for that file instead of aborting the whole run.
+      - name: Run modern GeneralStateTests
         if: always()
         continue-on-error: true
         run: |
-          ./.lake/build/bin/gstatetests -v -j 4 --timeout 45000 \
-            gstcorpus/GeneralStateTests | tee gstatetests-output.txt
+          .github/scripts/gstatetests_run.sh \
+            gstcorpus/GeneralStateTests 45 4 | tee gstatetests-output.txt
 
       - name: Summarize and compare modern GeneralStateTests against baseline
         if: always()
