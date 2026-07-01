@@ -38,21 +38,23 @@ curve) makes the precompile fail with all-gas consumed (mapped to
 namespace EvmSemantics.Crypto.Ecpairing
 
 open EvmSemantics.Crypto.EC
-open EvmSemantics.Crypto.Fp2
-open EvmSemantics.Crypto.Fp12
+open EvmSemantics.Crypto.Fp2 (Fp2)
+open EvmSemantics.Crypto.Fp12 (Fp12)
 open EvmSemantics.Crypto.G2
-open EvmSemantics.Crypto.Bn254 (p)
+open EvmSemantics.Crypto.Bn254 (p Fp)
 open EvmSemantics.Crypto.Bytes
 
 /-- Decode a G₁ point from `input[off..off+64)`. Returns `none` on
     out-of-field or off-curve. `(0, 0)` decodes to infinity. -/
-def decodeG1 (input : ByteArray) (off : Nat) : Option EC.Point :=
+def decodeG1 (input : ByteArray) (off : Nat) : Option Bn254.Point :=
   let x := readBE input off 32
   let y := readBE input (off + 32) 32
   if x ≥ p ∨ y ≥ p then none
   else if x = 0 ∧ y = 0 then some .infinity
-  else if EvmSemantics.Crypto.Bn254.onCurve x y then some (.affine x y)
-  else none
+  else
+    let xF : Fp := FF.ofNat x
+    let yF : Fp := FF.ofNat y
+    if Bn254.onCurve xF yF then some (.affine xF yF) else none
 
 /-- Decode a G₂ point from `input[off..off+128)`. Layout matches
     EIP-197: `X.c1 ‖ X.c0 ‖ Y.c1 ‖ Y.c0` (imaginary before real).
@@ -65,18 +67,18 @@ def decodeG2 (input : ByteArray) (off : Nat) : Option G2.Point :=
   if x0 ≥ p ∨ x1 ≥ p ∨ y0 ≥ p ∨ y1 ≥ p then none
   else if x0 = 0 ∧ x1 = 0 ∧ y0 = 0 ∧ y1 = 0 then some .infinity
   else
-    let X : Fp2 := { c0 := x0, c1 := x1 }
-    let Y : Fp2 := { c0 := y0, c1 := y1 }
+    let X : Fp2 := { c0 := FF.ofNat x0, c1 := FF.ofNat x1 }
+    let Y : Fp2 := { c0 := FF.ofNat y0, c1 := FF.ofNat y1 }
     if G2.onCurve X Y then some (.affine X Y)
     else none
 
 /-- Decode `k` pairs of `(G₁, G₂)` from `input`. Returns `none` if
     length ≠ multiple of 192 or any coord/on-curve check fails. -/
-def decodePairs (input : ByteArray) : Option (List (EC.Point × G2.Point)) := Id.run do
+def decodePairs (input : ByteArray) : Option (List (Bn254.Point × G2.Point)) := Id.run do
   let sz := input.size
   if sz % 192 ≠ 0 then return none
   let k := sz / 192
-  let mut acc : List (EC.Point × G2.Point) := []
+  let mut acc : List (Bn254.Point × G2.Point) := []
   for i in [0:k] do
     let off := i * 192
     match decodeG1 input off, decodeG2 input (off + 64) with

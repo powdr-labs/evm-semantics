@@ -34,22 +34,25 @@ open EvmSemantics.Crypto.EC
 open EvmSemantics.Crypto.Bn254
 open EvmSemantics.Crypto.Bytes
 
-/-- Decode a `(x, y)` pair from the wire into an `EC.Point`. Returns
-    `none` if either coordinate is out-of-field (`≥ p`), or if the
-    pair is not the wire-form of infinity `(0, 0)` and does not lie
-    on the curve. -/
+/-- Decode a `(x, y)` pair from the wire into a BN254 `Point`.
+    Returns `none` if either coordinate is out-of-field (`≥ p`), or
+    if the pair is not the wire-form of infinity `(0, 0)` and does
+    not lie on the curve. -/
 def decodePoint (x y : Nat) : Option Point :=
   if x ≥ p ∨ y ≥ p then none
   else if x = 0 ∧ y = 0 then some .infinity
-  else if onCurve x y then some (.affine x y)
-  else none
+  else
+    let xF : Fp := FF.ofNat x
+    let yF : Fp := FF.ofNat y
+    if onCurve xF yF then some (.affine xF yF) else none
 
-/-- Encode an `EC.Point` back into the 64-byte wire form. Infinity
-    goes to `(0, 0)`; every other point goes to its affine coordinates
-    written MSB-first. -/
+/-- Encode a `Point` back into the 64-byte wire form. Infinity goes
+    to `(0, 0)`; every other point goes to its affine coordinates
+    written MSB-first. `.val` peels the `Fp` back to `Nat` for the
+    byte serialiser. -/
 def encodePoint : Point → ByteArray
   | .infinity => writeBE 0 32 ++ writeBE 0 32
-  | .affine x y => writeBE x 32 ++ writeBE y 32
+  | .affine x y => writeBE x.val 32 ++ writeBE y.val 32
 
 /-- ECADD core: parse the (padded/truncated) 128-byte input, validate,
     and return `some 64-byte-output` on success or `none` if the input

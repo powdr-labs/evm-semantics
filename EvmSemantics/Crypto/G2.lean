@@ -1,38 +1,33 @@
 module
 
 public import EvmSemantics.Crypto.Fp2
-public import EvmSemantics.Crypto.Bn254
 
 /-!
 `EvmSemantics.Crypto.G2` — the twist curve `G₂` for BN254 pairing.
 
 BN254's `G₂` is the group of points on the sextic twist
 `E': y² = x³ + b'` over `F_p²`, where `b' = b / ξ = 3 / (9 + u)`.
-Points are represented in affine coordinates with an `infinity`
-marker, exactly mirroring the `G₁` shape in `EvmSemantics.Crypto.EC`,
-but with `Fp2` coordinates instead of `Nat`.
+Points are affine `Fp2` pairs plus an `infinity` marker; the tower
+carries the modulus, so no `p` is threaded at runtime.
 
 EIP-197 wire format for a `G₂` point is 128 bytes:
-`X.c1 ‖ X.c0 ‖ Y.c1 ‖ Y.c0` — *imaginary* (coeff of `u`) part first
-for each `Fp2` coefficient. The precompile driver handles the swap;
-this file stays "natural" `(c0, c1)`.
+`X.c1 ‖ X.c0 ‖ Y.c1 ‖ Y.c0` — imaginary part first per `Fp2`
+coefficient. The precompile driver handles that swap; this file
+stays "natural" `(c0, c1)`.
 
-EIP-197's validity conditions on `G₂` inputs are:
+EIP-197's validity conditions on `G₂` inputs:
 * Every 32-byte coordinate fragment is `< p`.
-* Either `(0, 0)` — infinity — or on `E'` (the on-curve check below).
+* Either `(0, 0)` — infinity — or on `E'`.
 
-We deliberately do **not** enforce subgroup membership (`N·P = ∞`).
-The spec only requires on-curve, and a fast subgroup check via
-Frobenius would need extra pairing-machinery constants we don't yet
-have.
+We deliberately do **not** enforce subgroup membership (`N·P = ∞`);
+the spec only requires on-curve.
 -/
 
 @[expose] public section
 
 namespace EvmSemantics.Crypto.G2
 
-open EvmSemantics.Crypto.Fp2
-open EvmSemantics.Crypto.Bn254 (p)
+open EvmSemantics.Crypto.Fp2 (Fp2)
 
 /-- Point on the BN254 twist in affine form (or infinity). -/
 inductive Point where
@@ -40,32 +35,22 @@ inductive Point where
   | affine (x y : Fp2)
   deriving Inhabited
 
-/-- The twist coefficient `b' = 3 / (9 + u)` as an `Fp2`.
-
-    Computed via `3 · (9 + u)⁻¹`: the inverse of `9 + u` under the
-    `Fp2` norm formula. Cached as a `def` — the compiler evaluates it
-    once at load time. -/
-def twistB : Fp2 :=
-  Fp2.mulByFp p (Fp2.inv p { c0 := 9, c1 := 1 }) 3
+/-- The twist coefficient `b' = 3 / (9 + u)`. Cached as a `def` — the
+    compiler evaluates it once at load time. -/
+def twistB : Fp2 := Fp2.mulByFp (Fp2.inv { c0 := 9, c1 := 1 }) 3
 
 /-- `(x, y) ∈ E'(Fp²)` iff `y² = x³ + b'`. -/
-def onCurve (x y : Fp2) : Bool :=
-  let lhs := Fp2.square p y
-  let rhs := Fp2.add p (Fp2.mul p x (Fp2.square p x)) twistB
-  Fp2.eq lhs rhs
+def onCurve (x y : Fp2) : Bool := Fp2.eq (y^2) (x * x^2 + twistB)
 
-/-- Double a G₂ point. Same formula as `G₁`, lifted over `Fp2`. -/
+/-- Double a G₂ point. -/
 def doublePoint : Point → Point
   | .infinity => .infinity
   | .affine x y =>
     if Fp2.eq y Fp2.zero then .infinity
     else
-      let x2 := Fp2.square p x
-      let threeX2 := Fp2.add p (Fp2.add p x2 x2) x2
-      let twoY := Fp2.add p y y
-      let lam := Fp2.mul p threeX2 (Fp2.inv p twoY)
-      let x' := Fp2.sub p (Fp2.square p lam) (Fp2.add p x x)
-      let y' := Fp2.sub p (Fp2.mul p lam (Fp2.sub p x x')) y
+      let lam := (3 * x^2) * (2 * y)⁻¹
+      let x' := lam^2 - 2 * x
+      let y' := lam * (x - x') - y
       .affine x' y'
 
 /-- Add two G₂ points. -/
@@ -74,17 +59,17 @@ def addPoint : Point → Point → Point
   | P, .infinity => P
   | .affine x1 y1, .affine x2 y2 =>
     if Fp2.eq x1 x2 then
-      if Fp2.eq (Fp2.add p y1 y2) Fp2.zero then .infinity
+      if Fp2.eq (y1 + y2) Fp2.zero then .infinity
       else doublePoint (.affine x1 y1)
     else
-      let lam := Fp2.mul p (Fp2.sub p y2 y1) (Fp2.inv p (Fp2.sub p x2 x1))
-      let x3 := Fp2.sub p (Fp2.sub p (Fp2.square p lam) x1) x2
-      let y3 := Fp2.sub p (Fp2.mul p lam (Fp2.sub p x1 x3)) y1
+      let lam := (y2 - y1) * (x2 - x1)⁻¹
+      let x3 := lam^2 - x1 - x2
+      let y3 := lam * (x1 - x3) - y1
       .affine x3 y3
 
 /-- Negate a G₂ point: `-P = (x, -y)`. -/
 @[inline] def negate : Point → Point
   | .infinity => .infinity
-  | .affine x y => .affine x (Fp2.neg p y)
+  | .affine x y => .affine x (-y)
 
 end EvmSemantics.Crypto.G2

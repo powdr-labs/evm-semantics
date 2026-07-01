@@ -39,6 +39,7 @@ the CALL-family caller sees `returnData.size = 0`.
 namespace EvmSemantics.Crypto.Ecrecover
 
 open EvmSemantics.Crypto.EC
+open EvmSemantics.Crypto.FF (modMul modNeg modInv)
 open EvmSemantics.Crypto.Secp256k1
 open EvmSemantics.Crypto.Bytes
 
@@ -59,7 +60,7 @@ def recoverAddress (h v r s : Nat) : Option ByteArray := do
   else if s = 0 ∨ s ≥ N then none
   else
     -- Recover R by decompressing (r, yOdd = v==28).
-    let R ← decompress r (v = 28)
+    let R ← decompress (FF.ofNat r) (v = 28)
     -- e = h mod N.
     let e := h % N
     let rInv := modInv r N
@@ -69,8 +70,9 @@ def recoverAddress (h v r s : Nat) : Option ByteArray := do
     match scalarMul2 u1 G u2 R with
     | .infinity => none
     | .affine qx qy =>
-      -- Address = keccak256(qx ‖ qy)[12:32].
-      let preimage := writeBE qx 32 ++ writeBE qy 32
+      -- Address = keccak256(qx ‖ qy)[12:32]. `.val` peels the FF
+      -- wrapper back to a Nat so we can serialise the 32-byte words.
+      let preimage := writeBE qx.val 32 ++ writeBE qy.val 32
       let digest := Keccak.hash preimage
       -- Take the last 20 bytes.
       let mut addr : ByteArray := ByteArray.empty
