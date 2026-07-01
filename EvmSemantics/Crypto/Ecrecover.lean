@@ -39,7 +39,6 @@ the CALL-family caller sees `returnData.size = 0`.
 namespace EvmSemantics.Crypto.Ecrecover
 
 open EvmSemantics.Crypto.EC
-open EvmSemantics.Crypto.FF (modMul modNeg modInv)
 open EvmSemantics.Crypto.Secp256k1
 open EvmSemantics.Crypto.Bytes
 
@@ -60,17 +59,22 @@ def recoverAddress (h v r s : Nat) : Option ByteArray := do
   else if s = 0 ∨ s ≥ N then none
   else
     -- Recover R by decompressing (r, yOdd = v==28).
-    let R ← decompress (FF.ofNat r) (v = 28)
-    -- e = h mod N.
-    let e := h % N
-    let rInv := modInv r N
-    -- Q = r⁻¹ · (s · R − e · G) = r⁻¹·s·R + r⁻¹·(−e)·G
-    let u1 := modMul (modNeg e N) rInv N
-    let u2 := modMul s rInv N
-    match scalarMul2 u1 G u2 R with
+    let R ← decompress (Fin.ofNat _ r) (v = 28)
+    -- Scalar arithmetic lives in `Fin N` (the group's *scalar* field —
+    -- `N` is prime so `Fin N` is a field). This gives us `⁻¹`, `*`,
+    -- `-` as operators; the `.val`s at the end extract the raw `Nat`
+    -- scalars that `scalarMul2` consumes.
+    --
+    -- Q = r⁻¹ · (s · R − e · G) = r⁻¹·s·R + r⁻¹·(−e)·G.
+    let rN : Fin N := Fin.ofNat _ r
+    let sN : Fin N := Fin.ofNat _ s
+    let eN : Fin N := Fin.ofNat _ h
+    let u1 : Fin N := -eN * rN⁻¹
+    let u2 : Fin N := sN * rN⁻¹
+    match scalarMul2 u1.val G u2.val R with
     | .infinity => none
     | .affine qx qy =>
-      -- Address = keccak256(qx ‖ qy)[12:32]. `.val` peels the FF
+      -- Address = keccak256(qx ‖ qy)[12:32]. `.val` peels the Fin
       -- wrapper back to a Nat so we can serialise the 32-byte words.
       let preimage := writeBE qx.val 32 ++ writeBE qy.val 32
       let digest := Keccak.hash preimage

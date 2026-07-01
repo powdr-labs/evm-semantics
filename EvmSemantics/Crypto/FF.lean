@@ -4,33 +4,35 @@ public import EvmSemantics.Crypto.EC
 public import Batteries.Tactic.Lint.Misc
 
 /-!
-`EvmSemantics.Crypto.FF` — finite fields `F_p` with the modulus baked
-into the type.
+`EvmSemantics.Crypto.FF` — finite-field extensions to `Fin p` plus
+the polymorphic Weierstrass curve operations that consume them.
 
-`FF p` is a *reducible abbreviation* for `Fin p`, i.e. a `Nat`
-representative together with a `Prop`-erased proof that it lies in
-`[0, p)`. The proof is enforced at the type level: constructing a
-value with `.val ≥ p` is a type error. Two distinct primes yield two
-distinct types (`FF Secp256k1.p ≠ FF Bn254.p`), so the compiler
-catches mix-ups the raw-`Nat` code silently accepts.
+We spell field elements `Fin p` directly rather than through an
+`FF p` alias — Lean core's `Add / Sub / Mul / Neg / Zero / One /
+OfNat` on `Fin p` (given `[NeZero p]`) already give us the operator
+sugar, and constructing from a raw `Nat` is `Fin.ofNat p a`. This
+module adds only what `Fin` doesn't:
 
-The runtime representation is `val : Nat` — the `isLt` proof is
-compile-time erased. So `FF p` is zero-overhead vs a bare `Nat`.
+* `Inv (Fin p)` — extended-Euclidean modular inverse.
+* `HPow (Fin p) Nat (Fin p)` — square-and-multiply exponentiation.
+* `sqrt` — modular square root (needs `p ≡ 3 mod 4`).
+* `Curve p` + `doublePoint / addPoint / scalarMul / scalarMul2 /
+  onCurve / decompress` — the polymorphic point operations, once
+  per curve family, over `Point (Fin p)`.
 
-`Add / Sub / Mul / Neg / Zero / One / OfNat` come from `Fin`'s own
-instances (Lean core / Mathlib) when `[NeZero p]` is in scope. Every
-concrete curve (`Bn254`, `Secp256k1`) provides a `NeZero p` instance
-in its own module, so BN254/secp256k1 call sites get the full
-operator set automatically.
+Concrete curves (`Bn254`, `Secp256k1`) instantiate `Fp := Fin p`,
+supply `NeZero p`, wrap `curve : Curve p`, and re-export the ops.
+The user-facing API for those callers stays curve-namespaced
+(`Bn254.doublePoint`, etc.).
 
-`Inv (FF p)` and `HPow (FF p) Nat (FF p)` are our own — extended
-Euclidean modular inverse and square-and-multiply exponentiation
-don't have counterparts in `Fin`'s core API.
+Two guardrails worth noting explicitly for `Fin p` arithmetic:
 
-This module also hosts the `Nat`-level modular arithmetic
-(`modAdd`, `modMul`, `modPow`, `modInv`, `modSqrt`) that the `FF`
-instances delegate to, plus the polymorphic `Curve p` value + point
-operations parameterised by `p`.
+* `+ / - / * / -a` are modular over `p` (Lean core's `Fin.add /
+  sub / mul / neg` reduce mod n). Correct field arithmetic when
+  `p` is prime.
+* `x % y` and `x / y` on `Fin p` are **not** field ops — they're
+  `Nat` truncated-mod and truncated-division on the raw
+  representatives. We never use those.
 -/
 
 @[expose] public section
@@ -40,24 +42,12 @@ namespace EvmSemantics.Crypto.FF
 open EvmSemantics.Crypto.EC (Point)
 
 ----------------------------------------------------------------------------
--- Nat-level modular arithmetic.
+-- Internal Nat-level modular arithmetic.
 --
--- `m` is passed explicitly at every call — used both for field
--- arithmetic (`m := p`) and for scalar arithmetic mod the group
--- order (`m := N`).
+-- Building blocks the `Inv` / `HPow` / `sqrt` instances on `Fin p`
+-- delegate to. Not intended for direct use — external call sites
+-- should get modular arithmetic via `Fin p`'s operators.
 ----------------------------------------------------------------------------
-
-/-- `a + b mod m`. -/
-@[inline] def modAdd (a b m : Nat) : Nat := (a + b) % m
-
-/-- `a - b mod m`; wraps via `(a + m − b) % m` so we stay in `Nat`. -/
-@[inline] def modSub (a b m : Nat) : Nat := (a + (m - b % m)) % m
-
-/-- `a * b mod m`. -/
-@[inline] def modMul (a b m : Nat) : Nat := (a * b) % m
-
-/-- `−a mod m`. -/
-@[inline] def modNeg (a m : Nat) : Nat := (m - a % m) % m
 
 /-- Inner square-and-multiply loop for `modPow`. -/
 partial def modPow.go (m b acc e : Nat) : Nat :=
@@ -90,48 +80,23 @@ def modInv (a m : Nat) : Nat := modInv.go m m (a % m) 0 1
 end EvmSemantics.Crypto.FF
 
 ----------------------------------------------------------------------------
--- The `FF p` type.
---
--- Reducible abbreviation for `Fin p` so the compiler can see through
--- it when picking up `Add / Sub / Mul / Neg / OfNat` etc. from
--- `Fin`'s own instances (which live in Lean core and Mathlib).
-----------------------------------------------------------------------------
-
-/-- Element of `F_p` — a `Nat` in `[0, p)` with the bound enforced by
-    the underlying `Fin p` proof, typed by its modulus. -/
-abbrev FF (p : Nat) := Fin p
-
-namespace FF
-
-/-- Reduce a `Nat` into `FF p`. Idempotent on values already in
-    `[0, p)`. Requires `[NeZero p]` so `Fin p` is non-empty and the
-    `mod_lt` proof goes through. -/
-@[inline] def ofNat {p : Nat} [NeZero p] (a : Nat) : FF p := Fin.ofNat p a
-
-/-- Access the underlying `Nat` representative. Alias for `Fin.val`;
-    exists to give byte-serialisation call sites a stable name. -/
-@[inline] def toNat {p : Nat} (a : FF p) : Nat := a.val
-
-end FF
-
-----------------------------------------------------------------------------
 -- Instances not provided by `Fin`'s core / Mathlib API.
 ----------------------------------------------------------------------------
 
-/-- Inverse via extended Euclidean, wrapped back into `FF p`. Returns
-    the `Fin p` element with `val = 0` for `a = 0` — mirrors the
+/-- Multiplicative inverse via extended Euclidean, then wrapped back
+    into `Fin p`. Returns `⟨0, _⟩` for `a = 0` — mirrors the
     underlying `modInv`; callers must pre-check when correctness
     depends on non-zero input. -/
-@[inline] instance {p : Nat} [NeZero p] : Inv (FF p) :=
+@[inline] instance instInvFin {p : Nat} [NeZero p] : Inv (Fin p) :=
   ⟨fun a => Fin.ofNat p (EvmSemantics.Crypto.FF.modInv a.val p)⟩
 
 /-- `a ^ n` for `n : Nat`, via square-and-multiply on the raw
     representative. -/
-@[inline] instance {p : Nat} [NeZero p] : HPow (FF p) Nat (FF p) :=
+@[inline] instance instHPowFinNat {p : Nat} [NeZero p] : HPow (Fin p) Nat (Fin p) :=
   ⟨fun a e => Fin.ofNat p (EvmSemantics.Crypto.FF.modPow a.val e p)⟩
 
 ----------------------------------------------------------------------------
--- Curve values + point operations, defined once here for any `FF p`.
+-- Curve values + point operations, once here for any `Fin p`.
 ----------------------------------------------------------------------------
 
 namespace EvmSemantics.Crypto.FF
@@ -142,31 +107,31 @@ open EvmSemantics.Crypto.EC (Point)
     (matches both secp256k1 and BN254). -/
 structure Curve (p : Nat) where
   /-- The curve equation coefficient. -/
-  b : FF p
+  b : Fin p
 
 /-- `(x, y) ∈ E(F_p)` iff `y² = x³ + b`. `[NeZero p]` is required
     for the operator resolution (the linter can't see through
     typeclass instance elaboration, hence `nolint`). -/
 @[nolint unusedArguments]
-def onCurve {p : Nat} [NeZero p] (c : Curve p) (x y : FF p) : Bool :=
+def onCurve {p : Nat} [NeZero p] (c : Curve p) (x y : Fin p) : Bool :=
   y * y = x * (x * x) + c.b
 
 /-- Square-root a modulus-`p` value assuming `p ≡ 3 (mod 4)`. Wraps
-    the `Nat`-level `modSqrt` back into `FF p`. -/
-@[inline] def sqrt {p : Nat} [NeZero p] (a : FF p) : FF p :=
+    the `Nat`-level `modSqrt` back into `Fin p`. -/
+@[inline] def sqrt {p : Nat} [NeZero p] (a : Fin p) : Fin p :=
   Fin.ofNat p (modSqrt a.val p)
 
 /-- Double a curve point. Formula for `a = 0` short-Weierstrass:
     `λ = 3·x² / (2·y);  x' = λ² − 2·x;  y' = λ·(x − x') − y`.
     The `Curve` argument is unused (doubling only needs `a = 0`,
     baked in) but kept for API symmetry with `addPoint c`. -/
-def doublePoint {p : Nat} [NeZero p] (c : Curve p) :
-    Point (FF p) → Point (FF p)
+@[nolint unusedArguments]
+def doublePoint {p : Nat} [NeZero p] (_c : Curve p) :
+    Point (Fin p) → Point (Fin p)
   | .infinity => .infinity
   | .affine x y =>
     if y = 0 then .infinity
     else
-      let _ := c   -- keep API symmetric with `addPoint c`; unused here
       let lam := (3 * x * x) * (2 * y)⁻¹
       let x' := lam * lam - 2 * x
       let y' := lam * (x - x') - y
@@ -175,7 +140,7 @@ def doublePoint {p : Nat} [NeZero p] (c : Curve p) :
 /-- Add two affine points. Handles identity / opposite / doubling
     cases explicitly so we never divide by zero. -/
 def addPoint {p : Nat} [NeZero p] (c : Curve p) :
-    Point (FF p) → Point (FF p) → Point (FF p)
+    Point (Fin p) → Point (Fin p) → Point (Fin p)
   | .infinity, Q => Q
   | P, .infinity => P
   | .affine x1 y1, .affine x2 y2 =>
@@ -190,10 +155,10 @@ def addPoint {p : Nat} [NeZero p] (c : Curve p) :
 
 /-- Scalar multiplication `k · P` via right-to-left double-and-add. -/
 def scalarMul {p : Nat} [NeZero p] (c : Curve p) (k : Nat)
-    (P : Point (FF p)) : Point (FF p) :=
+    (P : Point (Fin p)) : Point (Fin p) :=
   Id.run do
-  let mut R : Point (FF p) := .infinity
-  let mut base : Point (FF p) := P
+  let mut R : Point (Fin p) := .infinity
+  let mut base : Point (Fin p) := P
   let mut e := k
   while e ≠ 0 do
     if e % 2 = 1 then R := addPoint c R base
@@ -204,8 +169,8 @@ def scalarMul {p : Nat} [NeZero p] (c : Curve p) (k : Nat)
 /-- Simultaneous double-scalar multiplication `k₁·P₁ + k₂·P₂` via
     Shamir's trick. -/
 def scalarMul2 {p : Nat} [NeZero p] (c : Curve p)
-    (k1 : Nat) (P1 : Point (FF p)) (k2 : Nat) (P2 : Point (FF p)) :
-    Point (FF p) :=
+    (k1 : Nat) (P1 : Point (Fin p)) (k2 : Nat) (P2 : Point (Fin p)) :
+    Point (Fin p) :=
   Id.run do
   let P1plus2 := addPoint c P1 P2
   let mut bitlen : Nat := 0
@@ -213,7 +178,7 @@ def scalarMul2 {p : Nat} [NeZero p] (c : Curve p)
   while m ≠ 0 do
     bitlen := bitlen + 1
     m := m / 2
-  let mut Q : Point (FF p) := .infinity
+  let mut Q : Point (Fin p) := .infinity
   let mut i := bitlen
   while i ≠ 0 do
     i := i - 1
@@ -230,13 +195,13 @@ def scalarMul2 {p : Nat} [NeZero p] (c : Curve p)
 /-- Given `x` and a parity bit `yOdd`, recover the unique `(x, y)` on
     the curve with `y mod 2 = yOdd`, or `none` if `x³ + b` is not a
     quadratic residue. Requires `p ≡ 3 mod 4`. -/
-def decompress {p : Nat} [NeZero p] (c : Curve p) (x : FF p) (yOdd : Bool) :
-    Option (Point (FF p)) :=
+def decompress {p : Nat} [NeZero p] (c : Curve p) (x : Fin p) (yOdd : Bool) :
+    Option (Point (Fin p)) :=
   let α := x * x * x + c.b
   let β := sqrt α
   if β * β ≠ α then none
   else
-    let y : FF p := if (β.val % 2 = 1) = yOdd then β else -β
+    let y : Fin p := if (β.val % 2 = 1) = yOdd then β else -β
     some (.affine x y)
 
 end EvmSemantics.Crypto.FF

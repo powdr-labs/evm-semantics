@@ -52,8 +52,8 @@ def decodeG1 (input : ByteArray) (off : Nat) : Option Bn254.Point :=
   if x ≥ p ∨ y ≥ p then none
   else if x = 0 ∧ y = 0 then some .infinity
   else
-    let xF : Fp := FF.ofNat x
-    let yF : Fp := FF.ofNat y
+    let xF : Fp := Fin.ofNat _ x
+    let yF : Fp := Fin.ofNat _ y
     if Bn254.onCurve xF yF then some (.affine xF yF) else none
 
 /-- Decode a G₂ point from `input[off..off+128)`. Layout matches
@@ -67,8 +67,8 @@ def decodeG2 (input : ByteArray) (off : Nat) : Option G2.Point :=
   if x0 ≥ p ∨ x1 ≥ p ∨ y0 ≥ p ∨ y1 ≥ p then none
   else if x0 = 0 ∧ x1 = 0 ∧ y0 = 0 ∧ y1 = 0 then some .infinity
   else
-    let X : Fp2 := { c0 := FF.ofNat x0, c1 := FF.ofNat x1 }
-    let Y : Fp2 := { c0 := FF.ofNat y0, c1 := FF.ofNat y1 }
+    let X : Fp2 := { c0 := Fin.ofNat _ x0, c1 := Fin.ofNat _ x1 }
+    let Y : Fp2 := { c0 := Fin.ofNat _ y0, c1 := Fin.ofNat _ y1 }
     if G2.onCurve X Y then some (.affine X Y)
     else none
 

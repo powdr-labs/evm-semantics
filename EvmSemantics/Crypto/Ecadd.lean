@@ -42,8 +42,8 @@ def decodePoint (x y : Nat) : Option Point :=
   if x ≥ p ∨ y ≥ p then none
   else if x = 0 ∧ y = 0 then some .infinity
   else
-    let xF : Fp := FF.ofNat x
-    let yF : Fp := FF.ofNat y
+    let xF : Fp := Fin.ofNat _ x
+    let yF : Fp := Fin.ofNat _ y
     if onCurve xF yF then some (.affine xF yF) else none
 
 /-- Encode a `Point` back into the 64-byte wire form. Infinity goes

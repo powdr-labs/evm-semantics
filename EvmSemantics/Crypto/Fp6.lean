@@ -9,7 +9,7 @@ where `ξ = 9 + u` is BN254's sextic-twist parameter.
 
 An element is a triple `(c₀, c₁, c₂)` of `F_p²` elements representing
 `c₀ + c₁·v + c₂·v²`; multiplication reduces via `v³ = ξ`. Coefficients
-are `Fp2` (whose coefficients are `FF Bn254.p`), so no modulus is
+are `Fp2` (whose coefficients are `Fin Bn254.p`), so no modulus is
 threaded at runtime — the type carries it.
 -/
 

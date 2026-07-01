@@ -93,7 +93,7 @@ def square (a : Fp2) : Fp2 :=
 @[inline] def norm (a : Fp2) : Fp := a.c0 * a.c0 + a.c1 * a.c1
 
 /-- Inverse via `a⁻¹ = ā / N(a)`. Returns `0` on `a = 0` (matches
-    `FF.Inv` — callers must pre-check when correctness depends on it). -/
+    `Fin`'s `Inv` — callers must pre-check when correctness depends). -/
 def inv (a : Fp2) : Fp2 :=
   let ninv := (norm a)⁻¹
   { c0 := a.c0 * ninv, c1 := -a.c1 * ninv }

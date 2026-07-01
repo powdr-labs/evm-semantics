@@ -4,7 +4,7 @@ public import EvmSemantics.Crypto.FF
 
 /-!
 `EvmSemantics.Crypto.Secp256k1` — the secp256k1 curve constants +
-concrete `FF Secp256k1.p` / `Curve Secp256k1.p` bindings.
+concrete `Fp := Fin Secp256k1.p` / `Curve p` bindings.
 
 secp256k1 is the short-Weierstrass curve `y² = x³ + 7` (mod `p`) with
 `a = 0`, used by Ethereum's ECRECOVER (0x01). All modular arithmetic
@@ -27,9 +27,14 @@ def p : Nat := 2^256 - 2^32 - 977
 def N : Nat :=
   0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
-/-- `p` is nonzero — required for `Fin p` (and hence `FF p`) to be
-    inhabited and for the numeric-tower instances to resolve. -/
+/-- `p` is nonzero — required for `Fin p`'s numeric-tower instances
+    to resolve. -/
 instance : NeZero p := ⟨by unfold p; omega⟩
+
+/-- `N` is nonzero — same story as `p` but for the *scalar* field
+    `Fin N`, used by `Ecrecover` to do modular arithmetic on the
+    signature components. -/
+instance : NeZero N := ⟨by unfold N; decide⟩
 
 /-- Generator `x`-coordinate. -/
 def Gx : Nat :=
@@ -39,19 +44,19 @@ def Gx : Nat :=
 def Gy : Nat :=
   0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 
-/-- Field elements over `F_p`. Type-alias to `FF p` so the compiler
+/-- Field elements over `F_p`. Type-alias to `Fin p` so the compiler
     can distinguish secp256k1 coordinates from BN254 ones — accepting
     a raw `Nat` in place of an `Fp` here is a type error. -/
-abbrev Fp := FF p
+abbrev Fp := Fin p
 
 /-- Curve point over `Fp`. -/
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
 /-- The secp256k1 curve packaged for the generic point operations. -/
-def curve : EvmSemantics.Crypto.FF.Curve p := { b := FF.ofNat 7 }
+def curve : EvmSemantics.Crypto.FF.Curve p := { b := Fin.ofNat _ 7 }
 
 /-- The secp256k1 generator point `G`. -/
-def G : Point := .affine (FF.ofNat Gx) (FF.ofNat Gy)
+def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
 
 /-- Double a secp256k1 point. -/
 @[inline] def doublePoint (P : Point) : Point :=

@@ -60,7 +60,7 @@ def ateLoopCount : Nat := 6*Bn254.u + 2
 -- scope than throughput.
 ----------------------------------------------------------------------------
 
-/-- Promote a base-field element `a ∈ F_p` (i.e. `Fp = FF Bn254.p`)
+/-- Promote a base-field element `a ∈ F_p` (i.e. `Fp = Fin Bn254.p`)
     to `F_p¹²`. -/
 @[inline] def fp12OfFp (a : Fp) : Fp12 :=
   { c0 := { c0 := { c0 := a, c1 := 0 }, c1 := 0, c2 := 0 }, c1 := 0 }
