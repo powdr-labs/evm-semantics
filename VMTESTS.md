@@ -6,19 +6,22 @@ Three harnesses exercise the verified evaluator (`stepF` / `run`):
   **VMTests** suite, the *single-frame* corpus (no inter-contract calls,
   no transaction processing — each test runs one bytecode through `stepF`
   with its declared `exec.gas` budget and compares the resulting
-  storage/return-data/balance/nonce/gas against the corpus). It pre-dates
-  the evaluator's inter-contract and transaction-level support, so it
-  exercises a strict subset of what we now model. This is the bulk of
-  the conformance coverage; the rest of this document is about it.
+  storage/return-data/balance/nonce/gas against the corpus). Small (609
+  tests) and single-frame, so it can't exercise the CALL / tx layers;
+  the bulk of the current conformance coverage is in the two runners
+  below.
 - **`tests/StateTestRunner.lean`** (executable `statetests`) — runs the
-  BlockchainTests **GeneralStateTests** (a curated 47-dir subset of the
-  ~50 `st*` directories — the ones the evaluator currently passes
-  cleanly; see the list near the bottom of this doc). Decodes each
-  transaction, hands it to `EvmSemantics.Tx.execute`, and compares the
-  resulting `AccountMap` against the test's `postState`. Storage
-  comparison covers the union of pre/post slot keys (so cleared-to-zero
-  slots are caught). CI runs it as a separate, non-gating job against
-  `.github/statetests-expected-failures.txt`.
+  legacy `ethereum/legacytests` BlockchainTests **GeneralStateTests** (a
+  curated 47-dir subset of the ~50 `st*` directories — the ones the
+  evaluator currently passes cleanly; see the list near the bottom of
+  this doc). Decodes each transaction, hands it to
+  `EvmSemantics.Tx.execute`, and compares the resulting `AccountMap`
+  against the test's `postState`. Storage comparison covers the union
+  of pre/post slot keys (so cleared-to-zero slots are caught). CI runs
+  it as a **gating** job (`--strict` regression check) against
+  `.github/statetests-expected-failures.txt` — any tier regression
+  (pass → INCON/FAIL/CRASH, INCON → FAIL/CRASH, FAIL → CRASH) fails
+  the build.
 - **`tests/GeneralStateTestRunner.lean`** (executable `gstatetests`) — runs
   the **maintained** `ethereum/tests` GeneralStateTests in the modern
   `state_test` fixture format (shipped as `fixtures_general_state_tests.tgz`).
@@ -28,24 +31,52 @@ Three harnesses exercise the verified evaluator (`stepF` / `run`):
   Non-gating; expected failures in `.github/gstatetests-expected-failures.txt`.
 
 ## How to run
+The **legacy** VMTests + curated GeneralStateTests share one corpus repo
+(`ethereum/legacytests`, ~2.7 GB full checkout). Instructions for the
+**modern** GeneralStateTests corpus (`ethereum/tests`, ~9 MB tarball) are in
+[Modern GeneralStateTests](#modern-generalstatetests-gstatetests) below.
+
 ```
-# one-time: fetch the corpus and pin it to the CORPUS_REV that CI uses and that
-# .github/vmtests-expected-failures.txt was generated against (the LegacyTests/
-# dir in ethereum/tests is a submodule that points at this repo)
+# one-time: fetch the legacy corpus at the pinned CORPUS_REV. Full clone if you
+# want everything; a sparse checkout of Constantinople/{VMTests,BlockchainTests}
+# is enough for CI-shape runs. `CORPUS_REV` must move together with the
+# .github/*-expected-failures.txt files it was generated against.
 REV=$(grep -m1 'CORPUS_REV:' .github/workflows/ci.yml | awk '{print $2}')
 git clone https://github.com/ethereum/legacytests
 git -C legacytests checkout "$REV"
 
-lake build vmtests
-./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests
+lake build vmtests statetests
+
+# --- VMTests (single-frame conformance, ~600 tests, ~5s) -----------------
+./.lake/build/bin/vmtests legacytests/Constantinople/VMTests
 # single test:
-./.lake/build/bin/vmtests --file <path>/.../add0.json
+./.lake/build/bin/vmtests --file legacytests/Constantinople/VMTests/…/add0.json
+
+# --- StateTests (curated 47-dir subset, ~20k per-fork cases) --------------
+# CI shape — bash wrapper with per-file subprocess isolation + wall cap:
+.github/scripts/statetests_run.sh \
+  legacytests/Constantinople/BlockchainTests/GeneralStateTests 45 4
+# Native runner directly (single in-process scheduler, faster locally):
+./.lake/build/bin/statetests -v -j $(nproc) --timeout 45000 \
+  legacytests/Constantinople/BlockchainTests/GeneralStateTests
+# One dir at a time is the fastest debug loop:
+./.lake/build/bin/statetests -v \
+  legacytests/Constantinople/BlockchainTests/GeneralStateTests/stRevertTest
 ```
-The full suite runs tests as in-process Lean `Task`s across `jobs` workers (`-j`
+
+`vmtests` runs its tests as in-process Lean `Task`s across `jobs` workers (`-j`
 / `VMTESTS_JOBS`, default 8) — there is no subprocess isolation (a deliberate
 ~7× speedup over the old subprocess-per-file design), so a hard evaluator panic
 aborts the whole run; a `Task` that merely throws is recorded as one `crash`.
 Use `--file <one>.json` to run a single test in its own process for isolation.
+
+CI drives `statetests` through the bash wrapper `statetests_run.sh` (invokes
+`statetests -v` once per JSON file via `xargs -P`, wrapped in `timeout(1)`);
+this gives per-file process isolation so a panic on one file can't sink the
+whole run at the cost of ~34ms process startup × N files. The native runner
+above is faster locally because it uses the in-process `Task` scheduler with
+a soft `--timeout MS` cap (a stuck test is marked `INCON`, the scheduler
+moves on, and the abandoned task keeps running in the background).
 
 ## Current results
 
@@ -119,32 +150,53 @@ otherwise stay in the trie).
   `pass_full` / `pass_core` cases are still passes at a weaker tier
   and are allowed).
 
-## CI regression check
-CI runs the **full** suite on every PR as a **non-gating** job (`vmtests` in
-`.github/workflows/ci.yml`): it never blocks a merge, but compares the run
-against a committed *expected-failures* file and surfaces any regression (a
-previously-passing test that now FAILs/CRASHes) as a GitHub warning plus a
-report in the run summary. The full output and normalized summary are
-uploaded as artifacts.
+## CI regression checks
+CI runs all three suites on every PR; each is a separate step with its own
+expected-failures list, gating discipline, and script pair
+(`<suite>_summary.sh`, `<suite>_check.sh`):
 
-- Expected-failures list: `.github/vmtests-expected-failures.txt`, one sorted
-  `<test_id>: <FAIL|CRASH>` line per non-passing test; no aggregate counts.
-  Merges stay conflict-free because fixing a test removes exactly one line at
-  a known sorted position and adding a new failure inserts one, with no
-  shared counter lines that different branches both touch. Generated against
-  the corpus revision pinned as `CORPUS_REV` in the workflow.
-- When an evaluator fix turns failures into passes, the report lists them as
-  improvements — refresh the file so it tracks the new floor:
-  ```
-  ./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests > raw.txt
-  .github/scripts/vmtests_summary.sh raw.txt \
-    > .github/vmtests-expected-failures.txt
-  ```
-  If you regenerate against a newer corpus, bump `CORPUS_REV` in
-  `.github/workflows/ci.yml` in the same commit — the expected-failures file
-  and the pinned corpus revision must always move together.
+| suite | corpus | expected failures | gating? |
+| --- | --- | --- | --- |
+| VMTests (`vmtests`) | `ethereum/legacytests` @ `CORPUS_REV` | `.github/vmtests-expected-failures.txt` | report-only |
+| Legacy StateTests (`statetests`) | same corpus, curated subset | `.github/statetests-expected-failures.txt` | **gating** (`--strict`) — any tier regression fails the build |
+| Modern GeneralStateTests (`gstatetests`) | `ethereum/tests` @ `TESTS_REV` | `.github/gstatetests-expected-failures.txt` | report-only |
 
-## How the harness works
+All three files use the same format: sorted `<test_id>: <FAIL|INCON|CRASH>`
+lines, one per non-passing test, with no aggregate counts and no header. The
+check is tier-aware (severity `pass < INCON < FAIL < CRASH`), so
+`pass → INCON`, `INCON → FAIL`, and `FAIL → CRASH` all surface as regressions;
+`FAIL → pass` and `INCON → pass` surface as improvements. Aggregate counts
+for the human-facing table are read from the runner's raw output at check
+time, not from any committed file — so branches that fix (or add) different
+failing tests never touch a shared "counter" line and merges stay
+conflict-free. Full output and normalized summary are uploaded as artifacts
+on every run.
+
+When an evaluator fix turns failures into passes, the report lists them as
+improvements — refresh the affected expected-failures file so it tracks the
+new floor:
+```
+# VMTests
+./.lake/build/bin/vmtests <path>/legacytests/Constantinople/VMTests > raw.txt
+.github/scripts/vmtests_summary.sh raw.txt \
+  > .github/vmtests-expected-failures.txt
+
+# Legacy StateTests
+./.lake/build/bin/statetests -j $(nproc) --timeout 45000 \
+  <path>/legacytests/Constantinople/BlockchainTests/GeneralStateTests > raw.txt
+.github/scripts/statetests_summary.sh raw.txt \
+  > .github/statetests-expected-failures.txt
+
+# Modern GeneralStateTests — via the subprocess-isolation wrapper (see below):
+.github/scripts/gstatetests_run.sh <path>/gstcorpus/GeneralStateTests 45 4 > raw.txt
+.github/scripts/gstatetests_summary.sh raw.txt \
+  > .github/gstatetests-expected-failures.txt
+```
+If you regenerate against a newer corpus, bump `CORPUS_REV` or `TESTS_REV`
+in `.github/workflows/ci.yml` in the same commit — the expected-failures
+file and the pinned corpus revision must always move together.
+
+## How the VMTests harness works
 - **Single execution mode.** Every test runs through `stepF` with its
   declared `exec.gas` budget. For tests with a `post` block the harness
   compares storage, return-data, balance, nonce, and the remaining `gas`
@@ -208,27 +260,21 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
       above).
 
 ### Evaluator: model the remaining dynamic gas costs
-Already modelled: memory expansion (Yellow-Paper quadratic),
-`Gas.sstoreCost` (pre-EIP-1283 for `Constantinople` / EIP-2200 for `Cancun`),
-`Gas.copyWordCost` (5 copy ops × per-word 3), `Gas.keccakWordCost`
-(KECCAK256 per-word 6), `Gas.logDataCost` (LOG per-byte 8),
-`Gas.expByteCost` (EXP per-byteLen — 10 for Frontier-flavoured
-`Constantinople`, 50 for `Cancun`). Remaining gaps:
+Already modelled: memory expansion (Yellow-Paper quadratic), `Gas.sstoreCost`
+(pre-EIP-1283, EIP-1283 Constantinople, EIP-2200 Istanbul, EIP-2929/EIP-3529
+London+ price table), `Gas.sstoreRefund` (all four fork-eras, capped by
+`gasUsed / refundDenom` in `Tx.execute`), `Gas.copyWordCost`,
+`Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost` (Frontier 10 /
+Spurious-Dragon+ 50). Remaining gap:
 
 - [ ] **EIP-2929 cold/warm split** for `BALANCE` / `EXTCODESIZE` /
-      `EXTCODECOPY` / `EXTCODEHASH` (cold 2600, warm 100). Needs an
-      `accessedAccounts` set in `Substate`. Our `Cancun` fork currently
-      pretends every access is warm; `Constantinople` uses the
-      pre-EIP-2929 flat 400 / 700.
-- [ ] **SSTORE refunds** (clearing a non-zero slot adds `15000` to the
-      refund counter). Not modelled. The legacy Constantinople corpus reports
-      `gas` without applying refunds, so this isn't currently a source of
-      FAILs; would matter for post-Berlin corpora.
-- [ ] **Modern SSTORE** (EIP-1283 / EIP-2200 / EIP-3529) for newer
-      corpora — the `original` value is already threaded through
-      `Substate.originalStorage`, so adding the modern schedule is a
-      one-liner in `Gas.sstoreCost`. The `Cancun` branch already does
-      EIP-2200; cold/warm surcharge still missing.
+      `EXTCODECOPY` / `EXTCODEHASH` / `SLOAD` / `SSTORE` / CALL-family
+      (cold 2600, warm 100). Needs `accessedAccounts` /
+      `accessedStorageKeys` sets in `Substate` (the fields exist, but
+      queries aren't wired). Our Berlin+ forks currently pretend every
+      access is warm; pre-Berlin uses the fixed 400 / 700 flat prices.
+      This is the largest remaining `fail` cluster on the modern
+      GeneralStateTests corpus.
 
 ### Harness improvements
 - [ ] **Log-hash comparison** — the corpus stores `logsHash` (a keccak over
@@ -237,10 +283,6 @@ Already modelled: memory expansion (Yellow-Paper quadratic),
 - [ ] **Storage extra-write detection** — comparison only checks the union of
       pre/post slot keys, so a write to a slot named in neither is invisible.
       Track written keys to close this blind spot.
-
-### Scope expansion
-- [x] Target the maintained `ethereum/tests` **GeneralStateTests** in addition
-      to the frozen legacy VMTests — done; see below (`gstatetests`).
 
 # Modern GeneralStateTests (`gstatetests`)
 
