@@ -60,6 +60,10 @@ name = "ecrecover_bench"
 root = "tests.EcrecoverBench"
 
 [[lean_exe]]
+name = "sha256_bench"
+root = "tests.Sha256Bench"
+
+[[lean_exe]]
 name = "mpt_smoke"
 root = "tests.MptSmoke"
 
