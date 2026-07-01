@@ -790,12 +790,17 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
-        if s2.executionEnv.depth ≥ 1024 then
-          .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                 (UInt256.ofNat 0 :: rest))
-        else
-          let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
-          if hfw : forwarded ≤ s2.gasAvailable then
+        -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
+        -- before the depth silent-fail, mirroring the CALL/CALLCODE
+        -- ordering — see the comment in `.CALL`. DELEGATECALL first
+        -- appeared in Homestead (pre-EIP-150), so the uncapped
+        -- `forwardGas = gasArg` branch is reachable.
+        let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
+        if hfw : forwarded ≤ s2.gasAvailable then
+          if s2.executionEnv.depth ≥ 1024 then
+            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+                   (UInt256.ofNat 0 :: rest))
+          else
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
             -- DELEGATECALL: no stipend (no value), so `childGas = forwarded`.
@@ -805,7 +810,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             -- `enterCallFor` so the arm has the right key.
             .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
                    callee.code forwarded retOff.toNat retLen.toNat)
-          else .error .OutOfGas
+        else .error .OutOfGas
     | _ => underflow
   | .STATICCALL => match s.stack with
     | gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest =>
@@ -818,12 +823,17 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
-        if s2.executionEnv.depth ≥ 1024 then
-          .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                 (UInt256.ofNat 0 :: rest))
-        else
-          let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
-          if hfw : forwarded ≤ s2.gasAvailable then
+        -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
+        -- caps at `g - g/64` and `hfw` is trivial — but we still keep
+        -- the check at the outer position to mirror the shape of
+        -- CALL/CALLCODE/DELEGATECALL and let the spec share the same
+        -- premise structure across the call family.
+        let forwarded := Gas.forwardGas s.fork s2.gasAvailable gasArg.toNat
+        if hfw : forwarded ≤ s2.gasAvailable then
+          if s2.executionEnv.depth ≥ 1024 then
+            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
+                   (UInt256.ofNat 0 :: rest))
+          else
             let s3       := s2.consumeGas forwarded hfw
             let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
             -- STATICCALL: no stipend (no value), so `childGas = forwarded`.
@@ -832,7 +842,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             -- iteration.
             .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
                    callee.code forwarded retOff.toNat retLen.toNat)
-          else .error .OutOfGas
+        else .error .OutOfGas
     | _ => underflow
   | .SELFDESTRUCT => match s.stack with
     | beneficiary :: _ =>
