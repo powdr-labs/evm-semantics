@@ -51,21 +51,20 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=9655 full+=0 core+=9) fail=0 incon=0 crash=0
+pass(root=9657 full+=0 core+=7) fail=0 incon=0 crash=0
 ```
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 9655 of 9664.
+  Geth would produce). 9657 of 9664.
 - `pass_full` = every field the test's `postState` enumerates matches
   (storage, nonce, code, *and* balance), but the MPT root differs.
   Currently 0.
-- `pass_core` = storage / nonce / code match but balance is off. 9 of
-  9664. Two clusters remain: (i) eight `randomStatetest*` /
-  `Call1024PreCalls` variants with small ±4800/9600-wei
-  coinbase-vs-sender drifts (likely Constantinople-era SSTORE /
-  CALL-depth refund accounting corners); (ii) one `tx_e1c174e2_EIP150`
-  with a large one-off diff.
+- `pass_core` = storage / nonce / code match but balance is off. 7 of
+  9664: six `randomStatetest*` / `Call1024PreCalls_Constantinople`
+  variants with ±4800/9600-wei drifts (Constantinople-era SSTORE
+  refund accounting corner — EIP-1283 net-metered refunds), plus one
+  `tx_e1c174e2_EIP150` with a large one-off diff.
 - `fail = 0` — every precompile the curated corpus exercises is
   implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
   IDENTITY (0x04), and MODEXP (0x05, Byzantium+). A future
