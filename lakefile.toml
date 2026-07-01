@@ -40,6 +40,10 @@ name = "keccak_test"
 root = "tests.KeccakTest"
 
 [[lean_exe]]
+name = "sha256_test"
+root = "tests.Sha256Test"
+
+[[lean_exe]]
 name = "mpt_smoke"
 root = "tests.MptSmoke"
 

@@ -11,7 +11,7 @@ Two harnesses exercise the verified evaluator (`stepF` / `run`):
   exercises a strict subset of what we now model. This is the bulk of
   the conformance coverage; the rest of this document is about it.
 - **`tests/StateTestRunner.lean`** (executable `statetests`) — runs the
-  BlockchainTests **GeneralStateTests** (a curated 30-dir subset of the
+  BlockchainTests **GeneralStateTests** (a curated 32-dir subset of the
   ~50 `st*` directories — the ones the evaluator currently passes
   cleanly; see the list near the bottom of this doc). Decodes each
   transaction, hands it to `EvmSemantics.Tx.execute`, and compares the
@@ -47,31 +47,38 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests (curated 30-dir subset, 7106 per-fork test cases across
+**StateTests (curated 32-dir subset, 9664 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=7037 full+=39 core+=30) fail=0 incon=0 crash=0
+pass(root=7750 full+=39 core+=307) fail=1568 incon=0 crash=0
 ```
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 7037 of 7106.
+  Geth would produce). 7750 of 9664.
 - `pass_full` = every field the test's `postState` enumerates matches
   (storage, nonce, code, *and* balance), but the MPT root differs —
   usually because some account our run touched isn't in the test's
   enumerated `postState`, or some slot we wrote to isn't in the
-  enumerated storage. 39 of 7106.
-- `pass_core` = storage / nonce / code match but balance is off. 30 of
-  7106. Dominated by (i) contracts that invoke unimplemented
-  precompiles (`0x01` ECRECOVER, `0x02` SHA256, `0x03` RIPEMD160,
-  `0x05` MODEXP, …) — we treat the (empty) bytecode at those
-  addresses as STOP rather than applying the precompile's gas-cost
-  OOG, so the value transfer that the YP would have rolled back gets
-  committed; (ii) repeated `SELFDESTRUCT` of the same account, where
-  our `selfDestructSet` doesn't yet enforce "refund once per account"
-  (the underlying `AddressSet` is a `Prop` predicate without
-  decidable membership).
+  enumerated storage. 39 of 9664.
+- `pass_core` = storage / nonce / code match but balance is off. 307
+  of 9664. Dominated by (i) contracts that invoke unimplemented
+  precompiles (`0x01` ECRECOVER, `0x03` RIPEMD160, `0x05` MODEXP, …)
+  — we treat the (empty) bytecode at those addresses as STOP rather
+  than applying the precompile's gas-cost OOG, so the value transfer
+  that the YP would have rolled back gets committed; (ii) repeated
+  `SELFDESTRUCT` of the same account, where our `selfDestructSet`
+  doesn't yet enforce "refund once per account" (the underlying
+  `AddressSet` is a `Prop` predicate without decidable membership).
+- `fail = 1568` — the entries in `stPreCompiledContracts` /
+  `stPreCompiledContracts2` that exercise ECRECOVER / RIPEMD160 /
+  MODEXP (`sec80`) directly. These have expected outputs that
+  depend on the corresponding precompile actually running; treating
+  the address as empty-code STOP makes the post-state visibly
+  mismatch (nonces, return-write regions). The set is pinned in the
+  baseline so a *new* pass -> fail transition is a regression.
+  SHA-256 (0x02) and IDENTITY (0x04) tests in these dirs all pass.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
@@ -81,15 +88,13 @@ End-of-tx cleanup in `Tx.execute` calls `applySelfDestructDeletions` to
 erase `SELFDESTRUCT`ed entries from the map outright (pre-EIP-161 forks
 don't run the empty-account filter, so a present-but-empty entry would
 otherwise stay in the trie).
-- **fail=0 / incon=0 / crash=0** — every variant in the 30 listed
-  directories matches the corpus on storage / nonce / code.
 - **Corpus fork note.** Each test file ships a `network` field per variant
   (`_Frontier`, `_Homestead`, `_EIP150`, `_EIP158`, `_Byzantium`,
   `_Constantinople`, `_ConstantinopleFix`); the runner derives the fork
   from that suffix and configures the gas schedule accordingly. Variants
   whose network isn't yet activated are skipped silently and don't count
   toward the tally.
-- **The 30 dirs in CI** (alphabetical):
+- **The 32 dirs in CI** (alphabetical):
   `stArgsZeroOneBalance`, `stAttackTest`, `stBadOpcode`, `stBugs`,
   `stCallCodes`, `stCallCreateCallCodeTest`,
   `stCallDelegateCodesCallCodeHomestead`,
@@ -97,6 +102,7 @@ otherwise stay in the trie).
   `stCodeSizeLimit`, `stDelegatecallTestHomestead`, `stEIP150Specific`,
   `stEIP150singleCodeGasPrices`, `stExample`, `stHomesteadSpecific`,
   `stInitCodeTest`, `stLogTests`, `stMemExpandingEIP150Calls`,
+  `stPreCompiledContracts`, `stPreCompiledContracts2`,
   `stMemoryStressTest`, `stMemoryTest`, `stRandom`, `stRecursiveCreate`,
   `stRefundTest`, `stShift`, `stSpecialTest`, `stStackTests`,
   `stTransactionTest`, `stTransitionTest`, `stZeroCallsRevert`.
