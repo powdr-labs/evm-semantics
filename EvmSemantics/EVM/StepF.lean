@@ -681,7 +681,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
         let valNZ    : Bool := value.toNat != 0
-        let surcharge := Gas.callSurcharge s.fork valNZ callee.isEmpty
+        let surcharge := Gas.callSurcharge s.fork valNZ
+                           (Gas.callTargetIsNew s.fork s2.accountMap tgt)
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address

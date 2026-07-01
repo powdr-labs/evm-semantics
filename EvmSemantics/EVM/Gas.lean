@@ -247,6 +247,34 @@ def Gas.forwardGas (fork : Fork) (g gas_arg : Nat) : Nat :=
     the caller again. -/
 def Gas.callStipend : Nat := 2300
 
+/-- The "emptiness" flag `Gas.callSurcharge` consumes for the
+    `G_newaccount` charge. The check differs across EIP-158:
+
+    * **Pre-EIP-158** (Frontier, Homestead, TangerineWhistle): the
+      surcharge fires whenever the target *doesn't exist* in the state
+      trie. Once a CALL has touched an address (even with value = 0),
+      `AccountMap.transfer` inserts an entry for it, so a *second* CALL
+      to the same address should no longer be charged. Using
+      structural emptiness (`Account.isEmpty`) here would double-charge
+      because the inserted entry is still `{nonce=0, balance=0,
+      code=∅}` and would look empty. The fix is to key on state
+      membership (`!σ.contains tgt`).
+
+    * **Post-EIP-158** (Spurious Dragon+): the surcharge fires only
+      when the target is *empty* per EIP-161 (`nonce = 0 ∧ balance = 0
+      ∧ code = ∅`) *and* the CALL is value-transferring — see
+      `Gas.callSurcharge`. Structural emptiness (`Account.isEmpty`) is
+      the right check here: EIP-161 prunes empty entries end-of-tx,
+      so the distinction between "not in state" and "in state but
+      empty" collapses in observable behaviour.
+
+    The `Gas.callSurcharge` function then multiplies the returned flag
+    by 25000 (pre-EIP-158 unconditionally, post-EIP-158 gated on
+    `valueNonZero`). -/
+def Gas.callTargetIsNew (fork : Fork) (σ : AccountMap) (tgt : AccountAddress) : Bool :=
+  if fork.atLeast .SpuriousDragon then (σ tgt).isEmpty
+  else ¬ σ.contains tgt
+
 /-- The dynamic surcharge a CALL pays on top of its base fee.
 
     * `G_callvalue = 9000` for a value-transferring CALL (`valueNonZero`).
@@ -527,7 +555,8 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
   + Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
-      (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
+      (Gas.callTargetIsNew s.executionEnv.fork s.accountMap
+        (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `CALLCODE`:
     static base + memory-expansion delta + value-transfer surcharge.
