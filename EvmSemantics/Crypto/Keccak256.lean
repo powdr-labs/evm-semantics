@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Bytes
 
 /-!
 `EvmSemantics.Crypto.Keccak256` — a minimal, self-contained implementation
@@ -145,15 +146,11 @@ end EvmSemantics.Crypto.Keccak
 
 namespace EvmSemantics
 
-/-- Convert a 32-byte big-endian `ByteArray` to a `UInt256`. -/
-def UInt256.ofBytesBE (bs : ByteArray) : UInt256 :=
-  UInt256.ofNat (bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0)
-
 /-- Executable realisation of Ethereum's keccak256: original-Keccak hash of
     the input bytes, with the 32-byte digest packed big-endian into a
     `UInt256`. -/
 def keccak256Impl (bs : ByteArray) : UInt256 :=
-  UInt256.ofBytesBE (Crypto.Keccak.hash bs)
+  UInt256.ofNat (Data.Bytes.bytesToBigEndianNat (Crypto.Keccak.hash bs))
 
 /-- The opaque keccak-256 hash function. The relational `Step` rules see
     this only as an arbitrary `ByteArray → UInt256`, so soundness is
