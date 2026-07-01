@@ -45,11 +45,6 @@ def storageEntries (j : Json) : List (String × String) :=
       | _      => none)
   | _      => []
 
-/-- All blockchain tests in the legacy ethereum/tests corpus use this
-    deterministic sender. -/
-def txSender : AccountAddress :=
-  hexToAddress "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
-
 def mkAccount (j : Json) : Account :=
   let balance := hexToUInt256 (strField j "balance")
   let code    := hexToBytes   (strField j "code")
@@ -87,35 +82,34 @@ def txSigningHash (tx : Json) : Option UInt256 := do
   pure (EvmSemantics.keccak256 enc)
 
 /-- Recover the tx sender from the ECDSA signature `(v, r, s)` in
-    `tx`. Falls back to the corpus's hard-coded `txSender` if
-    recovery fails (malformed signature or `keccak256` returns
-    `none` — both unreachable for the curated corpus). -/
-def recoverSender (tx : Json) : AccountAddress :=
+    `tx`. Returns `none` if signing-hash construction fails (RLP
+    overflow — unreachable for gas-bounded inputs) or ECDSA
+    recovery rejects the signature. -/
+def recoverSender (tx : Json) : Option AccountAddress := do
   let v := hexToNat (strField tx "v")
   let r := hexToNat (strField tx "r")
   let s := hexToNat (strField tx "s")
-  match txSigningHash tx with
-  | none      => txSender
-  | some hash =>
-    match Crypto.Ecrecover.recoverAddress hash.toNat v r s with
-    | none          => txSender
-    | some padded32 =>
-      -- `padded32` is 32 bytes with 12 leading zeros; the last 20
-      -- bytes are the address in big-endian.
-      AccountAddress.ofNat
-        (MachineState.bytesToBigEndianNat (padded32.extract 12 32))
+  let hash ← txSigningHash tx
+  let padded32 ← Crypto.Ecrecover.recoverAddress hash.toNat v r s
+  -- `padded32` is 32 bytes with 12 leading zeros; the last 20
+  -- bytes are the address in big-endian.
+  pure (AccountAddress.ofNat
+    (MachineState.bytesToBigEndianNat (padded32.extract 12 32)))
 
 /-- Decode a BlockchainTest transaction JSON into a
     `EvmSemantics.Tx.Transaction`. `to = ""` (or missing) marks a
-    contract-creating tx, signalled here as `recipient = none`. -/
-def decodeTx (tx : Json) : EvmSemantics.Tx.Transaction :=
+    contract-creating tx, signalled here as `recipient = none`.
+    Returns `none` if ECDSA sender recovery fails. -/
+def decodeTx (tx : Json) : Option EvmSemantics.Tx.Transaction := do
+  let sender ← recoverSender tx
   let toStr := strField tx "to"
-  { sender    := recoverSender tx
-    recipient := if toStr = "" then none else some (hexToAddress toStr)
-    value     := hexToUInt256 (strField tx "value")
-    data      := hexToBytes   (strField tx "data")
-    gasLimit  := hexToNat     (strField tx "gasLimit")
-    gasPrice  := hexToUInt256 (strField tx "gasPrice") }
+  pure
+    { sender    := sender
+      recipient := if toStr = "" then none else some (hexToAddress toStr)
+      value     := hexToUInt256 (strField tx "value")
+      data      := hexToBytes   (strField tx "data")
+      gasLimit  := hexToNat     (strField tx "gasLimit")
+      gasPrice  := hexToUInt256 (strField tx "gasPrice") }
 
 /-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
     approximates `factor · e^(numerator / denominator)` using the
@@ -290,7 +284,9 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let txObj  := decodeTx tx
+      match decodeTx tx with
+      | none => .incon "sender recovery failed"
+      | some txObj =>
       let header := decodeHeader (subObj block "blockHeader")
       let blobHashes := decodeBlobHashes tx
       -- Fuel: every non-halting opcode costs ≥1 gas and every CALL
