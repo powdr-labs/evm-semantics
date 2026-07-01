@@ -2,6 +2,7 @@ module
 
 public import EvmSemantics.Crypto.Secp256k1
 public import EvmSemantics.Crypto.Keccak256
+public import EvmSemantics.Crypto.Bytes
 
 /-!
 `EvmSemantics.Crypto.Ecrecover` — the ECDSA public-key recovery used by
@@ -37,26 +38,9 @@ the CALL-family caller sees `returnData.size = 0`.
 
 namespace EvmSemantics.Crypto.Ecrecover
 
+open EvmSemantics.Crypto.EC
 open EvmSemantics.Crypto.Secp256k1
-
-/-- Read a big-endian `Nat` from `bs[off..off+n)`, zero-padding past
-    the end. Little-endian would be a bigger rewrite of downstream
-    arithmetic; ECDSA canonicalises the wire format as big-endian
-    integers. -/
-def readBE (bs : ByteArray) (off n : Nat) : Nat := Id.run do
-  let mut w : Nat := 0
-  for i in [0:n] do
-    let b : Nat := if h : off + i < bs.size then bs[off + i].toNat else 0
-    w := w * 256 + b
-  return w
-
-/-- Write a `Nat` as a fixed-`width`-byte big-endian ByteArray. -/
-def writeBE (w width : Nat) : ByteArray := Id.run do
-  let mut acc : ByteArray := ByteArray.empty
-  for i in [0:width] do
-    let shift : Nat := 8 * (width - 1 - i)
-    acc := acc.push ((w >>> shift) &&& 0xff).toUInt8
-  return acc
+open EvmSemantics.Crypto.Bytes
 
 /-- Zero-pad the 20-byte address into a 32-byte precompile output
     (12 leading zeros). -/

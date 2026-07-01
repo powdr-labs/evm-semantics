@@ -100,7 +100,9 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stStackTests \
             Constantinople/BlockchainTests/GeneralStateTests/stTransactionTest \
             Constantinople/BlockchainTests/GeneralStateTests/stTransitionTest \
-            Constantinople/BlockchainTests/GeneralStateTests/stZeroCallsRevert
+            Constantinople/BlockchainTests/GeneralStateTests/stZeroCallsRevert \
+            Constantinople/BlockchainTests/GeneralStateTests/stZeroKnowledge \
+            Constantinople/BlockchainTests/GeneralStateTests/stZeroKnowledge2
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
 

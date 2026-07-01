@@ -6,6 +6,9 @@ public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
 public import EvmSemantics.Crypto.Ripemd160
 public import EvmSemantics.Crypto.Ecrecover
+public import EvmSemantics.Crypto.Ecadd
+public import EvmSemantics.Crypto.Ecmul
+public import EvmSemantics.Crypto.Ecpairing
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -46,7 +49,9 @@ Extending with a new precompile is a synchronized three-line edit:
 
 This file currently implements `0x01 ECRECOVER`, `0x02 SHA-256`,
 `0x03 RIPEMD-160`, and `0x04 IDENTITY` (all available from Frontier
-onwards).
+onwards), plus `0x06 ECADD` and `0x07 ECMUL` (alt_bn128 point
+addition / scalar multiplication, available from Byzantium onwards,
+EIP-196; re-priced by EIP-1108 at Istanbul).
 -/
 
 @[expose] public section
@@ -162,6 +167,84 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
   if cost ≤ childGas then .success input cost else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x06 ECADD — alt_bn128 point addition (Byzantium+, EIP-196).
+----------------------------------------------------------------------------
+
+/-- The ECADD precompile's address `0x06`. -/
+def ecaddAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 6)
+
+/-- ECADD gas: `500` at Byzantium (EIP-196), re-priced to `150` at
+    Istanbul (EIP-1108) once the underlying implementations got much
+    faster. Flat cost — the input is always 128 bytes after padding /
+    truncation. -/
+@[inline] def ecaddGas (fork : Fork) : Nat :=
+  if fork.atLeast .Istanbul then 150 else 500
+
+/-- Run the `0x06 ECADD` precompile. Invalid input (out-of-field
+    coordinate or off-curve point) is treated as an EIP-196 failure:
+    all `childGas` is consumed and no output is produced — modelled as
+    `.outOfGas` since the caller cannot distinguish. Insufficient gas
+    is also `.outOfGas`. -/
+def runEcadd (fork : Fork) (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := ecaddGas fork
+  if cost ≤ childGas then
+    match Crypto.Ecadd.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x07 ECMUL — alt_bn128 scalar multiplication (Byzantium+, EIP-196).
+----------------------------------------------------------------------------
+
+/-- The ECMUL precompile's address `0x07`. -/
+def ecmulAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 7)
+
+/-- ECMUL gas: `40000` at Byzantium (EIP-196), re-priced to `6000` at
+    Istanbul (EIP-1108). Flat cost — the input is always 96 bytes and
+    the scalar loop dominates but is bounded by the 256-bit word
+    width. -/
+@[inline] def ecmulGas (fork : Fork) : Nat :=
+  if fork.atLeast .Istanbul then 6000 else 40000
+
+/-- Run the `0x07 ECMUL` precompile. Invalid-input handling matches
+    `runEcadd`. -/
+def runEcmul (fork : Fork) (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := ecmulGas fork
+  if cost ≤ childGas then
+    match Crypto.Ecmul.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x08 ECPAIRING — alt_bn128 optimal ate pairing check (Byzantium+, EIP-197).
+----------------------------------------------------------------------------
+
+/-- The ECPAIRING precompile's address `0x08`. -/
+def ecpairingAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 8)
+
+/-- ECPAIRING gas (EIP-197): `Base + PerPair · k` where `k` is the
+    number of `(G₁, G₂)` pairs (`|input| / 192`). Byzantium:
+    `Base=100000, PerPair=80000`; Istanbul re-prices via EIP-1108 to
+    `Base=45000, PerPair=34000`. -/
+@[inline] def ecpairingGas (fork : Fork) (input : ByteArray) : Nat :=
+  let k := input.size / 192
+  if fork.atLeast .Istanbul then 45000 + 34000 * k else 100000 + 80000 * k
+
+/-- Run the `0x08 ECPAIRING` precompile. -/
+def runEcpairing (fork : Fork) (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := ecpairingGas fork input
+  if cost ≤ childGas then
+    match Crypto.Ecpairing.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
@@ -175,10 +258,11 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
     The `fork` argument is part of the signature because the YP set
     is fork-dependent — ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
     BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague. -/
-@[nolint unusedArguments]
-def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
+def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
   addr = ecrecoverAddress || addr = sha256Address ||
-    addr = ripemd160Address || addr = identityAddress
+    addr = ripemd160Address || addr = identityAddress ||
+    (fork.atLeast .Byzantium &&
+      (addr = ecaddAddress || addr = ecmulAddress || addr = ecpairingAddress))
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -198,12 +282,18 @@ def run (fork : Fork) (addr : AccountAddress)
     runRipemd160 input childGas
   else if h_id : addr = identityAddress then
     runIdentity input childGas
+  else if h_add : addr = ecaddAddress then
+    runEcadd fork input childGas
+  else if h_mul : addr = ecmulAddress then
+    runEcmul fork input childGas
+  else if h_pair : addr = ecpairingAddress then
+    runEcpairing fork input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
-    absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id])
+    absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_add, h_mul, h_pair])
 
 end Precompile
 end EVM

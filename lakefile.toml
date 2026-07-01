@@ -52,6 +52,14 @@ name = "ecrecover_test"
 root = "tests.EcrecoverTest"
 
 [[lean_exe]]
+name = "ecadd_ecmul_test"
+root = "tests.EcaddEcmulTest"
+
+[[lean_exe]]
+name = "ecpairing_test"
+root = "tests.EcpairingTest"
+
+[[lean_exe]]
 name = "ecrecover_bench"
 root = "tests.EcrecoverBench"
 

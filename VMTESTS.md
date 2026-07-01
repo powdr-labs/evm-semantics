@@ -86,6 +86,22 @@ Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
   transition is a regression. ECRECOVER (0x01), SHA-256 (0x02),
   RIPEMD-160 (0x03), and IDENTITY (0x04) tests in these dirs all
   pass.
+- **alt_bn128 precompiles (EIP-196 / EIP-197)** — `stZeroKnowledge`
+  and `stZeroKnowledge2` in the sparse checkout add ~4300 more
+  tests. ECADD (0x06), ECMUL (0x07), and ECPAIRING (0x08) all have
+  passing unit-test suites against known-good vectors (geth's
+  `chfast_add` / `chfast_mul` for the first two; the EIP-197
+  `pairingTest_d0` vector for the third; see
+  `tests/EcaddEcmulTest.lean` and `tests/EcpairingTest.lean`).
+  Of the ~4300 additional statetests: ~1200 pass_root, ~4400 fail.
+  Most of the fails are not a precompile-correctness issue — the
+  runner uses a hardcoded canonical sender
+  `0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b` but most
+  `stZeroKnowledge2` fixtures are signed by a different key
+  (recovering to `0x82a978b3f5962a5b0957d9ee9eef472ee55b42f1`), so
+  the tx-level nonce/balance assertions never match. Deriving the
+  sender via `ECRECOVER` from the tx's `(v, r, s)` is a separate
+  runner change tracked as future work.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
