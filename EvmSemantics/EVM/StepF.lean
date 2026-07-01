@@ -440,6 +440,7 @@ def stackMemFlow (s s' : State) :
       let current  := acc.storage key
       let original := s.substate.originalStorage addr key
       let cost     := Gas.sstoreCost s.fork original current value
+                        + Gas.sstoreColdSurcharge s key
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
@@ -454,7 +455,8 @@ def stackMemFlow (s s' : State) :
         let rb : Int := (s.substate.refundBalance.toNat : Int) + refDelta
         let rb' : Nat := if rb < 0 then 0 else rb.toNat
         let sub' : Substate :=
-          { s.substate with refundBalance := UInt256.ofNat rb' }
+          { s.substate.addAccessedStorageKey (addr, key) with
+              refundBalance := UInt256.ofNat rb' }
         .ok ({ (s'.consumeGas cost h) with
                  accountMap := σ', substate := sub' }.replaceStackAndIncrPC rest)
       else .error .OutOfGas

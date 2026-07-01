@@ -1905,6 +1905,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
             Gas.sstoreCost s.fork
                 (s.substate.originalStorage s.executionEnv.address key)
                 ((s.accountMap s.executionEnv.address).storage key) value
+              + Gas.sstoreColdSurcharge s key
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                     h_gas).gasAvailable
           · simp [h_dyn] at h
@@ -1912,7 +1913,8 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
             set base := Gas.baseCost s.fork (.StackMemFlow .SSTORE) with hbase
             set dyn := Gas.sstoreCost s.fork
                         (s.substate.originalStorage s.executionEnv.address key)
-                        ((s.accountMap s.executionEnv.address).storage key) value with hdyn
+                        ((s.accountMap s.executionEnv.address).storage key) value
+                        + Gas.sstoreColdSurcharge s key with hdyn
             have h_total : Gas.sstoreTotal s key value ≤ s.gasAvailable := by
               show base + dyn ≤ s.gasAvailable
               simp [State.consumeGas, ← hbase] at h_dyn
@@ -1924,7 +1926,7 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
                        ((s.accountMap s.executionEnv.address).storage key) value
             let rb : Int := (s.substate.refundBalance.toNat : Int) + δ
             let sub' : Substate :=
-              { s.substate with
+              { s.substate.addAccessedStorageKey (s.executionEnv.address, key) with
                   refundBalance := UInt256.ofNat (if rb < 0 then 0 else rb.toNat) }
             have post_eq :
                 ({ (s.consumeGas base h_gas).consumeGas dyn h_dyn with
@@ -3819,6 +3821,7 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
               Gas.sstoreCost s.fork
                 (s.substate.originalStorage s.executionEnv.address key)
                 ((s.accountMap s.executionEnv.address).storage key) value
+              + Gas.sstoreColdSurcharge s key
               ≤ (s.consumeGas (Gas.baseCost s.fork (.StackMemFlow .SSTORE))
                   h_gas).gasAvailable
           · simp [h_cost] at h
@@ -3827,7 +3830,8 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
             set base := Gas.baseCost s.fork (.StackMemFlow .SSTORE) with hbase
             set scost := Gas.sstoreCost s.fork
                   (s.substate.originalStorage s.executionEnv.address key)
-                  ((s.accountMap s.executionEnv.address).storage key) value with hscost
+                  ((s.accountMap s.executionEnv.address).storage key) value
+                  + Gas.sstoreColdSurcharge s key with hscost
             have h_cost' : ¬ scost ≤ s.gasAvailable - base := by
               simp only [State.consumeGas, ] at h_cost
               exact h_cost

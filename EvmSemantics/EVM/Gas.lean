@@ -529,17 +529,27 @@ def Gas.refundDenom (fork : Fork) : Nat :=
       destOff.toNat sz.toNat srcOff.toNat sz.toNat
   + Gas.copyWordCost sz
 
-/-- Total gas cost of `SSTORE` at `s` for stack args `key, value`:
-    static base (0 in current schedules) + the EIP-2200 net-metered
-    dynamic cost `Gas.sstoreCost fork original current new`, where
-    `original` is the per-tx original value from `Substate.originalStorage`
-    and `current` is the live storage value. -/
+/-- EIP-2929 cold-access surcharge for `SSTORE`: the full cold-SLOAD cost
+    `2100` when Berlin+ and the slot `(address, key)` is not yet warm, else
+    `0`. Added on top of the EIP-2200 net-metered `Gas.sstoreCost` (which
+    already uses the warm `100` as its SLOAD component from Berlin). -/
+@[inline] def Gas.sstoreColdSurcharge (s : State) (key : UInt256) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin
+     && !s.substate.isWarmStorageKey (s.executionEnv.address, key)
+  then 2100 else 0
+
+/-- Total gas cost of `SSTORE` at `s` for stack args `key, value`: static
+    base (0 in current schedules) + the EIP-2200 net-metered dynamic cost
+    `Gas.sstoreCost` + the EIP-2929 cold surcharge (`Gas.sstoreColdSurcharge`),
+    where `original` is the per-tx original value from
+    `Substate.originalStorage` and `current` is the live storage value. -/
 @[inline] def Gas.sstoreTotal (s : State) (key value : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SSTORE
-  + Gas.sstoreCost s.executionEnv.fork
-      (s.substate.originalStorage s.executionEnv.address key)
-      ((s.accountMap s.executionEnv.address).storage key)
-      value
+  + (Gas.sstoreCost s.executionEnv.fork
+        (s.substate.originalStorage s.executionEnv.address key)
+        ((s.accountMap s.executionEnv.address).storage key)
+        value
+      + Gas.sstoreColdSurcharge s key)
 
 /-- EIP-2929 cold-access surcharge for `SLOAD`: `2000` (= cold `2100` −
     warm `100`) when Berlin+ and the slot `(address, key)` is not yet warm,

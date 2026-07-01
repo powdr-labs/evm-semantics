@@ -987,7 +987,7 @@ inductive StepRunning : State → State → Prop
                                     storage := (s.accountMap s.executionEnv.address).storage.set
                                                  key value }
               substate     :=
-                { s.substate with
+                { s.substate.addAccessedStorageKey (s.executionEnv.address, key) with
                     refundBalance :=
                       let δ := Gas.sstoreRefund s.fork
                                  (s.substate.originalStorage s.executionEnv.address key)
