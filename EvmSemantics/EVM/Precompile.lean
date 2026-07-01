@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Bytes
 public import EvmSemantics.Data.Rlp
 public import EvmSemantics.State.Account
 public import EvmSemantics.Machine.MachineState
@@ -149,9 +150,9 @@ def modexpAddress : AccountAddress :=
     with trailing zeros if the input is short (per EIP-198's
     input-normalisation rule), and interpret them big-endian as a
     `Nat`. Composition of `MachineState.readPadded` (which already
-    zero-pads at the tail) and `MachineState.bytesToBigEndianNat`. -/
+    zero-pads at the tail) and `Data.Bytes.bytesToBigEndianNat`. -/
 def bytesToNatPadded (bs : ByteArray) (offset width : Nat) : Nat :=
-  MachineState.bytesToBigEndianNat (MachineState.readPadded bs offset width)
+  Data.Bytes.bytesToBigEndianNat (MachineState.readPadded bs offset width)
 
 /-- Square-and-multiply modular exponentiation for arbitrary-precision
     `Nat`. `modPow b e 0 = 0` (matches YP/EIP-198's `M = 0 → zero
@@ -176,9 +177,10 @@ def modPow (b e modulus : Nat) : Nat :=
 
 /-- Big-endian encoding of `n` into `width` bytes (leading zeros).
     Truncates bits above `width * 8` (unreachable for `n < 256^width`,
-    which the caller guarantees). Delegates to `Rlp.natToBytesPadded`. -/
+    which the caller guarantees). Delegates to
+    `Data.Bytes.natToBytesPadded`. -/
 @[inline] def natToBytes (n width : Nat) : ByteArray :=
-  Rlp.natToBytesPadded n width
+  Data.Bytes.natToBytesPadded n width
 
 /-- EIP-198 `mult_complexity` piecewise definition. `x` is the max of
     Bsize and Msize (in bytes). -/

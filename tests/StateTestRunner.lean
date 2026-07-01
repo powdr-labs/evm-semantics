@@ -94,7 +94,7 @@ def recoverSender (tx : Json) : Option AccountAddress := do
   -- `padded32` is 32 bytes with 12 leading zeros; the last 20
   -- bytes are the address in big-endian.
   pure (AccountAddress.ofNat
-    (MachineState.bytesToBigEndianNat (padded32.extract 12 32)))
+    (Data.Bytes.bytesToBigEndianNat (padded32.extract 12 32)))
 
 /-- Decode a BlockchainTest transaction JSON into a
     `EvmSemantics.Tx.Transaction`. `to = ""` (or missing) marks a
