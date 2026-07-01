@@ -1,5 +1,5 @@
-import EvmSemantics.Crypto.Ecpairing
-import EvmSemantics.Crypto.Bn254
+import EvmSemantics.Crypto.Bn254.Ecpairing
+import EvmSemantics.Crypto.Bn254.Curve
 import EvmSemantics.Data.Hex
 
 open EvmSemantics.Crypto.Bytes (writeBE)

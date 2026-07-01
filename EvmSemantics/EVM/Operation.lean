@@ -349,25 +349,25 @@ end Operation
     yet — an unactivated byte must trigger `InvalidInstruction` per the
     YP, *not* execute as the future opcode. -/
 def Operation.availableInFork : Operation → Fork → Bool
-  | .CompBit .SHL,            f => f.atLeast .Constantinople
-  | .CompBit .SHR,            f => f.atLeast .Constantinople
-  | .CompBit .SAR,            f => f.atLeast .Constantinople
-  | .Env .RETURNDATASIZE,     f => f.atLeast .Byzantium
-  | .Env .RETURNDATACOPY,     f => f.atLeast .Byzantium
-  | .Env .EXTCODEHASH,        f => f.atLeast .Constantinople
-  | .Block .CHAINID,          f => f.atLeast .Istanbul
-  | .Block .SELFBALANCE,      f => f.atLeast .Istanbul
-  | .Block .BASEFEE,          f => f.atLeast .London
-  | .Block .BLOBHASH,         f => f.atLeast .Cancun
-  | .Block .BLOBBASEFEE,      f => f.atLeast .Cancun
-  | .StackMemFlow .TLOAD,     f => f.atLeast .Cancun
-  | .StackMemFlow .TSTORE,    f => f.atLeast .Cancun
-  | .StackMemFlow .MCOPY,     f => f.atLeast .Cancun
-  | .System .DELEGATECALL,    f => f.atLeast .Homestead
-  | .System .REVERT,          f => f.atLeast .Byzantium
-  | .System .STATICCALL,      f => f.atLeast .Byzantium
-  | .System .CREATE2,         f => f.atLeast .Constantinople
-  | .Push p,                  f => if p.width.val = 0 then f.atLeast .Shanghai else true
+  | .CompBit .SHL,            f => f ≥ .Constantinople
+  | .CompBit .SHR,            f => f ≥ .Constantinople
+  | .CompBit .SAR,            f => f ≥ .Constantinople
+  | .Env .RETURNDATASIZE,     f => f ≥ .Byzantium
+  | .Env .RETURNDATACOPY,     f => f ≥ .Byzantium
+  | .Env .EXTCODEHASH,        f => f ≥ .Constantinople
+  | .Block .CHAINID,          f => f ≥ .Istanbul
+  | .Block .SELFBALANCE,      f => f ≥ .Istanbul
+  | .Block .BASEFEE,          f => f ≥ .London
+  | .Block .BLOBHASH,         f => f ≥ .Cancun
+  | .Block .BLOBBASEFEE,      f => f ≥ .Cancun
+  | .StackMemFlow .TLOAD,     f => f ≥ .Cancun
+  | .StackMemFlow .TSTORE,    f => f ≥ .Cancun
+  | .StackMemFlow .MCOPY,     f => f ≥ .Cancun
+  | .System .DELEGATECALL,    f => f ≥ .Homestead
+  | .System .REVERT,          f => f ≥ .Byzantium
+  | .System .STATICCALL,      f => f ≥ .Byzantium
+  | .System .CREATE2,         f => f ≥ .Constantinople
+  | .Push p,                  f => if p.width.val = 0 then f ≥ .Shanghai else true
   -- EIP-8024 (`DUPN` / `SWAPN` / `EXCHANGE`): not active on any
   -- currently modelled fork. The decoder will hand these to us if a
   -- bytecode contains 0xe6..0xe8, and they will halt with

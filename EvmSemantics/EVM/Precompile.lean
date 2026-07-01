@@ -9,10 +9,18 @@ public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
 public import EvmSemantics.Crypto.Ripemd160
 public import EvmSemantics.Crypto.Ecrecover
-public import EvmSemantics.Crypto.Ecadd
-public import EvmSemantics.Crypto.Ecmul
-public import EvmSemantics.Crypto.Ecpairing
+public import EvmSemantics.Crypto.Bn254.Ecadd
+public import EvmSemantics.Crypto.Bn254.Ecmul
+public import EvmSemantics.Crypto.Bn254.Ecpairing
 public import EvmSemantics.Crypto.Blake2f
+public import EvmSemantics.Crypto.Bls12381.G1Add
+public import EvmSemantics.Crypto.Bls12381.G1Msm
+public import EvmSemantics.Crypto.Bls12381.G2Add
+public import EvmSemantics.Crypto.Bls12381.G2Msm
+public import EvmSemantics.Crypto.Bls12381.PairingCheck
+public import EvmSemantics.Crypto.Bls12381.MapFpToG1
+public import EvmSemantics.Crypto.Bls12381.MapFp2ToG2
+public import EvmSemantics.Crypto.Bls12381.Kzg
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -47,7 +55,7 @@ Extending with a new precompile is a synchronized three-line edit:
 
 1. Add a `runFoo : ByteArray → Nat → Result` implementing the
    operation's behaviour and gas cost.
-2. Add `addr = fooAddress` (gated by `fork.atLeast …` if the
+2. Add `addr = fooAddress` (gated by `fork ≥ …` if the
    precompile is fork-conditional) to `isPrecompile`.
 3. Add a `if addr = fooAddress then runFoo …` branch in `run`.
 
@@ -310,7 +318,7 @@ def ecaddAddress : AccountAddress :=
     faster. Flat cost — the input is always 128 bytes after padding /
     truncation. -/
 @[inline] def ecaddGas (fork : Fork) : Nat :=
-  if fork.atLeast .Istanbul then 150 else 500
+  if fork ≥ .Istanbul then 150 else 500
 
 /-- Run the `0x06 ECADD` precompile. Invalid input (out-of-field
     coordinate or off-curve point) is treated as an EIP-196 failure:
@@ -338,7 +346,7 @@ def ecmulAddress : AccountAddress :=
     the scalar loop dominates but is bounded by the 256-bit word
     width. -/
 @[inline] def ecmulGas (fork : Fork) : Nat :=
-  if fork.atLeast .Istanbul then 6000 else 40000
+  if fork ≥ .Istanbul then 6000 else 40000
 
 /-- Run the `0x07 ECMUL` precompile. Invalid-input handling matches
     `runEcadd`. -/
@@ -364,7 +372,7 @@ def ecpairingAddress : AccountAddress :=
     `Base=45000, PerPair=34000`. -/
 @[inline] def ecpairingGas (fork : Fork) (input : ByteArray) : Nat :=
   let k := input.size / 192
-  if fork.atLeast .Istanbul then 45000 + 34000 * k else 100000 + 80000 * k
+  if fork ≥ .Istanbul then 45000 + 34000 * k else 100000 + 80000 * k
 
 /-- Run the `0x08 ECPAIRING` precompile. -/
 def runEcpairing (fork : Fork) (input : ByteArray) (childGas : Nat) : Result :=
@@ -426,6 +434,165 @@ def runBlake2f (input : ByteArray) (childGas : Nat) : Result :=
       else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x0B BLS12_G1ADD — BLS12-381 G₁ point addition (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0B`. -/
+def blsG1AddAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0b)
+
+/-- Gas cost: flat 375 (EIP-2537). -/
+@[inline] def blsG1AddGas : Nat := 375
+
+/-- Run BLS12_G1ADD. Invalid input → all-gas-consumed. -/
+def runBlsG1Add (input : ByteArray) (childGas : Nat) : Result :=
+  if blsG1AddGas ≤ childGas then
+    match Crypto.Bls12381G1Add.run? input with
+    | some output => .success output blsG1AddGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0D BLS12_G2ADD — BLS12-381 G₂ point addition (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+-- 0x0C BLS12_G1MSM — G₁ multi-scalar multiplication (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0C`. -/
+def blsG1MsmAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0c)
+
+/-- Gas: `12000 · k` where `k = |input| / 160` (conservative
+    flat-per-pair rate; EIP-2537 defines a discount table that
+    lowers the price for larger `k`). Invalid empty input (`k = 0`)
+    is rejected by the driver. -/
+@[inline] def blsG1MsmGas (input : ByteArray) : Nat := 12000 * (input.size / 160)
+
+/-- Run BLS12_G1MSM. -/
+def runBlsG1Msm (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := blsG1MsmGas input
+  if cost ≤ childGas then
+    match Crypto.Bls12381G1Msm.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0D BLS12_G2ADD — BLS12-381 G₂ point addition (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0D`. -/
+def blsG2AddAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0d)
+
+/-- Gas cost: flat 600 (EIP-2537). -/
+@[inline] def blsG2AddGas : Nat := 600
+
+/-- Run BLS12_G2ADD. -/
+def runBlsG2Add (input : ByteArray) (childGas : Nat) : Result :=
+  if blsG2AddGas ≤ childGas then
+    match Crypto.Bls12381G2Add.run? input with
+    | some output => .success output blsG2AddGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0E BLS12_G2MSM — G₂ multi-scalar multiplication (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0E`. -/
+def blsG2MsmAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0e)
+
+/-- Gas: `22500 · k` where `k = |input| / 288`. Same flat-rate
+    caveat as G1MSM. -/
+@[inline] def blsG2MsmGas (input : ByteArray) : Nat := 22500 * (input.size / 288)
+
+/-- Run BLS12_G2MSM. -/
+def runBlsG2Msm (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := blsG2MsmGas input
+  if cost ≤ childGas then
+    match Crypto.Bls12381G2Msm.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0F BLS12_PAIRING_CHECK — BLS12-381 multi-pairing (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0F`. -/
+def blsPairingAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0f)
+
+/-- Gas cost per EIP-2537: `32600 + 43000 · k` where `k` is the
+    number of `(G₁, G₂)` pairs (`|input| / 384`). -/
+@[inline] def blsPairingGas (input : ByteArray) : Nat :=
+  32600 + 43000 * (input.size / 384)
+
+/-- Run BLS12_PAIRING_CHECK. -/
+def runBlsPairing (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := blsPairingGas input
+  if cost ≤ childGas then
+    match Crypto.Bls12381PairingCheck.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0A KZG point evaluation (Cancun+, EIP-4844).
+----------------------------------------------------------------------------
+
+/-- Address `0x0A`. -/
+def kzgAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0a)
+
+/-- Gas: flat 50000 (EIP-4844). -/
+@[inline] def kzgGas : Nat := 50000
+
+/-- Run KZG point-evaluation precompile. -/
+def runKzg (input : ByteArray) (childGas : Nat) : Result :=
+  if kzgGas ≤ childGas then
+    match Crypto.BlsKzg.run? input with
+    | some output => .success output kzgGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x10 BLS12_MAP_FP_TO_G1 — Fp → G₁ via SSWU + 11-isogeny (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x10`. -/
+def blsMapFpToG1Address : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 0x10)
+
+/-- Gas: flat 5500 (EIP-2537). -/
+@[inline] def blsMapFpToG1Gas : Nat := 5500
+
+/-- Run BLS12_MAP_FP_TO_G1. -/
+def runBlsMapFpToG1 (input : ByteArray) (childGas : Nat) : Result :=
+  if blsMapFpToG1Gas ≤ childGas then
+    match Crypto.Bls12381MapFpToG1.run? input with
+    | some output => .success output blsMapFpToG1Gas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x11 BLS12_MAP_FP2_TO_G2 — Fp2 → G₂ via SSWU + 3-isogeny (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x11`. -/
+def blsMapFp2ToG2Address : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 0x11)
+
+/-- Gas: flat 23800 (EIP-2537). -/
+@[inline] def blsMapFp2ToG2Gas : Nat := 23800
+
+/-- Run BLS12_MAP_FP2_TO_G2. -/
+def runBlsMapFp2ToG2 (input : ByteArray) (childGas : Nat) : Result :=
+  if blsMapFp2ToG2Gas ≤ childGas then
+    match Crypto.Bls12381MapFp2ToG2.run? input with
+    | some output => .success output blsMapFp2ToG2Gas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
@@ -444,10 +611,16 @@ def runBlake2f (input : ByteArray) (childGas : Nat) : Result :=
 def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
   addr = ecrecoverAddress || addr = sha256Address ||
     addr = ripemd160Address || addr = identityAddress ||
-    (fork.atLeast .Byzantium &&
+    (fork ≥ .Byzantium &&
       (addr = modexpAddress ||
        addr = ecaddAddress || addr = ecmulAddress || addr = ecpairingAddress)) ||
-    (fork.atLeast .Istanbul && addr = blake2fAddress)
+    (fork ≥ .Istanbul && addr = blake2fAddress) ||
+    (fork ≥ .Cancun && addr = kzgAddress) ||
+    (fork ≥ .Prague &&
+      (addr = blsG1AddAddress || addr = blsG1MsmAddress ||
+       addr = blsG2AddAddress || addr = blsG2MsmAddress ||
+       addr = blsPairingAddress ||
+       addr = blsMapFpToG1Address || addr = blsMapFp2ToG2Address))
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -467,7 +640,7 @@ def run (fork : Fork) (addr : AccountAddress)
     runRipemd160 input childGas
   else if h_id : addr = identityAddress then
     runIdentity input childGas
-  else if h_mx : fork.atLeast .Byzantium ∧ addr = modexpAddress then
+  else if h_mx : fork ≥ .Byzantium ∧ addr = modexpAddress then
     runModexp input childGas
   else if h_add : addr = ecaddAddress then
     runEcadd fork input childGas
@@ -475,15 +648,33 @@ def run (fork : Fork) (addr : AccountAddress)
     runEcmul fork input childGas
   else if h_pair : addr = ecpairingAddress then
     runEcpairing fork input childGas
-  else if h_bl : fork.atLeast .Istanbul ∧ addr = blake2fAddress then
+  else if h_bl : fork ≥ .Istanbul ∧ addr = blake2fAddress then
     runBlake2f input childGas
+  else if h_kzg : fork ≥ .Cancun ∧ addr = kzgAddress then
+    runKzg input childGas
+  else if h_bg1 : addr = blsG1AddAddress then
+    runBlsG1Add input childGas
+  else if h_bm1 : addr = blsG1MsmAddress then
+    runBlsG1Msm input childGas
+  else if h_bg2 : addr = blsG2AddAddress then
+    runBlsG2Add input childGas
+  else if h_bm2 : addr = blsG2MsmAddress then
+    runBlsG2Msm input childGas
+  else if h_bp : addr = blsPairingAddress then
+    runBlsPairing input childGas
+  else if h_mf1 : addr = blsMapFpToG1Address then
+    runBlsMapFpToG1 input childGas
+  else if h_mf2 : addr = blsMapFp2ToG2Address then
+    runBlsMapFp2ToG2 input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
     absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx,
-                                     h_add, h_mul, h_pair, h_bl])
+                                     h_add, h_mul, h_pair, h_bl, h_kzg,
+                                     h_bg1, h_bm1, h_bg2, h_bm2, h_bp,
+                                     h_mf1, h_mf2])
 
 end Precompile
 end EVM

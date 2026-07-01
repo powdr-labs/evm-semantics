@@ -1,9 +1,9 @@
 module
 
 public import EvmSemantics.Crypto.EC
-public import EvmSemantics.Crypto.Bn254
+public import EvmSemantics.Crypto.Bn254.Curve
 public import EvmSemantics.Crypto.Bytes
-public import EvmSemantics.Crypto.Ecadd
+public import EvmSemantics.Crypto.Bn254.Ecadd
 
 /-!
 `EvmSemantics.Crypto.Ecmul` — Ethereum's `0x07 ECMUL` precompile,

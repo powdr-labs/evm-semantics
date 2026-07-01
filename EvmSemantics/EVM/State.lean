@@ -177,7 +177,7 @@ def resumeException (child : State) (f : Frame) (rest : List Frame) : State :=
     the reserved `0xEF` byte? Such code is rejected at deploy time;
     the rule does not apply before London. -/
 def isReservedCodePrefix (fork : Fork) (code : ByteArray) : Bool :=
-  if fork.atLeast .London then code.size ≥ 1 && code[0]! == 0xEF
+  if fork ≥ .London then code.size ≥ 1 && code[0]! == 0xEF
   else false
 
 /-- CREATE-frame success resume: the child halted with `.Success` or
@@ -475,7 +475,7 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   -- contents in insertion order.
   let alreadyDestroyed := sc.substate.selfDestructList.contains self
   let refundDelta : Nat :=
-    if sc.executionEnv.fork.atLeast .London ∨ alreadyDestroyed then 0
+    if sc.executionEnv.fork ≥ .London ∨ alreadyDestroyed then 0
     else 24000
   let substate' : Substate :=
     { sc.substate with
@@ -579,7 +579,7 @@ def enterCreate (sc : State) (rest : List UInt256)
   -- nonce 1 so it can be distinguished from the empty-account predicate.
   let newAcc := map₂ newAddr
   let initNonce : UInt256 :=
-    if sc.executionEnv.fork.atLeast .SpuriousDragon then ⟨1⟩ else ⟨0⟩
+    if sc.executionEnv.fork ≥ .SpuriousDragon then ⟨1⟩ else ⟨0⟩
   let map₃ := map₂.set newAddr { newAcc with nonce := initNonce }
   { sc with
       accountMap   := map₃

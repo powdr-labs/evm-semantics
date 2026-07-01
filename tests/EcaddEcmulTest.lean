@@ -1,6 +1,6 @@
-import EvmSemantics.Crypto.Ecadd
-import EvmSemantics.Crypto.Ecmul
-import EvmSemantics.Crypto.Bn254
+import EvmSemantics.Crypto.Bn254.Ecadd
+import EvmSemantics.Crypto.Bn254.Ecmul
+import EvmSemantics.Crypto.Bn254.Curve
 import EvmSemantics.Data.Hex
 
 open EvmSemantics.Crypto.Bytes (writeBE)

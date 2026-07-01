@@ -4,13 +4,16 @@ public import EvmSemantics.Crypto.EC
 public import EvmSemantics.Crypto.Fp2
 public import EvmSemantics.Crypto.Fp12
 public import EvmSemantics.Crypto.G2
-public import EvmSemantics.Crypto.Bn254
+public import EvmSemantics.Crypto.Bn254.Curve
 public import EvmSemantics.Crypto.Bytes
-public import EvmSemantics.Crypto.Pairing
+public import EvmSemantics.Crypto.Bn254.Pairing
 
 /-!
-`EvmSemantics.Crypto.Ecpairing` — Ethereum's `0x08 ECPAIRING` precompile
-(EIP-197, Byzantium+).
+`EvmSemantics.Crypto.Bn254.Ecpairing` — Ethereum's `0x08 ECPAIRING`
+precompile driver (EIP-197, Byzantium+). **This is the precompile
+wrapper — wire format, input validation, boolean output.** The
+underlying pairing algebra (Miller loop + final exponentiation on
+BN254 `Fp12`) lives in `EvmSemantics.Crypto.Bn254.Pairing`.
 
 Wire format: input is `k · 192` bytes for some `k ≥ 0`, arranged as
 `k` back-to-back point pairs:
@@ -38,8 +41,7 @@ curve) makes the precompile fail with all-gas consumed (mapped to
 namespace EvmSemantics.Crypto.Ecpairing
 
 open EvmSemantics.Crypto.EC
-open EvmSemantics.Crypto.Fp2 (Fp2)
-open EvmSemantics.Crypto.Fp12 (Fp12)
+open EvmSemantics.Crypto.Pairing (Fp2Bn Fp12Bn)
 open EvmSemantics.Crypto.G2
 open EvmSemantics.Crypto.Bn254 (p Fp)
 open EvmSemantics.Crypto.Bytes
@@ -59,7 +61,7 @@ def decodeG1 (input : ByteArray) (off : Nat) : Option Bn254.Point :=
 /-- Decode a G₂ point from `input[off..off+128)`. Layout matches
     EIP-197: `X.c1 ‖ X.c0 ‖ Y.c1 ‖ Y.c0` (imaginary before real).
     `(0, 0, 0, 0)` decodes to infinity. -/
-def decodeG2 (input : ByteArray) (off : Nat) : Option G2.Point :=
+def decodeG2 (input : ByteArray) (off : Nat) : Option Bn254.G2Point :=
   let x1 := readBE input off          32  -- X.imag
   let x0 := readBE input (off +  32)  32  -- X.real
   let y1 := readBE input (off +  64)  32  -- Y.imag
@@ -67,18 +69,18 @@ def decodeG2 (input : ByteArray) (off : Nat) : Option G2.Point :=
   if x0 ≥ p ∨ x1 ≥ p ∨ y0 ≥ p ∨ y1 ≥ p then none
   else if x0 = 0 ∧ x1 = 0 ∧ y0 = 0 ∧ y1 = 0 then some .infinity
   else
-    let X : Fp2 := { c0 := Fin.ofNat _ x0, c1 := Fin.ofNat _ x1 }
-    let Y : Fp2 := { c0 := Fin.ofNat _ y0, c1 := Fin.ofNat _ y1 }
-    if G2.onCurve X Y then some (.affine X Y)
+    let X : Fp2Bn := { c0 := Fin.ofNat _ x0, c1 := Fin.ofNat _ x1 }
+    let Y : Fp2Bn := { c0 := Fin.ofNat _ y0, c1 := Fin.ofNat _ y1 }
+    if G2.onCurve Bn254.g2Curve X Y then some (.affine X Y)
     else none
 
 /-- Decode `k` pairs of `(G₁, G₂)` from `input`. Returns `none` if
     length ≠ multiple of 192 or any coord/on-curve check fails. -/
-def decodePairs (input : ByteArray) : Option (List (Bn254.Point × G2.Point)) := Id.run do
+def decodePairs (input : ByteArray) : Option (List (Bn254.Point × Bn254.G2Point)) := Id.run do
   let sz := input.size
   if sz % 192 ≠ 0 then return none
   let k := sz / 192
-  let mut acc : List (Bn254.Point × G2.Point) := []
+  let mut acc : List (Bn254.Point × Bn254.G2Point) := []
   for i in [0:k] do
     let off := i * 192
     match decodeG1 input off, decodeG2 input (off + 64) with
