@@ -1642,7 +1642,8 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
           (s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY)) h_gas).canExpandMemory
                          dOff.toNat sz.toNat
       · simp [h_mem] at h
-        by_cases h_dyn : Gas.copyWordCost sz ≤
+        by_cases h_dyn : Gas.copyWordCost sz
+              + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a) ≤
             ((s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY))
                             h_gas).consumeMemExp dOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
@@ -1651,31 +1652,38 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
           set md := MachineState.memCost
                       (MachineState.activeWordsAfter s.activeWords.toNat dOff.toNat sz.toNat)
                     - MachineState.memCost s.activeWords.toNat with hmd
-          have h_total : Gas.extcodecopyTotal s dOff sz ≤ s.gasAvailable := by
-            show base + md + Gas.copyWordCost sz ≤ s.gasAvailable
+          have h_total : Gas.extcodecopyTotal s a dOff sz ≤ s.gasAvailable := by
+            show base + md + (Gas.copyWordCost sz
+                    + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)) ≤ s.gasAvailable
             simp [State.canExpandMemory, State.consumeGas, State.consumeMemExp,
                   MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem h_dyn
             omega
           have post_eq :
               ({ ((s.consumeGas base h_gas).consumeMemExp dOff.toNat sz.toNat
-                    h_mem).consumeGas (Gas.copyWordCost sz) h_dyn with
+                    h_mem).consumeGas (Gas.copyWordCost sz
+                      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)) h_dyn with
                   toMachineState :=
                     { (((s.consumeGas base h_gas).consumeMemExp dOff.toNat sz.toNat
-                        h_mem).consumeGas (Gas.copyWordCost sz) h_dyn).toMachineState with
+                        h_mem).consumeGas (Gas.copyWordCost sz
+                          + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a))
+                          h_dyn).toMachineState with
                       memory := MachineState.writeBytes s.memory
                                   (MachineState.readPadded
                                     (s.accountMap (AccountAddress.ofUInt256 a)).code
                                     sOff.toNat sz.toNat) dOff.toNat }
+                  substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a)
                 }.replaceStackAndIncrPC rest)
               = ({ s with
                   stack := rest
                   pc := s.pc.succ
-                  gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s dOff sz
+                  gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s a dOff sz
                   memory := MachineState.writeBytes s.memory
                               (MachineState.readPadded
                                 (s.accountMap (AccountAddress.ofUInt256 a)).code
                                 sOff.toNat sz.toNat) dOff.toNat
-                  activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat } : State) := by
+                  activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat
+                  substate := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 a) } : State) := by
             simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
                   State.activeWordsAfterUInt256, Gas.extcodecopyTotal, UInt256.succ,
                   MachineState.memExpansionDelta,
@@ -2943,7 +2951,8 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
           (s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY)) h_gas).canExpandMemory
             destOff.toNat sz.toNat
       · simp [h_mem] at h
-        by_cases h_dyn : Gas.copyWordCost sz ≤
+        by_cases h_dyn : Gas.copyWordCost sz
+              + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a) ≤
             ((s.consumeGas (Gas.baseCost s.fork (.Env .EXTCODECOPY))
                             h_gas).consumeMemExp destOff.toNat sz.toNat h_mem).gasAvailable
         · simp [h_dyn] at h
@@ -2953,7 +2962,8 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
           set md := MachineState.memCost (MachineState.activeWordsAfter
                       s.activeWords.toNat destOff.toNat sz.toNat)
                     - MachineState.memCost s.activeWords.toNat with hmd
-          set cwc := Gas.copyWordCost sz with hcwc
+          set cwc := Gas.copyWordCost sz
+                       + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a) with hcwc
           have h_mem' : md ≤ s.gasAvailable - base := by
             simp only [State.canExpandMemory, State.consumeGas,
                        MachineState.memExpansionDelta, ← hbase, ← hmd] at h_mem

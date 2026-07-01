@@ -317,6 +317,7 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
       match chargeMem s' destOff.toNat sz.toNat with
       | .ok s'' =>
         let dyn := Gas.copyWordCost sz
+                     + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
         if h : dyn ≤ s''.gasAvailable then
           let s''' := s''.consumeGas dyn h
           let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
@@ -324,7 +325,8 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
           let μ' : MachineState :=
             { s'''.toMachineState with
                 memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+          let sub' := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a)
+          .ok ({ s''' with toMachineState := μ', substate := sub' }.replaceStackAndIncrPC rest)
         else .error .OutOfGas
       | .error e => .error e
     | _ => underflow

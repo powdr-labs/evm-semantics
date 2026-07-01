@@ -479,15 +479,25 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
   + Gas.copyWordCost sz
 
+/-- EIP-2929 cold-access surcharge for an account read (BALANCE /
+    EXTCODESIZE / EXTCODEHASH / EXTCODECOPY) and the CALL family: `2500`
+    (= cold `2600` − warm `100`) when Berlin+ and account `a` is not yet
+    warm, else `0`. The warm price is the static `Gas.baseCost` (`100` from
+    Berlin). -/
+@[inline] def Gas.accountColdSurcharge (s : State) (a : AccountAddress) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin && !s.substate.isWarmAccount a
+  then 2500 else 0
+
 /-- Total gas cost of `EXTCODECOPY` at `s` for stack args
     `_addr, destOff, _srcOff, sz`: static base (which already absorbs the
     `Constantinople`-era flat 700 access fee — see `Gas.baseCost`) +
     memory-expansion delta for `[destOff, destOff+sz)` + per-word copy
-    cost `3 · ⌈sz/32⌉`. EIP-2929 cold/warm pricing is not yet modelled. -/
-@[inline] def Gas.extcodecopyTotal (s : State) (destOff sz : UInt256) : Nat :=
+    cost `3 · ⌈sz/32⌉` + the EIP-2929 cold surcharge for the target account. -/
+@[inline] def Gas.extcodecopyTotal (s : State) (addr destOff sz : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .EXTCODECOPY
   + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
-  + Gas.copyWordCost sz
+  + (Gas.copyWordCost sz
+     + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr))
 
 /-- Total gas cost of `RETURNDATACOPY` at `s` for stack args
     `destOff, _srcOff, sz`: static base + memory-expansion delta for the
@@ -564,14 +574,6 @@ def Gas.refundDenom (fork : Fork) : Nat :=
     base plus the EIP-2929 cold surcharge (`Gas.sloadColdSurcharge`). -/
 @[inline] def Gas.sloadTotal (s : State) (key : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SLOAD + Gas.sloadColdSurcharge s key
-
-/-- EIP-2929 cold-access surcharge for an account read (BALANCE /
-    EXTCODESIZE / EXTCODEHASH / EXTCODECOPY): `2500` (= cold `2600` − warm
-    `100`) when Berlin+ and account `a` is not yet warm, else `0`. The warm
-    price is the static `Gas.baseCost` (`100` from Berlin). -/
-@[inline] def Gas.accountColdSurcharge (s : State) (a : AccountAddress) : Nat :=
-  if s.executionEnv.fork.atLeast .Berlin && !s.substate.isWarmAccount a
-  then 2500 else 0
 
 /-- Total gas cost of `BALANCE` at `s` for stack arg `addr`: static warm
     base + EIP-2929 cold surcharge for the target account. -/

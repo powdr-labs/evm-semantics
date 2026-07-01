@@ -636,18 +636,20 @@ inductive StepRunning : State → State → Prop
   | extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (rest : List UInt256)
         (h_op    : s.decodedOp = some .EXTCODECOPY)
         (h_stack : s.stack = addr :: destOff :: srcOff :: sz :: rest)
-        (h_gas   : Gas.extcodecopyTotal s destOff sz ≤ s.gasAvailable)
+        (h_gas   : Gas.extcodecopyTotal s addr destOff sz ≤ s.gasAvailable)
       : StepRunning s
           { s with
               stack        := rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s destOff sz
+              gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s addr destOff sz
               activeWords  := s.activeWordsAfterUInt256 destOff.toNat sz.toNat
               memory       := MachineState.writeBytes s.memory
                                 (MachineState.readPadded
                                   (s.accountMap (AccountAddress.ofUInt256 addr)).code
                                   srcOff.toNat sz.toNat)
-                                destOff.toNat }
+                                destOff.toNat
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   | returndatasize (s : State)
         (h_op      : s.decodedOp = some .RETURNDATASIZE)
