@@ -503,13 +503,15 @@ inductive StepRunning : State → State → Prop
 
   | balance (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .BALANCE)
-        (h_gas     : Gas.baseCost s.fork .BALANCE ≤ s.gasAvailable)
+        (h_gas     : Gas.balanceTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
       : StepRunning s
           { s with
               stack        := (s.accountMap (AccountAddress.ofUInt256 addr)).balance :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BALANCE }
+              gasAvailable := s.gasAvailable - Gas.balanceTotal s addr
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   | origin (s : State)
         (h_op      : s.decodedOp = some .ORIGIN)
@@ -615,7 +617,7 @@ inductive StepRunning : State → State → Prop
 
   | extcodesize (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .EXTCODESIZE)
-        (h_gas     : Gas.baseCost s.fork .EXTCODESIZE ≤ s.gasAvailable)
+        (h_gas     : Gas.extcodesizeTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
       : StepRunning s
           { s with
@@ -623,7 +625,9 @@ inductive StepRunning : State → State → Prop
                                 (s.accountMap (AccountAddress.ofUInt256 addr)).code.size
                               :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EXTCODESIZE }
+              gasAvailable := s.gasAvailable - Gas.extcodesizeTotal s addr
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   /-- EXTCODECOPY: pop addr, destOffset, srcOffset, size; copy external
       code bytes to memory. `Gas.extcodecopyTotal s destOff sz` bundles
@@ -676,13 +680,15 @@ inductive StepRunning : State → State → Prop
 
   | extcodehash (s : State) (addr : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .EXTCODEHASH)
-        (h_gas     : Gas.baseCost s.fork .EXTCODEHASH ≤ s.gasAvailable)
+        (h_gas     : Gas.extcodehashTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
       : StepRunning s
           { s with
               stack        := (s.accountMap (AccountAddress.ofUInt256 addr)).codeHash :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EXTCODEHASH }
+              gasAvailable := s.gasAvailable - Gas.extcodehashTotal s addr
+              substate     := s.substate.addAccessedAccount
+                                (AccountAddress.ofUInt256 addr) }
 
   ----------------------------------------------------------------------------
   -- Block-context reads.

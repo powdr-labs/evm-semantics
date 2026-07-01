@@ -565,6 +565,30 @@ def Gas.refundDenom (fork : Fork) : Nat :=
 @[inline] def Gas.sloadTotal (s : State) (key : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SLOAD + Gas.sloadColdSurcharge s key
 
+/-- EIP-2929 cold-access surcharge for an account read (BALANCE /
+    EXTCODESIZE / EXTCODEHASH / EXTCODECOPY): `2500` (= cold `2600` − warm
+    `100`) when Berlin+ and account `a` is not yet warm, else `0`. The warm
+    price is the static `Gas.baseCost` (`100` from Berlin). -/
+@[inline] def Gas.accountColdSurcharge (s : State) (a : AccountAddress) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin && !s.substate.isWarmAccount a
+  then 2500 else 0
+
+/-- Total gas cost of `BALANCE` at `s` for stack arg `addr`: static warm
+    base + EIP-2929 cold surcharge for the target account. -/
+@[inline] def Gas.balanceTotal (s : State) (addr : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .BALANCE
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)
+
+/-- Total gas cost of `EXTCODESIZE` at `s` for stack arg `addr`. -/
+@[inline] def Gas.extcodesizeTotal (s : State) (addr : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .EXTCODESIZE
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)
+
+/-- Total gas cost of `EXTCODEHASH` at `s` for stack arg `addr`. -/
+@[inline] def Gas.extcodehashTotal (s : State) (addr : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .EXTCODEHASH
+  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)
+
 /-- Total gas cost of `RETURN` at `s` for stack args `offset, size`:
     static base + memory-expansion delta for the read range
     `[offset, offset+size)`. -/

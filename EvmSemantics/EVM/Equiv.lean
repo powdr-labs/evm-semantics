@@ -1501,7 +1501,12 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
   | RETURNDATASIZE  => cases h; exact .returndatasize s h_dec h_gas
   | BALANCE =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .balance s a rest h_dec h_gas h_stack
+    | a :: rest, h =>
+      by_cases h_total : Gas.balanceTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .balance s a rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h       => nomatch h
   | CALLDATALOAD =>
     match h_stack : s.stack, h with
@@ -1509,11 +1514,21 @@ theorem env_sound (s : State) (op : Operation.EnvOps)
     | [], h       => nomatch h
   | EXTCODESIZE =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .extcodesize s a rest h_dec h_gas h_stack
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodesizeTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .extcodesize s a rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h       => nomatch h
   | EXTCODEHASH =>
     match h_stack : s.stack, h with
-    | a :: rest, h => cases h; exact .extcodehash s a rest h_dec h_gas h_stack
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodehashTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .extcodehash s a rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h       => nomatch h
   | CALLDATACOPY =>
     match h_stack : s.stack, h with
@@ -2768,7 +2783,17 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
   | GASPRICE | RETURNDATASIZE => nomatch h
   | BALANCE =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | a :: rest, h =>
+      by_cases h_total : Gas.balanceTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.balanceTotal s a) ?_ ?_
+        · show Gas.baseCost s.fork (.Env .BALANCE)
+               ≤ Gas.baseCost s.fork (.Env .BALANCE)
+                 + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
@@ -2780,13 +2805,33 @@ theorem env_sound_error (s : State) (op : Operation.EnvOps)
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
   | EXTCODESIZE =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodesizeTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.extcodesizeTotal s a) ?_ ?_
+        · show Gas.baseCost s.fork (.Env .EXTCODESIZE)
+               ≤ Gas.baseCost s.fork (.Env .EXTCODESIZE)
+                 + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
   | EXTCODEHASH =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | a :: rest, h =>
+      by_cases h_total : Gas.extcodehashTotal s a ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.extcodehashTotal s a) ?_ ?_
+        · show Gas.baseCost s.fork (.Env .EXTCODEHASH)
+               ≤ Gas.baseCost s.fork (.Env .EXTCODEHASH)
+                 + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 a)
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])

@@ -249,8 +249,12 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     .ok (s'.replaceStackAndIncrPC (s.executionEnv.address.toUInt256 :: s.stack))
   | .BALANCE => match s.stack with
     | a :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap (AccountAddress.ofUInt256 a)).balance :: rest))
+      if h : Gas.balanceTotal s a ≤ s.gasAvailable then
+        .ok ({ (s.consumeGas (Gas.balanceTotal s a) h) with
+                 substate := s.substate.addAccessedAccount
+                               (AccountAddress.ofUInt256 a) }.replaceStackAndIncrPC
+              ((s.accountMap (AccountAddress.ofUInt256 a)).balance :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .ORIGIN => .ok (s'.replaceStackAndIncrPC (s.executionEnv.origin.toUInt256 :: s.stack))
   | .CALLER => .ok (s'.replaceStackAndIncrPC (s.executionEnv.caller.toUInt256 :: s.stack))
@@ -300,8 +304,13 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
   | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
   | .EXTCODESIZE => match s.stack with
     | a :: rest =>
-      let sz := (s.accountMap (AccountAddress.ofUInt256 a)).code.size
-      .ok (s'.replaceStackAndIncrPC (UInt256.ofNat sz :: rest))
+      if h : Gas.extcodesizeTotal s a ≤ s.gasAvailable then
+        let sz := (s.accountMap (AccountAddress.ofUInt256 a)).code.size
+        .ok ({ (s.consumeGas (Gas.extcodesizeTotal s a) h) with
+                 substate := s.substate.addAccessedAccount
+                               (AccountAddress.ofUInt256 a) }.replaceStackAndIncrPC
+              (UInt256.ofNat sz :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .EXTCODECOPY => match s.stack with
     | a :: destOff :: srcOff :: sz :: rest =>
@@ -343,8 +352,12 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | _ => underflow
   | .EXTCODEHASH => match s.stack with
     | a :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap (AccountAddress.ofUInt256 a)).codeHash :: rest))
+      if h : Gas.extcodehashTotal s a ≤ s.gasAvailable then
+        .ok ({ (s.consumeGas (Gas.extcodehashTotal s a) h) with
+                 substate := s.substate.addAccessedAccount
+                               (AccountAddress.ofUInt256 a) }.replaceStackAndIncrPC
+              ((s.accountMap (AccountAddress.ofUInt256 a)).codeHash :: rest))
+      else .error .OutOfGas
     | _ => underflow
 
 ----------------------------------------------------------------------------
