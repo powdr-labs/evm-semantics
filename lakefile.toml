@@ -36,6 +36,10 @@ name = "statetests"
 root = "tests.StateTestRunner"
 
 [[lean_exe]]
+name = "gstatetests"
+root = "tests.GeneralStateTestRunner"
+
+[[lean_exe]]
 name = "keccak_test"
 root = "tests.KeccakTest"
 
