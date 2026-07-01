@@ -51,25 +51,14 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=9662 full+=0 core+=2) fail=0 incon=0 crash=0
+pass(root=9664 full+=0 core+=0) fail=0 incon=0 crash=0
 ```
-Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
-- `pass_root` = world MPT `stateRoot` matches the corpus's
-  `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 9662 of 9664.
-- `pass_full` = every field the test's `postState` enumerates matches
-  (storage, nonce, code, *and* balance), but the MPT root differs.
-  Currently 0.
-- `pass_core` = storage / nonce / code match but balance is off. 2 of
-  9664: the two `randomStatetestDEFAULT-Tue_07_58_41-…` variants
-  (Constantinople / ConstantinopleFix) whose drift comes from an
-  `EXTCODEHASH`-of-suicide-touched-empty-account edge case (our impl
-  returns `keccak256(∅)` where the corpus expects `0` per EIP-1052 /
-  EIP-161). Fix on a separate branch.
-- `fail = 0` — every precompile the curated corpus exercises is
-  implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
-  IDENTITY (0x04), and MODEXP (0x05, Byzantium+). A future
-  pass -> fail transition against the pinned baseline is a regression.
+Every test in the curated subset matches the corpus at the world-state
+MPT root level (bit-identical to what Geth would produce). Precompiles
+implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
+IDENTITY (0x04), MODEXP (0x05, Byzantium+), BLAKE2F (0x09, Istanbul+).
+A future pass -> fail transition against the pinned baseline is a
+regression.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded

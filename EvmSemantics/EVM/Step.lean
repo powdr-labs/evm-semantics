@@ -74,8 +74,21 @@ end List
 
 namespace EvmSemantics
 
-/-- The hash of an account's bytecode (as used by EXTCODEHASH). -/
-def Account.codeHash (acc : Account) : UInt256 := keccak256 acc.code
+/-- The hash of an account's bytecode as observed by `EXTCODEHASH`
+    (EIP-1052). Per the EIP: if the account is empty (EIP-161: zero
+    nonce, zero balance, empty code) *or* nonexistent (a missing address
+    resolves to `Account.empty`, which is empty), return `0`. Otherwise
+    return `keccak256(code)` — which is `keccak256(∅)` for a non-empty
+    account whose code is empty (a touched EOA, e.g.).
+
+    Distinct from the world-state MPT's per-account `codeHash` field
+    (see `Data.Mpt.Account.encodeForTrie`), which is always
+    `keccak256(code)` (folding to `emptyCodeHash` when code is empty)
+    regardless of whether the account is EIP-161-empty. The MPT trie
+    uses that unconditional value; only the runtime `EXTCODEHASH`
+    observer applies the EIP-161 shortcut. -/
+def Account.codeHash (acc : Account) : UInt256 :=
+  if acc.isEmpty then ⟨0⟩ else keccak256 acc.code
 
 /-- The truthy interpretation of a UInt256 (zero is false, non-zero true). -/
 def UInt256.isTrue (a : UInt256) : Prop := a.toNat ≠ 0

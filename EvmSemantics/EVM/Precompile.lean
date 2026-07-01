@@ -9,6 +9,7 @@ public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
 public import EvmSemantics.Crypto.Ripemd160
 public import EvmSemantics.Crypto.Ecrecover
+public import EvmSemantics.Crypto.Blake2f
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -49,7 +50,8 @@ Extending with a new precompile is a synchronized three-line edit:
 
 This file currently implements `0x01 ECRECOVER`, `0x02 SHA-256`,
 `0x03 RIPEMD-160`, and `0x04 IDENTITY` (all available from Frontier
-onwards).
+onwards), `0x05 MODEXP` (Byzantium+, EIP-198), and `0x09 BLAKE2F`
+(Istanbul+, EIP-152).
 -/
 
 @[expose] public section
@@ -291,13 +293,64 @@ def runModexp (input : ByteArray) (childGas : Nat) : Result :=
   else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x09 BLAKE2F — BLAKE2b compression-function `F` (EIP-152, Istanbul+).
+--
+-- Input layout (exactly 213 bytes; any other length is a hard failure):
+--
+--   [0..4)      rounds   4-byte big-endian round count
+--   [4..68)     h        8 little-endian 64-bit state words
+--   [68..196)   m        16 little-endian 64-bit message words
+--   [196..212)  t        2 little-endian 64-bit offset-counter words
+--   [212]       f        1-byte final-block flag (must be 0 or 1)
+--
+-- Output: the 64-byte little-endian encoding of the 8 output state
+-- words (the empty byte-string never occurs — the call either
+-- succeeds with 64 bytes or fails).
+--
+-- Gas (EIP-152): `G_fround · rounds = 1 · rounds` — one gas per
+-- mixing round, no base cost.
+--
+-- Unlike ECRECOVER/SHA-256 (which "succeed" with empty output on
+-- malformed input), BLAKE2F *fails the whole call* when the input
+-- length is not exactly 213 or the final-flag byte is neither 0 nor
+-- 1 — the CALL returns `0` and the callee consumes all forwarded gas.
+-- That observable outcome is exactly `Result.outOfGas`, so we reuse
+-- it for both the genuine-OOG and the invalid-input cases.
+----------------------------------------------------------------------------
+
+/-- The BLAKE2F precompile's address `0x09`. -/
+def blake2fAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 9)
+
+/-- Exact byte length of a valid BLAKE2F input (EIP-152). -/
+@[inline] def blake2fInputLength : Nat := 213
+
+/-- Run the `0x09 BLAKE2F` precompile. Validates the fixed 213-byte
+    input layout and the 0/1 final-flag byte (a violation of either
+    fails the call, modelled as `.outOfGas`), charges `rounds` gas,
+    and returns the 64-byte compression output. -/
+def runBlake2f (input : ByteArray) (childGas : Nat) : Result :=
+  if input.size ≠ blake2fInputLength then .outOfGas
+  else
+    let fFlag := input[212]!
+    if fFlag != 0 && fFlag != 1 then .outOfGas
+    else
+      -- Round count = big-endian `input[0..4)`; gas = 1 · rounds.
+      let rounds := Data.Bytes.bytesToBigEndianNat (input.extract 0 4)
+      let cost := rounds
+      if cost ≤ childGas then
+        .success (Crypto.Blake2f.compressBytes input rounds) cost
+      else .outOfGas
+
+----------------------------------------------------------------------------
 -- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
 /-- True iff `addr` is one of the precompile addresses *we model* in
     `fork`. Currently: ECRECOVER (`0x01`), SHA-256 (`0x02`),
     RIPEMD-160 (`0x03`), and IDENTITY (`0x04`) since Frontier, plus
-    MODEXP (`0x05`) since Byzantium (EIP-198). As we add precompiles,
+    MODEXP (`0x05`) since Byzantium (EIP-198) and BLAKE2F (`0x09`)
+    since Istanbul (EIP-152). As we add precompiles,
     this function grows in lockstep with `run`'s branches; `run`'s
     totality proof tracks that they stay aligned.
 
@@ -307,7 +360,8 @@ def runModexp (input : ByteArray) (childGas : Nat) : Result :=
 def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
   addr = ecrecoverAddress || addr = sha256Address ||
     addr = ripemd160Address || addr = identityAddress ||
-    (fork.atLeast .Byzantium && addr = modexpAddress)
+    (fork.atLeast .Byzantium && addr = modexpAddress) ||
+    (fork.atLeast .Istanbul && addr = blake2fAddress)
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -329,12 +383,14 @@ def run (fork : Fork) (addr : AccountAddress)
     runIdentity input childGas
   else if h_mx : fork.atLeast .Byzantium ∧ addr = modexpAddress then
     runModexp input childGas
+  else if h_bl : fork.atLeast .Istanbul ∧ addr = blake2fAddress then
+    runBlake2f input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
-    absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx])
+    absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx, h_bl])
 
 end Precompile
 end EVM
