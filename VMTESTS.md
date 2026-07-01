@@ -54,14 +54,16 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests (curated 47-dir subset, per-fork test cases across
+**StateTests (curated 47-dir subset, 19875 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=? full+=? core+=?) fail=? incon=? crash=?
+pass(root=19543 full+=327 core+=5) fail=0 incon=0 crash=0
 ```
-Baseline pending regeneration after the merge that expanded the curated
-subset to 47 dirs (union of the earlier 35- and 44-dir subsets).
+Every test in the curated subset matches the corpus at least at the
+`pass_core` tier (storage / nonce / code identical to Geth) with no
+`fail`/`crash`; 19543 of 19875 also match at the world-state MPT root
+level (bit-identical postState).
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
