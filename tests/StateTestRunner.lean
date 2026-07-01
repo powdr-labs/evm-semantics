@@ -65,33 +65,52 @@ def mkAccount (j : Json) : Account :=
 -- Transaction / header decode.
 ----------------------------------------------------------------------------
 
-/-- Guess the tx sender from the pre-state. Real Ethereum recovers it
-    from the ECDSA signature `(v, r, s)`; we don't model secp256k1, so
-    we take the pre-state EOA (`code = ∅`) whose nonce matches the
-    tx's declared `nonce`. This is unambiguous for every test in the
-    curated CI subset — every fork variant has exactly one such EOA
-    (except a handful with none, where we fall back to the corpus's
-    hard-coded `txSender` default). -/
-def guessSender (preEntries : List (String × Json)) (txNonce : Nat) :
-    AccountAddress :=
-  let candidates := preEntries.filterMap (fun (addrHex, accJson) =>
-    let code := hexToBytes (strField accJson "code")
-    let nonce := hexToUInt256 (strField accJson "nonce")
-    if code.size = 0 && nonce.toNat = txNonce then
-      some (hexToAddress addrHex)
-    else none)
-  match candidates with
-  | [a] => a
-  | _   => txSender
+/-- Compute the pre-EIP-155 tx signing hash:
+    `keccak256(RLP[nonce, gasPrice, gasLimit, to, value, data])`. The
+    legacy corpus always signs with `v ∈ {27, 28}`, i.e. every tx we
+    ever see uses this pre-EIP-155 shape (no chain-id in the preimage).
+    Returns `none` iff RLP overflows on a payload ≥ 2^64 bytes, which
+    no gas-bounded EVM input can reach. -/
+def txSigningHash (tx : Json) : Option UInt256 := do
+  let nonce    := hexToNat (strField tx "nonce")
+  let gasPrice := hexToNat (strField tx "gasPrice")
+  let gasLimit := hexToNat (strField tx "gasLimit")
+  let toStr    := strField tx "to"
+  let value    := hexToNat (strField tx "value")
+  let data     := hexToBytes (strField tx "data")
+  let toItem : Rlp.Item :=
+    if toStr = "" then .bytes ByteArray.empty
+    else .ofAddress (hexToAddress toStr)
+  let enc ← Rlp.encodeList
+    [.ofNat nonce, .ofNat gasPrice, .ofNat gasLimit, toItem,
+     .ofNat value, .ofByteArray data]
+  pure (EvmSemantics.keccak256 enc)
+
+/-- Recover the tx sender from the ECDSA signature `(v, r, s)` in
+    `tx`. Falls back to the corpus's hard-coded `txSender` if
+    recovery fails (malformed signature or `keccak256` returns
+    `none` — both unreachable for the curated corpus). -/
+def recoverSender (tx : Json) : AccountAddress :=
+  let v := hexToNat (strField tx "v")
+  let r := hexToNat (strField tx "r")
+  let s := hexToNat (strField tx "s")
+  match txSigningHash tx with
+  | none      => txSender
+  | some hash =>
+    match Crypto.Ecrecover.recoverAddress hash.toNat v r s with
+    | none          => txSender
+    | some padded32 =>
+      -- `padded32` is 32 bytes with 12 leading zeros; the last 20
+      -- bytes are the address in big-endian.
+      AccountAddress.ofNat
+        (MachineState.bytesToBigEndianNat (padded32.extract 12 32))
 
 /-- Decode a BlockchainTest transaction JSON into a
     `EvmSemantics.Tx.Transaction`. `to = ""` (or missing) marks a
     contract-creating tx, signalled here as `recipient = none`. -/
-def decodeTx (tx : Json) (preEntries : List (String × Json)) :
-    EvmSemantics.Tx.Transaction :=
+def decodeTx (tx : Json) : EvmSemantics.Tx.Transaction :=
   let toStr := strField tx "to"
-  let nonce := hexToNat (strField tx "nonce")
-  { sender    := guessSender preEntries nonce
+  { sender    := recoverSender tx
     recipient := if toStr = "" then none else some (hexToAddress toStr)
     value     := hexToUInt256 (strField tx "value")
     data      := hexToBytes   (strField tx "data")
@@ -271,8 +290,7 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
     let txs := match subObj block "transactions" with | .arr a => a.toList | _ => []
     match txs with
     | tx :: _ =>
-      let preEntries := objEntries testObj "pre"
-      let txObj  := decodeTx tx preEntries
+      let txObj  := decodeTx tx
       let header := decodeHeader (subObj block "blockHeader")
       let blobHashes := decodeBlobHashes tx
       -- Fuel: every non-halting opcode costs ≥1 gas and every CALL

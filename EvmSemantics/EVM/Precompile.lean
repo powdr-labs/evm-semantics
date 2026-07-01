@@ -6,6 +6,7 @@ public import EvmSemantics.State.Account
 public import EvmSemantics.Machine.MachineState
 public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
+public import EvmSemantics.Crypto.Ecrecover
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -44,8 +45,8 @@ Extending with a new precompile is a synchronized three-line edit:
    precompile is fork-conditional) to `isPrecompile`.
 3. Add a `if addr = fooAddress then runFoo …` branch in `run`.
 
-This file currently implements `0x02 SHA-256` and `0x04 IDENTITY`
-(both available from Frontier onwards).
+This file currently implements `0x01 ECRECOVER`, `0x02 SHA-256`, and
+`0x04 IDENTITY` (all available from Frontier onwards).
 -/
 
 @[expose] public section
@@ -66,6 +67,31 @@ inductive Result where
       transfer (if any) is rolled back via the resume-time snapshot. -/
   | outOfGas
   deriving Inhabited
+
+----------------------------------------------------------------------------
+-- 0x01 ECRECOVER — secp256k1 ECDSA public-key recovery.
+----------------------------------------------------------------------------
+
+/-- The ECRECOVER precompile's address `0x01`. -/
+def ecrecoverAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 1)
+
+/-- ECRECOVER gas (YP §9.4.1): flat `G_ecrecover = 3000`. Unlike the
+    other Frontier precompiles, the cost does *not* scale with input
+    length — the input is always parsed as a 128-byte tuple, longer
+    inputs are truncated and shorter ones zero-padded. -/
+@[inline] def ecrecoverGas : Nat := 3000
+
+/-- Run the `0x01 ECRECOVER` precompile. On success returns the
+    32-byte padded address (12 zero bytes + 20-byte account). On any
+    validation failure returns the empty byte-string but *still*
+    charges the full 3000 gas — this matches the YP: the precompile
+    "succeeded" in the sense that the caller doesn't OOG, it just
+    returned empty. -/
+def runEcrecover (input : ByteArray) (childGas : Nat) : Result :=
+  if ecrecoverGas ≤ childGas then
+    .success (Crypto.Ecrecover.run input) ecrecoverGas
+  else .outOfGas
 
 ----------------------------------------------------------------------------
 -- 0x02 SHA-256.
@@ -236,12 +262,18 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
 ----------------------------------------------------------------------------
 
 /-- True iff `addr` is one of the precompile addresses *we model* in
-    `fork`. Currently: SHA-256 (`0x02`) and IDENTITY (`0x04`) since
-    Frontier, MODEXP (`0x05`) since Byzantium (EIP-198). As we add
-    precompiles, this function grows in lockstep with `run`'s
-    branches; `run`'s totality proof tracks that they stay aligned. -/
+    `fork`. Currently: ECRECOVER (`0x01`), SHA-256 (`0x02`), and
+    IDENTITY (`0x04`) since Frontier, MODEXP (`0x05`) since Byzantium
+    (EIP-198). As we add precompiles, this function grows in lockstep
+    with `run`'s branches; `run`'s totality proof tracks that they
+    stay aligned.
+
+    The `fork` argument is part of the signature because the YP set
+    is fork-dependent — RIPEMD-160 (`0x03`) is Frontier too but not
+    yet modelled; ECADD/ECMUL/ECPAIRING from Byzantium, BLAKE2F from
+    Istanbul, KZG from Cancun, BLS12-381 from Prague. -/
 def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
-  addr = sha256Address || addr = identityAddress ||
+  addr = ecrecoverAddress || addr = sha256Address || addr = identityAddress ||
     (fork.atLeast .Byzantium && addr = modexpAddress)
 
 /-- Run a precompile. Total only on the subset
@@ -254,7 +286,9 @@ def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
 def run (fork : Fork) (addr : AccountAddress)
         (input : ByteArray) (childGas : Nat)
         (h : isPrecompile fork addr = true) : Result :=
-  if h_sha : addr = sha256Address then
+  if h_ec : addr = ecrecoverAddress then
+    runEcrecover input childGas
+  else if h_sha : addr = sha256Address then
     runSha256 input childGas
   else if h_id : addr = identityAddress then
     runIdentity input childGas
@@ -265,7 +299,7 @@ def run (fork : Fork) (addr : AccountAddress)
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
-    absurd h (by simp [isPrecompile, h_sha, h_id, h_mx])
+    absurd h (by simp [isPrecompile, h_ec, h_sha, h_id, h_mx])
 
 end Precompile
 end EVM

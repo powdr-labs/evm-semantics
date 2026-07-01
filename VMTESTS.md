@@ -51,37 +51,35 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=9251 full+=2 core+=205) fail=206 incon=0 crash=0
+pass(root=9519 full+=2 core+=59) fail=84 incon=0 crash=0
 ```
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 9251 of 9664.
+  Geth would produce). 9519 of 9664.
 - `pass_full` = every field the test's `postState` enumerates matches
-  (storage, nonce, code, *and* balance), but the MPT root differs.
-  **2 of 9664**, both variants of the same test —
-  `stAttackTest/ContractCreationSpam_d0g0v0` on `_Frontier` and
-  `_Homestead`. That test spam-creates ~8500 accounts and the
+  (storage, nonce, code, *and* balance), but the MPT root differs —
+  usually because some account our run touched isn't in the test's
+  enumerated `postState`, or some slot we wrote to isn't in the
+  enumerated storage. 2 of 9664 — the two
+  `stAttackTest/ContractCreationSpam_d0g0v0` variants (`_Frontier`
+  and `_Homestead`) that spam-create ~8500 accounts, where the
   divergence at scale hides a subtle CREATE-derivation or gas-cost
   off-by-one that only shows up after thousands of nested CREATEs.
-- `pass_core` = storage / nonce / code match but balance is off. 205
-  of 9664. Dominated by (i) contracts that invoke unimplemented
-  precompiles (`0x01` ECRECOVER, `0x03` RIPEMD160) — we treat the
-  (empty) bytecode at those addresses as STOP rather than applying
-  the precompile's gas-cost OOG, so the value transfer that the YP
-  would have rolled back gets committed; (ii) repeated
-  `SELFDESTRUCT` of the same account, where our `selfDestructSet`
-  doesn't yet enforce "refund once per account" (the underlying
-  `AddressSet` is a `Prop` predicate without decidable membership).
-- `fail = 206` — the entries in `stPreCompiledContracts` /
-  `stPreCompiledContracts2` that exercise ECRECOVER (0x01) /
-  RIPEMD160 (0x03) directly. These have expected outputs that
-  depend on the corresponding precompile actually running; treating
+- `pass_core` = storage / nonce / code match but balance is off. 59
+  of 9664. Dominated by repeated `SELFDESTRUCT` of the same account,
+  where our `selfDestructSet` doesn't yet enforce "refund once per
+  account" (the underlying `AddressSet` is a `Prop` predicate
+  without decidable membership).
+- `fail = 84` — the RIPEMD160 (`0x03`) entries in
+  `stPreCompiledContracts` / `stPreCompiledContracts2`
+  (`CALLCODERipemd160_*` and `CallRipemd160_*`). These have expected
+  outputs that depend on the precompile actually running; treating
   the address as empty-code STOP makes the post-state visibly
-  mismatch (nonces, return-write regions). The set is pinned in the
+  mismatch (nonces, return-write regions). ECRECOVER (0x01),
+  SHA-256 (0x02), IDENTITY (0x04), and MODEXP (0x05, Byzantium+) are
+  all implemented and passing. The RIPEMD160 set is pinned in the
   baseline so a *new* pass -> fail transition is a regression.
-  SHA-256 (0x02), IDENTITY (0x04), and MODEXP (0x05) tests in these
-  dirs all pass.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
