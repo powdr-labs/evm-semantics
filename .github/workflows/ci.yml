@@ -162,16 +162,28 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          # `statetests_run.sh` walks the dir tree via `find … -name '*.json'`,
-          # so pointing it at the parent `GeneralStateTests` picks up every
-          # subdir the sparse-checkout has materialised. Per-file wall-cap
-          # (45s); parallelism defaults to `nproc` (4 on the GitHub-hosted
-          # standard runner). Deep-recursion tests that exceed the cap are
-          # recorded as INCON (wall-timeout), never hang. Progress lines
-          # (per-slow-file + every-200 heartbeat + top-N slowest at the
-          # end) go to stderr and land in the job log.
-          .github/scripts/statetests_run.sh \
-            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 \
+          # Invoke the native Lean runner directly on the parent
+          # `GeneralStateTests`: it walks the tree, dispatches files to
+          # `-j` in-process `Task` workers, and marks any file that runs
+          # past `--timeout` as `INCON wall-timeout` (the abandoned task
+          # keeps running but its slot is freed and the next file starts).
+          # This avoids the per-file `statetests` process-startup overhead
+          # of ~34ms × 3202 files that the bash wrapper paid, cutting CI
+          # wall clock ~40% on a 4-core runner. Progress output (per-slow-
+          # file + every-200 heartbeat + top-20 slowest at the end) goes
+          # to stderr — kept out of `statetests-output.txt` so
+          # `statetests_summary.sh` keeps parsing the aggregate line.
+          #
+          # The bash wrapper (`.github/scripts/statetests_run.sh`) is
+          # retained as a fallback for local runs that want process-level
+          # isolation (each test in its own `timeout(1)`-guarded binary
+          # invocation, so a panic in one file can't take out the whole
+          # run).
+          nproc_or_4=$(nproc 2>/dev/null || echo 4)
+          ./.lake/build/bin/statetests -v \
+            -j "$nproc_or_4" --timeout 45000 \
+            --progress 200 --slow-ms 1000 --top 20 \
+            corpus/Constantinople/BlockchainTests/GeneralStateTests \
             | tee statetests-output.txt
 
       # GATING: this step fails the job if a previously-passing CALL test now

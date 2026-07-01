@@ -405,7 +405,8 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
     Output is in completion order (which can differ from spawn order). The
     summary scripts key on FAIL ids, not line order. -/
 def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
-    (timeoutMs : Nat := 0) : IO Tally := do
+    (timeoutMs : Nat := 0) (progressEvery : Nat := 0) (slowMs : Nat := 0)
+    (topN : Nat := 0) : IO Tally := do
   let mut t : Tally := {}
   let n := files.size
   if n = 0 then return t
@@ -415,6 +416,14 @@ def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
     Array.replicate workers none
   let mut nextIdx : Nat := 0
   let mut remaining : Nat := n
+  -- Progress bookkeeping — (elapsed-ms, tag, filename) per file, appended in
+  -- completion order. Used both for the inline slow-file lines and for the
+  -- final top-N slowest report.
+  let mut completed : Nat := 0
+  let mut slowLog : Array (Nat × String × String) := #[]
+  let runStartMs ← IO.monoMsNow
+  if progressEvery > 0 ∨ slowMs > 0 ∨ topN > 0 then
+    IO.eprintln s!"[statetests] {n} tests, jobs={workers}, cap={timeoutMs}ms"
   let foldResult : Tally → Bool →
       Except IO.Error (Array (String × String × String)) → IO Tally :=
     fun t verb r => do
@@ -443,6 +452,15 @@ def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
       let task ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
       slots := slots.set! i (some (nextIdx, now, task))
       nextIdx := nextIdx + 1
+  -- Emit a per-file progress line (stderr) when a file crossed the
+  -- `slowMs` threshold, and update `slowLog` in completion order. Kept as
+  -- a local closure so the two file-finish arms (natural completion and
+  -- timeout abandonment) can share it.
+  let recordFinish : Nat → String → System.FilePath → IO Unit := fun ms tag path => do
+    let base := path.fileName.getD path.toString
+    if slowMs > 0 ∧ ms ≥ slowMs then
+      let elapsedS := ((← IO.monoMsNow) - runStartMs) / 1000
+      IO.eprintln s!"  [{elapsedS}s] {ms}ms {tag}  {base}"
   while remaining > 0 do
     let mut progress := false
     for i in [0:workers] do
@@ -453,8 +471,14 @@ def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
         let elapsed := (← IO.monoMsNow) - startMs
         if done then
           t ← foldResult t verbose (← IO.wait task)
+          recordFinish elapsed "OK" files[idx]!
+          slowLog := slowLog.push (elapsed, "OK", (files[idx]!.fileName.getD files[idx]!.toString))
+          completed := completed + 1
           remaining := remaining - 1
           progress := true
+          if progressEvery > 0 ∧ (completed % progressEvery = 0 ∨ remaining = 0) then
+            let elapsedS := ((← IO.monoMsNow) - runStartMs) / 1000
+            IO.eprintln s!"[{elapsedS}s] {completed}/{n} done"
           if nextIdx < n then
             let now ← IO.monoMsNow
             let next ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
@@ -467,8 +491,15 @@ def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
           if verbose then
             IO.println s!"INCON {files[idx]!.fileName.getD files[idx]!.toString}: \
               wall-timeout (>{timeoutMs}ms, abandoned)"
+          recordFinish elapsed "TIMEOUT" files[idx]!
+          slowLog := slowLog.push (elapsed, "TIMEOUT",
+            (files[idx]!.fileName.getD files[idx]!.toString))
+          completed := completed + 1
           remaining := remaining - 1
           progress := true
+          if progressEvery > 0 ∧ (completed % progressEvery = 0 ∨ remaining = 0) then
+            let elapsedS := ((← IO.monoMsNow) - runStartMs) / 1000
+            IO.eprintln s!"[{elapsedS}s] {completed}/{n} done"
           if nextIdx < n then
             let now ← IO.monoMsNow
             let next ← IO.asTask (runFileResults files[nextIdx]!) Task.Priority.dedicated
@@ -477,22 +508,44 @@ def runFiles (files : Array System.FilePath) (jobs : Nat) (verbose : Bool)
           else
             slots := slots.set! i none
     if !progress then IO.sleep 10
+  -- Top-N slowest report — sorted descending by wall time.
+  if topN > 0 ∧ !slowLog.isEmpty then
+    let sorted := slowLog.toList.mergeSort (fun a b => a.1 ≥ b.1) |>.take topN
+    IO.eprintln s!"[statetests] top-{topN} slowest files:"
+    for (ms, tag, base) in sorted do
+      IO.eprintln s!"  {ms}ms  {tag}\t{base}"
+    let elapsedS := ((← IO.monoMsNow) - runStartMs) / 1000
+    IO.eprintln s!"[statetests] wall clock: {elapsedS}s"
   return t
 
-/-- Parse `-j N` and `--timeout MS` out of `args`. Returns the jobs
-    value (or `0` for "unset"), the timeout-in-millis (`0` = disabled),
-    and the remaining args. -/
-def parseFlags (args : List String) : Nat × Nat × List String := Id.run do
-  let rec go : List String → Option Nat → Option Nat → List String → Nat × Nat × List String
-    | [], j, tm, acc => (j.getD 0, tm.getD 0, acc.reverse)
-    | "-j" :: v :: rest, _, tm, acc => go rest (some v.toNat!) tm acc
-    | "--timeout" :: v :: rest, j, _, acc => go rest j (some v.toNat!) acc
-    | x :: rest, j, tm, acc => go rest j tm (x :: acc)
-  go args none none []
+/-- Parsed command-line flags: jobs, per-file wall cap, heartbeat interval,
+    slow-file threshold, top-N size, and remaining positional args (the
+    corpus path, typically). Zero for "unset". -/
+structure Flags where
+  jobs          : Nat := 0
+  timeoutMs     : Nat := 0
+  progressEvery : Nat := 0
+  slowMs        : Nat := 0
+  topN          : Nat := 0
+  rest          : List String := []
+
+/-- Parse `-j N`, `--timeout MS`, `--progress N`, `--slow-ms M`, and
+    `--top N` out of `args`. -/
+def parseFlags (args : List String) : Flags := Id.run do
+  let rec go : List String → Flags → Flags
+    | [], f => { f with rest := f.rest.reverse }
+    | "-j"         :: v :: rest, f => go rest { f with jobs          := v.toNat! }
+    | "--timeout"  :: v :: rest, f => go rest { f with timeoutMs     := v.toNat! }
+    | "--progress" :: v :: rest, f => go rest { f with progressEvery := v.toNat! }
+    | "--slow-ms"  :: v :: rest, f => go rest { f with slowMs        := v.toNat! }
+    | "--top"      :: v :: rest, f => go rest { f with topN          := v.toNat! }
+    | x :: rest,                 f => go rest { f with rest := x :: f.rest }
+  go args {}
 
 def main (args : List String) : IO Unit := do
   let verbose := args.contains "-v"
-  let (jobs0, timeoutMs, rest) := parseFlags (args.filter (· != "-v"))
+  let f := parseFlags (args.filter (· != "-v"))
+  let jobs0 := f.jobs; let timeoutMs := f.timeoutMs; let rest := f.rest
   let jobs ← if jobs0 > 0 then pure jobs0 else do
     match (← IO.getEnv "STATETESTS_JOBS") with
     | some s => pure (Nat.max 1 s.toNat!)
@@ -500,6 +553,8 @@ def main (args : List String) : IO Unit := do
   let root : System.FilePath := rest.headD "."
   let files ← if (← root.isDir) then collectJson root else pure #[root]
   let t ← runFiles files jobs verbose timeoutMs
+             (progressEvery := f.progressEvery)
+             (slowMs := f.slowMs) (topN := f.topN)
   IO.println s!"pass(root={t.passRoot} full+={t.passFull} core+={t.passCore}) \
 fail={t.fail} incon={t.incon} crash={t.crash} (total {t.total})"
 
