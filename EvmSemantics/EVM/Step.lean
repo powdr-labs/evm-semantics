@@ -1187,6 +1187,18 @@ inductive StepRunning : State → State → Prop
                      gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
         (h_gas   : Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
+        -- Same `h_afford` as `call`: pre-EIP-150 `forwardGas gasArg =
+        -- gasArg`, so `gasArg > gasAvailable - commit` must OOG rather
+        -- than take the silent-fail exit; post-EIP-150 the `g - g/64`
+        -- cap makes this premise trivial. Ruling this case out here
+        -- keeps `Step.callFail` from admitting transitions the YP would
+        -- reject.
+        (h_afford : Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value)
       : StepRunning s
@@ -1251,6 +1263,15 @@ inductive StepRunning : State → State → Prop
                      gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
         (h_gas   : Gas.callcodeCommitted s value argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
+        -- Mirrors `callFail`'s `h_afford` premise: pre-EIP-150, silent
+        -- fail is only legal when `gasArg` also fits — otherwise the
+        -- transition is OOG rather than a `0`-push.
+        (h_afford : Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.callcodeCommitted s value argsOff argsLen retOff retLen)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value)
       : StepRunning s
@@ -1318,6 +1339,16 @@ inductive StepRunning : State → State → Prop
                      gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
         (h_gas   : Gas.delegatecallCommitted s argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
+        -- Mirrors `callFail`'s `h_afford`: DELEGATECALL first appeared in
+        -- Homestead (pre-EIP-150), so `gasArg > gasAvailable - commit`
+        -- must OOG rather than silent-fail on depth. Post-EIP-150 the
+        -- `g - g/64` cap makes this trivial.
+        (h_afford : Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.delegatecallCommitted s argsOff argsLen retOff retLen)
         (h_fail  : s.executionEnv.depth ≥ 1024)
       : StepRunning s
           ({ s with
@@ -1371,6 +1402,16 @@ inductive StepRunning : State → State → Prop
                      gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest)
         (h_gas   : Gas.staticcallCommitted s argsOff argsLen retOff retLen
                      ≤ s.gasAvailable)
+        -- Same `h_afford` as `callFail`. STATICCALL is Byzantium+ so
+        -- post-EIP-150 always: the `g - g/64` cap makes this trivial,
+        -- but we keep the premise for symmetry with the rest of the
+        -- call family.
+        (h_afford : Gas.forwardGas s.executionEnv.fork
+                      (s.gasAvailable
+                        - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
+                      gasArg.toNat
+                    ≤ s.gasAvailable
+                      - Gas.staticcallCommitted s argsOff argsLen retOff retLen)
         (h_fail  : s.executionEnv.depth ≥ 1024)
       : StepRunning s
           ({ s with
