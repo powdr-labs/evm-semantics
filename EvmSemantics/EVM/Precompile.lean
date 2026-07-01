@@ -14,7 +14,9 @@ public import EvmSemantics.Crypto.Ecmul
 public import EvmSemantics.Crypto.Ecpairing
 public import EvmSemantics.Crypto.Blake2f
 public import EvmSemantics.Crypto.Bls12381G1Add
+public import EvmSemantics.Crypto.Bls12381G1Msm
 public import EvmSemantics.Crypto.Bls12381G2Add
+public import EvmSemantics.Crypto.Bls12381G2Msm
 public import EvmSemantics.Crypto.Bls12381PairingCheck
 
 /-!
@@ -450,6 +452,32 @@ def runBlsG1Add (input : ByteArray) (childGas : Nat) : Result :=
 -- 0x0D BLS12_G2ADD — BLS12-381 G₂ point addition (Prague+, EIP-2537).
 ----------------------------------------------------------------------------
 
+----------------------------------------------------------------------------
+-- 0x0C BLS12_G1MSM — G₁ multi-scalar multiplication (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0C`. -/
+def blsG1MsmAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0c)
+
+/-- Gas: `12000 · k` where `k = |input| / 160` (conservative
+    flat-per-pair rate; EIP-2537 defines a discount table that
+    lowers the price for larger `k`). Invalid empty input (`k = 0`)
+    is rejected by the driver. -/
+@[inline] def blsG1MsmGas (input : ByteArray) : Nat := 12000 * (input.size / 160)
+
+/-- Run BLS12_G1MSM. -/
+def runBlsG1Msm (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := blsG1MsmGas input
+  if cost ≤ childGas then
+    match Crypto.Bls12381G1Msm.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0D BLS12_G2ADD — BLS12-381 G₂ point addition (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
 /-- Address `0x0D`. -/
 def blsG2AddAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0d)
 
@@ -461,6 +489,26 @@ def runBlsG2Add (input : ByteArray) (childGas : Nat) : Result :=
   if blsG2AddGas ≤ childGas then
     match Crypto.Bls12381G2Add.run? input with
     | some output => .success output blsG2AddGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0E BLS12_G2MSM — G₂ multi-scalar multiplication (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0E`. -/
+def blsG2MsmAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0e)
+
+/-- Gas: `22500 · k` where `k = |input| / 288`. Same flat-rate
+    caveat as G1MSM. -/
+@[inline] def blsG2MsmGas (input : ByteArray) : Nat := 22500 * (input.size / 288)
+
+/-- Run BLS12_G2MSM. -/
+def runBlsG2Msm (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := blsG2MsmGas input
+  if cost ≤ childGas then
+    match Crypto.Bls12381G2Msm.run? input with
+    | some output => .success output cost
     | none        => .outOfGas
   else .outOfGas
 
@@ -509,7 +557,8 @@ def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
        addr = ecaddAddress || addr = ecmulAddress || addr = ecpairingAddress)) ||
     (fork.atLeast .Istanbul && addr = blake2fAddress) ||
     (fork.atLeast .Prague &&
-      (addr = blsG1AddAddress || addr = blsG2AddAddress ||
+      (addr = blsG1AddAddress || addr = blsG1MsmAddress ||
+       addr = blsG2AddAddress || addr = blsG2MsmAddress ||
        addr = blsPairingAddress))
 
 /-- Run a precompile. Total only on the subset
@@ -542,8 +591,12 @@ def run (fork : Fork) (addr : AccountAddress)
     runBlake2f input childGas
   else if h_bg1 : addr = blsG1AddAddress then
     runBlsG1Add input childGas
+  else if h_bm1 : addr = blsG1MsmAddress then
+    runBlsG1Msm input childGas
   else if h_bg2 : addr = blsG2AddAddress then
     runBlsG2Add input childGas
+  else if h_bm2 : addr = blsG2MsmAddress then
+    runBlsG2Msm input childGas
   else if h_bp : addr = blsPairingAddress then
     runBlsPairing input childGas
   -- Add new precompiles here as further branches.
@@ -553,7 +606,7 @@ def run (fork : Fork) (addr : AccountAddress)
     -- this case from `h` plus the negated branch guards.
     absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx,
                                      h_add, h_mul, h_pair, h_bl,
-                                     h_bg1, h_bg2, h_bp])
+                                     h_bg1, h_bm1, h_bg2, h_bm2, h_bp])
 
 end Precompile
 end EVM
