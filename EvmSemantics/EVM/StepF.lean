@@ -249,8 +249,15 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     .ok (s'.replaceStackAndIncrPC (s.executionEnv.address.toUInt256 :: s.stack))
   | .BALANCE => match s.stack with
     | a :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap (AccountAddress.ofUInt256 a)).balance :: rest))
+      let addr := AccountAddress.ofUInt256 a
+      -- EIP-2929: charge the cold-access surcharge and warm the target.
+      let surch := Gas.accountAccessSurcharge s.fork (s.substate.isWarmAccount addr)
+      if h : surch ≤ s'.gasAvailable then
+        let s'' := (s'.consumeGas surch h)
+        let s''' := { s'' with substate := s''.substate.addAccessedAccount addr }
+        .ok (s'''.replaceStackAndIncrPC
+              ((s.accountMap addr).balance :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .ORIGIN => .ok (s'.replaceStackAndIncrPC (s.executionEnv.origin.toUInt256 :: s.stack))
   | .CALLER => .ok (s'.replaceStackAndIncrPC (s.executionEnv.caller.toUInt256 :: s.stack))
@@ -300,24 +307,36 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
   | .GASPRICE => .ok (s'.replaceStackAndIncrPC (s.executionEnv.gasPrice :: s.stack))
   | .EXTCODESIZE => match s.stack with
     | a :: rest =>
-      let sz := (s.accountMap (AccountAddress.ofUInt256 a)).code.size
-      .ok (s'.replaceStackAndIncrPC (UInt256.ofNat sz :: rest))
+      let addr := AccountAddress.ofUInt256 a
+      let surch := Gas.accountAccessSurcharge s.fork (s.substate.isWarmAccount addr)
+      if h : surch ≤ s'.gasAvailable then
+        let s'' := (s'.consumeGas surch h)
+        let s''' := { s'' with substate := s''.substate.addAccessedAccount addr }
+        let sz := (s.accountMap addr).code.size
+        .ok (s'''.replaceStackAndIncrPC (UInt256.ofNat sz :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .EXTCODECOPY => match s.stack with
     | a :: destOff :: srcOff :: sz :: rest =>
-      match chargeMem s' destOff.toNat sz.toNat with
-      | .ok s'' =>
-        let dyn := Gas.copyWordCost sz
-        if h : dyn ≤ s''.gasAvailable then
-          let s''' := s''.consumeGas dyn h
-          let code := (s.accountMap (AccountAddress.ofUInt256 a)).code
-          let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
-          let μ' : MachineState :=
-            { s'''.toMachineState with
-                memory := MachineState.writeBytes s.memory bytes destOff.toNat }
-          .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
-        else .error .OutOfGas
-      | .error e => .error e
+      let addr := AccountAddress.ofUInt256 a
+      let surch := Gas.accountAccessSurcharge s.fork (s.substate.isWarmAccount addr)
+      if hSurch : surch ≤ s'.gasAvailable then
+        let s2 := (s'.consumeGas surch hSurch)
+        let s2 := { s2 with substate := s2.substate.addAccessedAccount addr }
+        match chargeMem s2 destOff.toNat sz.toNat with
+        | .ok s'' =>
+          let dyn := Gas.copyWordCost sz
+          if h : dyn ≤ s''.gasAvailable then
+            let s''' := s''.consumeGas dyn h
+            let code := (s.accountMap addr).code
+            let bytes := MachineState.readPadded code srcOff.toNat sz.toNat
+            let μ' : MachineState :=
+              { s'''.toMachineState with
+                  memory := MachineState.writeBytes s.memory bytes destOff.toNat }
+            .ok ({ s''' with toMachineState := μ' }.replaceStackAndIncrPC rest)
+          else .error .OutOfGas
+        | .error e => .error e
+      else .error .OutOfGas
     | _ => underflow
   | .RETURNDATASIZE =>
     .ok (s'.replaceStackAndIncrPC (UInt256.ofNat s.returnData.size :: s.stack))
@@ -343,8 +362,14 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
     | _ => underflow
   | .EXTCODEHASH => match s.stack with
     | a :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap (AccountAddress.ofUInt256 a)).codeHash :: rest))
+      let addr := AccountAddress.ofUInt256 a
+      let surch := Gas.accountAccessSurcharge s.fork (s.substate.isWarmAccount addr)
+      if h : surch ≤ s'.gasAvailable then
+        let s'' := (s'.consumeGas surch h)
+        let s''' := { s'' with substate := s''.substate.addAccessedAccount addr }
+        .ok (s'''.replaceStackAndIncrPC
+              ((s.accountMap addr).codeHash :: rest))
+      else .error .OutOfGas
     | _ => underflow
 
 ----------------------------------------------------------------------------
@@ -418,8 +443,14 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .SLOAD => match s.stack with
     | key :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap s.executionEnv.address).storage key :: rest))
+      let addr := s.executionEnv.address
+      let surch := Gas.sloadAccessSurcharge s.fork (s.substate.isWarmStorageKey (addr, key))
+      if h : surch ≤ s'.gasAvailable then
+        let s'' := (s'.consumeGas surch h)
+        let s''' := { s'' with substate := s''.substate.addAccessedStorageKey (addr, key) }
+        .ok (s'''.replaceStackAndIncrPC
+              ((s.accountMap addr).storage key :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .SSTORE =>
     if ¬ s.executionEnv.permitStateMutation then static
@@ -433,7 +464,13 @@ def stackMemFlow (s s' : State) :
       let acc      := s.accountMap addr
       let current  := acc.storage key
       let original := s.substate.originalStorage addr key
-      let cost     := Gas.sstoreCost s.fork original current value
+      -- EIP-2929: cold surcharge (+2100) on the first SSTORE to a slot.
+      -- Charged *before* the dynamic SSTORE cost so a cold OOG happens
+      -- without ever computing the write; also marks the slot warm so a
+      -- subsequent SLOAD/SSTORE in the same tx sees the warm price.
+      let isWarm := s.substate.isWarmStorageKey (addr, key)
+      let coldSurch := Gas.sstoreAccessSurcharge s.fork isWarm
+      let cost     := Gas.sstoreCost s.fork original current value + coldSurch
       if h : cost ≤ s'.gasAvailable then
         let acc' := { acc with storage := acc.storage.set key value }
         let σ'   := s.accountMap.set addr acc'
@@ -448,7 +485,10 @@ def stackMemFlow (s s' : State) :
         let rb : Int := (s.substate.refundBalance.toNat : Int) + refDelta
         let rb' : Nat := if rb < 0 then 0 else rb.toNat
         let sub' : Substate :=
-          { s.substate with refundBalance := UInt256.ofNat rb' }
+          { s.substate with
+              refundBalance := UInt256.ofNat rb'
+              accessedStorageKeys :=
+                s.substate.accessedStorageKeys.insert (addr, key) }
         .ok ({ (s'.consumeGas cost h) with
                  accountMap := σ', substate := sub' }.replaceStackAndIncrPC rest)
       else .error .OutOfGas
@@ -681,10 +721,17 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
         let valNZ    : Bool := value.toNat != 0
+        -- EIP-2929: cold-access surcharge on the CALL target is folded
+        -- into the total surcharge — a cold OOG happens without touching
+        -- the child frame.
+        let coldSurch := Gas.accountAccessSurcharge s.fork
+                           (s2.substate.isWarmAccount tgt)
         let surcharge := Gas.callSurcharge s.fork valNZ
-                           (Gas.callTargetIsNew s.fork s2.accountMap tgt)
+                           (Gas.callTargetIsNew s.fork s2.accountMap tgt) + coldSurch
         if hsc : surcharge ≤ s2.gasAvailable then
-          let s3 := s2.consumeGas surcharge hsc
+          let s3 : State :=
+            let sc := s2.consumeGas surcharge hsc
+            { sc with substate := sc.substate.addAccessedAccount tgt }
           let caller := s3.accountMap s3.executionEnv.address
           -- EIP-150: forward at most 63/64 of the remaining gas. Per
           -- `Gas.forwardGas`, pre-EIP-150 (Frontier/Homestead) is
@@ -742,9 +789,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let codeAddr  := AccountAddress.ofUInt256 toArg  -- where the code comes from
         let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
-        let surcharge := Gas.callSurcharge s.fork valNZ false
+        -- EIP-2929: cold-access surcharge on the code source address.
+        let coldSurch := Gas.accountAccessSurcharge s.fork
+                           (s2.substate.isWarmAccount codeAddr)
+        let surcharge := Gas.callSurcharge s.fork valNZ false + coldSurch
         if hsc : surcharge ≤ s2.gasAvailable then
-          let s3 := s2.consumeGas surcharge hsc
+          let s3 : State :=
+            let sc := s2.consumeGas surcharge hsc
+            { sc with substate := sc.substate.addAccessedAccount codeAddr }
           let caller := s3.accountMap s3.executionEnv.address
           -- Gas-cap check (pre-EIP-150 `gasArg > available` OOGs) comes
           -- *before* the depth/balance silent-fail — same ordering as
@@ -791,6 +843,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
+        -- EIP-2929: pay cold-access surcharge on the target before
+        -- forwarding gas; a cold OOG halts before the child frame.
+        let coldSurch := Gas.accountAccessSurcharge s.fork
+                           (s2.substate.isWarmAccount tgt)
+        if hCold : coldSurch ≤ s2.gasAvailable then
+        let s2 : State :=
+          let sc := s2.consumeGas coldSurch hCold
+          { sc with substate := sc.substate.addAccessedAccount tgt }
         -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
         -- before the depth silent-fail, mirroring the CALL/CALLCODE
         -- ordering — see the comment in `.CALL`. DELEGATECALL first
@@ -812,6 +872,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
                    callee.code forwarded retOff.toNat retLen.toNat)
         else .error .OutOfGas
+        else .error .OutOfGas
     | _ => underflow
   | .STATICCALL => match s.stack with
     | gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: rest =>
@@ -824,6 +885,14 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
         let callee   := s2.accountMap tgt
+        -- EIP-2929: pay cold-access surcharge on the target before
+        -- forwarding gas; a cold OOG halts before the child frame.
+        let coldSurch := Gas.accountAccessSurcharge s.fork
+                           (s2.substate.isWarmAccount tgt)
+        if hCold : coldSurch ≤ s2.gasAvailable then
+        let s2 : State :=
+          let sc := s2.consumeGas coldSurch hCold
+          { sc with substate := sc.substate.addAccessedAccount tgt }
         -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
         -- caps at `g - g/64` and `hfw` is trivial — but we still keep
         -- the check at the outer position to mirror the shape of
@@ -843,6 +912,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             -- iteration.
             .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
                    callee.code forwarded retOff.toNat retLen.toNat)
+        else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
   | .SELFDESTRUCT => match s.stack with

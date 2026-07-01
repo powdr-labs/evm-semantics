@@ -17,7 +17,10 @@ public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.BigStep
 public import EvmSemantics.EVM.Precompile
 public import EvmSemantics.EVM.StepF
-public import EvmSemantics.EVM.Equiv
+-- TODO(EIP-2929): re-enable once StepF cold/warm surcharges are matched in
+-- Step + Equiv (user directive: "don't work on the proof until we ran the
+-- tests"). During EIP-2929 iteration, gstatetests only needs StepF.
+-- public import EvmSemantics.EVM.Equiv
 public import EvmSemantics.Tx
 public import EvmSemantics.Crypto.Keccak256
 public import EvmSemantics.Data.Mpt
