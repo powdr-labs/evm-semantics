@@ -49,9 +49,10 @@ jobs:
 
       # Sparse + blobless fetch of just the VMTests corpus (~11 MB) rather than
       # the full ~2.7 GB legacytests checkout, pinned to the exact revision the
-      # committed baseline was generated against. Bump CORPUS_REV together with
-      # .github/vmtests-baseline.txt when refreshing the baseline, never alone —
-      # otherwise the baseline would be compared against a different corpus.
+      # committed expected-failures list was generated against. Bump CORPUS_REV
+      # together with .github/vmtests-expected-failures.txt when refreshing the
+      # list, never alone — otherwise it would be compared against a different
+      # corpus.
       - name: Fetch VMTests corpus
         env:
           CORPUS_REV: 1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb
@@ -65,8 +66,9 @@ jobs:
           # (no FAIL / no INCON / no CRASH). The full
           # `GeneralStateTests` tree is ~400 MB; this curated set is
           # ~70 MB. Add a dir here once the evaluator passes every
-          # variant in it; keep a snapshot in `.github/statetests-baseline.txt`
-          # so a regression flips one of the listed tests to FAIL.
+          # variant in it; the committed
+          # `.github/statetests-expected-failures.txt` snapshot ensures that a
+          # regression flips one of the listed tests to a worse tier.
           git sparse-checkout set \
             Constantinople/VMTests \
             Constantinople/BlockchainTests/GeneralStateTests/stArgsZeroOneBalance \
@@ -96,6 +98,9 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stRecursiveCreate \
             Constantinople/BlockchainTests/GeneralStateTests/stRefundTest \
             Constantinople/BlockchainTests/GeneralStateTests/stShift \
+            Constantinople/BlockchainTests/GeneralStateTests/stExtCodeHash \
+            Constantinople/BlockchainTests/GeneralStateTests/stRevertTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stSStoreTest \
             Constantinople/BlockchainTests/GeneralStateTests/stSpecialTest \
             Constantinople/BlockchainTests/GeneralStateTests/stStackTests \
             Constantinople/BlockchainTests/GeneralStateTests/stTransactionTest \
@@ -121,7 +126,7 @@ jobs:
       # root rather than as checked-in dirs. A blobless partial clone +
       # single-file sparse checkout downloads only that tarball; we then extract
       # a curated subset of `GeneralStateTests/*` dirs. Pin TESTS_REV together
-      # with .github/gstatetests-baseline.txt, never alone.
+      # with .github/gstatetests-expected-failures.txt, never alone.
       - name: Fetch modern GeneralStateTests corpus
         env:
           # tag v17.2
@@ -155,15 +160,17 @@ jobs:
           [ "$count" -gt 0 ] || { echo "::error::no GeneralStateTests extracted — check TESTS_REV / archive paths"; exit 1; }
 
       # Non-gating: this step reports the VMTests pass/fail picture and flags
-      # regressions, but never blocks the PR. The known-failure baseline lives
-      # in .github/vmtests-baseline.txt.
+      # regressions, but never blocks the PR. The expected-failures list lives
+      # in .github/vmtests-expected-failures.txt (sorted "<id>: <tier>" lines;
+      # no aggregate counts, so branches that fix or add failing tests do not
+      # produce merge conflicts on adjacent lines).
       - name: Run full VMTests suite
         continue-on-error: true
         run: |
           ./.lake/build/bin/vmtests corpus/Constantinople/VMTests \
             | tee vmtests-output.txt
 
-      - name: Summarize and compare against baseline
+      - name: Summarize and compare against expected failures
         if: always()
         continue-on-error: true
         run: |
@@ -174,7 +181,8 @@ jobs:
           # improvements").
           if .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt; then
             .github/scripts/vmtests_check.sh \
-              .github/vmtests-baseline.txt vmtests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+              .github/vmtests-expected-failures.txt vmtests-summary.txt \
+              vmtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
             {
@@ -195,7 +203,9 @@ jobs:
 
       # Non-gating: reports the GeneralStateTests conformance picture against
       # the curated subset checked out above and flags regressions. The
-      # known-state baseline lives in .github/statetests-baseline.txt.
+      # expected-failures list lives in .github/statetests-expected-failures.txt
+      # (sorted "<id>: <tier>" lines; no aggregate counts, so branches that fix
+      # or add failing tests do not produce merge conflicts on adjacent lines).
       # Wrapped in `timeout` because the evaluator's functional world-state
       # maps make some calls slow; a hang must not block CI.
       - name: Run GeneralStateTests (curated subset)
@@ -212,17 +222,17 @@ jobs:
             corpus/Constantinople/BlockchainTests/GeneralStateTests 45 4 \
             | tee statetests-output.txt
 
-      # GATING: this step fails the job if a previously-passing CALL test now
-      # FAILs (id-level pass -> FAIL). It keys on the FAIL id set, not count
-      # deltas, so a wall-timeout flip on a slow runner (pass/core -> incon)
-      # does not fail the build. A crashed/partial run yields no parseable
-      # summary and is reported (not gated) via the else branch.
-      - name: Summarize and compare CALL state tests against baseline
+      # GATING: this step fails the job if any test regresses to a worse tier
+      # than the expected-failures file records (severity: pass < INCON < FAIL
+      # < CRASH). A crashed/partial run yields no parseable summary and is
+      # reported (not gated) via the else branch.
+      - name: Summarize and compare CALL state tests against expected failures
         if: always()
         run: |
           if .github/scripts/statetests_summary.sh statetests-output.txt > statetests-summary.txt; then
             .github/scripts/statetests_check.sh --strict \
-              .github/statetests-baseline.txt statetests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+              .github/statetests-expected-failures.txt statetests-summary.txt \
+              statetests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=StateTests::statetests produced no parseable summary; skipping regression comparison."
             {
@@ -242,11 +252,14 @@ jobs:
             statetests-summary.txt
 
       # Non-gating: reports the modern GeneralStateTests conformance picture
-      # over (almost) the whole corpus and flags regressions. The known-state
-      # baseline lives in .github/gstatetests-baseline.txt. Run via the per-file
-      # subprocess-isolation wrapper (45s cap, parallelism 4): a panic/OOM in one
-      # pathological test (the evaluator's unbounded huge-offset memory alloc) is
-      # contained as a `crash` for that file instead of aborting the whole run.
+      # over (almost) the whole corpus and flags regressions. The expected-
+      # failures list lives in .github/gstatetests-expected-failures.txt
+      # (sorted "<id>: <tier>" lines; no aggregate counts, so branches that fix
+      # or add failing tests do not produce merge conflicts on adjacent lines).
+      # Run via the per-file subprocess-isolation wrapper (45s cap, parallelism
+      # 4): a panic/OOM in one pathological test (the evaluator's unbounded
+      # huge-offset memory alloc) is contained as a `crash` for that file
+      # instead of aborting the whole run.
       - name: Run modern GeneralStateTests
         if: always()
         continue-on-error: true
@@ -254,13 +267,14 @@ jobs:
           .github/scripts/gstatetests_run.sh \
             gstcorpus/GeneralStateTests 45 4 | tee gstatetests-output.txt
 
-      - name: Summarize and compare modern GeneralStateTests against baseline
+      - name: Summarize and compare modern GeneralStateTests against expected failures
         if: always()
         continue-on-error: true
         run: |
           if .github/scripts/gstatetests_summary.sh gstatetests-output.txt > gstatetests-summary.txt; then
             .github/scripts/gstatetests_check.sh \
-              .github/gstatetests-baseline.txt gstatetests-summary.txt | tee -a "$GITHUB_STEP_SUMMARY"
+              .github/gstatetests-expected-failures.txt gstatetests-summary.txt \
+              gstatetests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "::warning title=GeneralStateTests::gstatetests produced no parseable summary; skipping regression comparison."
             {

@@ -1,32 +1,49 @@
 #!/usr/bin/env bash
 #
-# Compare a freshly generated gstatetests summary against the committed baseline
-# and emit a Markdown regression report on stdout (for $GITHUB_STEP_SUMMARY).
+# Compare a freshly generated gstatetests summary against the committed
+# *expected-failures* file (sorted "<id>: <tier>" lines) and emit a Markdown
+# regression report on stdout (for $GITHUB_STEP_SUMMARY).
 #
-# This job is a REPORT (non-gating): it exits 0 and only surfaces regressions as
-# GitHub `::warning::` annotations. A regression is an id-level transition — a
-# test that was NOT FAILing in the baseline now FAILs (produces a wrong answer).
-# It keys on the FAIL id set, not on count deltas, so a wall-timeout flip
-# (pass/core -> incon on a slow runner) does NOT register as a regression.
+# This is a REPORT (non-gating): it exits 0 and only surfaces regressions as
+# GitHub `::warning::` annotations. Regression / improvement classification is
+# tier-aware (severity order: pass < INCON < FAIL < CRASH), so INCON -> FAIL,
+# FAIL -> CRASH, and pass -> anything all count as regressions.
 #
-# Usage: gstatetests_check.sh <baseline-file> <current-summary-file>
+# The aggregate count table is read from the runner's raw output, so the
+# committed file never contains numbers that different branches would both
+# touch.
+#
+# Usage: gstatetests_check.sh <expected-failures-file> <current-summary-file> <raw-output-file>
 set -uo pipefail
 
-baseline="${1:?usage: gstatetests_check.sh <baseline> <current>}"
-current="${2:?usage: gstatetests_check.sh <baseline> <current>}"
+expected="${1:?usage: gstatetests_check.sh <expected> <current> <raw>}"
+current="${2:?usage: gstatetests_check.sh <expected> <current> <raw>}"
+raw="${3:?usage: gstatetests_check.sh <expected> <current> <raw>}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-grep '^test=' "$baseline" | sort -u > "$tmp/base.set"
-grep '^test=' "$current"  | sort -u > "$tmp/cur.set"
+awk '
+  BEGIN { sev["pass"]=0; sev["INCON"]=1; sev["FAIL"]=2; sev["CRASH"]=3 }
+  function tier(line, a) { split(line, a, ": "); return a[2] }
+  function id(line, a)   { split(line, a, ": "); return a[1] }
+  FNR==NR { base[id($0)] = tier($0); next }
+  {
+    i = id($0); c = tier($0); b = (i in base) ? base[i] : "pass"
+    delete base[i]
+    if (sev[c] > sev[b]) print "REG " i " " b " " c
+    else if (sev[c] < sev[b]) print "IMP " i " " b " " c
+  }
+  END {
+    for (i in base) print "IMP " i " " base[i] " pass"
+  }
+' "$expected" "$current" | sort -u > "$tmp/diff"
 
-# Regressions: FAIL now, but not FAIL in the baseline (i.e. used to pass/incon).
-mapfile -t regressions < <(comm -13 "$tmp/base.set" "$tmp/cur.set" | sed 's/^test=//')
-# Improvements: FAIL in the baseline, but not FAIL now.
-mapfile -t improvements < <(comm -23 "$tmp/base.set" "$tmp/cur.set" | sed 's/^test=//')
+mapfile -t regressions < <(grep '^REG ' "$tmp/diff" || true)
+mapfile -t improvements < <(grep '^IMP ' "$tmp/diff" || true)
 
-cval() { sed -nE "s/^$2=([0-9]+)$/\1/p" "$1"; }
+total_line="$(grep -E 'pass\(root=[0-9]+ full\+=[0-9]+ core\+=[0-9]+\) fail=[0-9]+' "$raw" | tail -1 || true)"
+num() { sed -nE "s/.*[ (]$1=([0-9]+).*/\1/p" <<<"$total_line"; }
 
 echo "## GeneralStateTests (modern) regression report"
 echo
@@ -35,37 +52,44 @@ echo "curated subset) run against the evaluator. \`core\` = storage/nonce/code"
 echo "match; \`full\` also requires exact balances; \`root\` additionally requires"
 echo "the world MPT \`stateRoot\` to match the fixture's \`hash\`. Non-gating._"
 echo
-echo "| metric | baseline | current | Δ |"
-echo "| --- | ---: | ---: | ---: |"
-for key in pass_root pass_full pass_core fail incon crash total; do
-  b="$(cval "$baseline" "$key")"; c="$(cval "$current" "$key")"
-  b="${b:-0}"; c="${c:-0}"
-  d=$((c - b))
-  [ "$d" -gt 0 ] && d="+$d"
-  echo "| \`$key\` | $b | $c | $d |"
-done
-echo
+if [ -n "$total_line" ]; then
+  echo "| metric | count |"
+  echo "| --- | ---: |"
+  for key in pass_root:root pass_full:'full\+' pass_core:'core\+' fail:fail incon:incon crash:crash; do
+    label="${key%%:*}"; pat="${key##*:}"
+    echo "| \`$label\` | $(num "$pat") |"
+  done
+  echo "| \`total\` | $(sed -nE 's/.*total ([0-9]+).*/\1/p' <<<"$total_line") |"
+  echo
+else
+  echo "> Note: no aggregate line found in the raw output — count table omitted."
+  echo
+fi
 
 if [ "${#regressions[@]}" -gt 0 ]; then
-  echo "### ⚠️ ${#regressions[@]} regression(s) — previously passing/incon, now FAIL"
+  echo "### ⚠️ ${#regressions[@]} regression(s) — worse tier than expected"
   echo
-  for t in "${regressions[@]}"; do
-    echo "- \`$t\`"
-    echo "::warning title=GeneralStateTests regression::$t was not FAILing in the baseline and now FAILs"
+  for line in "${regressions[@]}"; do
+    read -r _ id b c <<<"$line"
+    echo "- \`$id\`: expected \`$b\`, got \`$c\`"
+    echo "::warning title=GeneralStateTests regression::$id regressed ($b -> $c)"
   done
   echo
 else
-  echo "### ✅ No regressions (no previously-non-FAIL test now fails)"
+  echo "### ✅ No regressions"
   echo
 fi
 
 if [ "${#improvements[@]}" -gt 0 ]; then
-  echo "### 🎉 ${#improvements[@]} improvement(s) — baseline FAIL no longer failing"
+  echo "### 🎉 ${#improvements[@]} improvement(s) — better tier than expected"
   echo
-  for t in "${improvements[@]}"; do echo "- \`$t\`"; done
+  for line in "${improvements[@]}"; do
+    read -r _ id b c <<<"$line"
+    echo "- \`$id\`: expected \`$b\`, got \`$c\`"
+  done
   echo
-  echo "> Refresh the baseline once these are intentional:"
-  echo "> \`.github/scripts/gstatetests_summary.sh <raw-output> > .github/gstatetests-baseline.txt\`"
+  echo "> Refresh the expected-failures file once these are intentional:"
+  echo "> \`.github/scripts/gstatetests_summary.sh <raw> > .github/gstatetests-expected-failures.txt\`"
   echo
 fi
 
