@@ -460,17 +460,20 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             -- The `accountMap` reads through `consumeGas`/`consumeMemExp2` are the
             -- same as on `s`. We need that for the surcharge bundling.
             set surch := Gas.callSurcharge s.fork (value.toNat != 0)
-                  (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                    retOff.toNat retLen.toNat h_mem).accountMap
-                    (AccountAddress.ofUInt256 toArg)).isEmpty with hsurch
+                  (Gas.callTargetIsNew s.fork
+                    ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
+                      retOff.toNat retLen.toNat h_mem).accountMap
+                    (AccountAddress.ofUInt256 toArg)) with hsurch
             have h_surch_eq : surch = Gas.callSurcharge s.fork (value.toNat != 0)
-                (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty := by
+                (Gas.callTargetIsNew s.fork s.accountMap
+                  (AccountAddress.ofUInt256 toArg)) := by
               simp [hsurch, State.consumeGas, State.consumeMemExp2]
             have h_committed :
                 Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                 ≤ s.gasAvailable := by
               show base + md + Gas.callSurcharge s.fork (value.toNat != 0)
-                    (s.accountMap (AccountAddress.ofUInt256 toArg)).isEmpty
+                    (Gas.callTargetIsNew s.fork s.accountMap
+                      (AccountAddress.ofUInt256 toArg))
                   ≤ s.gasAvailable
               rw [← h_surch_eq]
               simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,

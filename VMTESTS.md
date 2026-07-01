@@ -66,13 +66,14 @@ Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
   (ii) one `tx_e1c174e2_EIP150` with a large one-off diff.
 - `fail` — every precompile the curated corpus exercises is
   implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
-  IDENTITY (0x04), MODEXP (0x05, Byzantium+), ECADD (0x06),
-  ECMUL (0x07), ECPAIRING (0x08). A future pass -> fail transition
-  against the pinned baseline is a regression. Individual precompile
-  modules also ship with unit-test executables (`ecrecover_test`,
-  `sha256_test`, `ripemd160_test`, `ecadd_ecmul_test`,
-  `ecpairing_test`) that pin them to known-good geth / EIP-197 test
-  vectors independently of the end-to-end statetests.
+  IDENTITY (0x04), MODEXP (0x05, Byzantium+), ECADD (0x06), ECMUL
+  (0x07), ECPAIRING (0x08), BLAKE2F (0x09, Istanbul+). A future
+  pass -> fail transition against the pinned baseline is a
+  regression. Individual precompile modules also ship with unit-test
+  executables (`ecrecover_test`, `sha256_test`, `ripemd160_test`,
+  `ecadd_ecmul_test`, `ecpairing_test`, `blake2f_test`) that pin
+  them to known-good test vectors independently of the end-to-end
+  statetests.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded

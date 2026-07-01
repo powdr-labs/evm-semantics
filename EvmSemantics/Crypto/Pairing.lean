@@ -20,20 +20,24 @@ The precompile (`0x08 ECPAIRING`, EIP-197) reduces the pairing product
 Algorithm (Vercauteren 2010): the optimal ate pairing on BN254 is
 `e(P, Q) = ( f_{6u+2, Q}(P) · ℓ_{[6u+2]Q, π(Q)}(P) · ℓ_{[6u+2]Q + π(Q), −π²(Q)}(P) )^((p¹² − 1)/N)`
 where:
-* `u = 4965661367192848881` is the BN254 parameter.
+* `u = Bn254.u` is the BN254 parameter (`Bn254.p`, `Bn254.N` are
+  polynomials in `u`).
 * `f_{r, Q}` is the Miller function, computed by a `log₂ r`-length
-  double-and-add loop of doubling+addition steps that accumulate
-  line-function values in `F_p¹²`.
-* `π` is the "untwisted" p-power Frobenius on the twist.
+  double-and-add loop that accumulates line-function values in `Fp12`.
+* `π` is the p-power Frobenius on the untwisted point.
 * The final power `(p¹² − 1)/N` is the "final exponentiation", split
-  into an "easy" part `(p⁶ − 1)(p² + 1)` and a "hard" part
-  `(p⁴ − p² + 1)/N` (the cyclotomic exponent).
+  into an "easy" part `(p⁶ − 1)(p² + 1)` (via Fp12 conjugation +
+  `frobenius²`) and a "hard" part `(p⁴ − p² + 1)/N` (raised
+  directly via `Fp12.pow` — a naive ~256-squaring square-and-
+  multiply, not the cyclotomic addition-chain optimisation).
 
-This module is unashamedly translated from py_ecc's reference
-implementation — the tricky parts (Miller loop bit pattern,
-Frobenius twist maps, cyclotomic exponent decomposition) mirror it
-line for line so we can cross-check against known EIP-197 test
-vectors.
+Structure follows py_ecc: the Miller loop bit-pattern, the two
+Frobenius correction steps, and the easy / hard split for the final
+exponentiation all mirror py_ecc's reference implementation. The
+tower arithmetic (`Fp2 → Fp6 → Fp12`) is our own — py_ecc uses a
+flat `Fp12` basis, so our internal formulae are different, but the
+higher-level algorithm is the same and we cross-check against the
+same EIP-197 test vectors.
 -/
 
 @[expose] public section

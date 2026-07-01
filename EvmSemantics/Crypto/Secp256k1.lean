@@ -7,9 +7,10 @@ public import EvmSemantics.Crypto.Weierstrass
 concrete `Fp := Fin Secp256k1.p` / `Curve p` bindings.
 
 secp256k1 is the short-Weierstrass curve `y² = x³ + 7` (mod `p`) with
-`a = 0`, used by Ethereum's ECRECOVER (0x01). All modular arithmetic
-and generic point operations live in `EvmSemantics.Crypto.Weierstrass`; this
-module just pins the numeric parameters and re-exports the concrete
+`a = 0`, used by Ethereum's ECRECOVER (0x01). Field extensions to
+`Fin p` live in `EvmSemantics.Crypto.FF`; generic Weierstrass point
+operations live in `EvmSemantics.Crypto.Weierstrass`. This module
+just pins the numeric parameters and re-exports the concrete
 type-instantiations of the ops.
 -/
 

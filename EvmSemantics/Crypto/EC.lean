@@ -6,16 +6,14 @@ both secp256k1 (via `Crypto.Secp256k1`) and BN254 (via `Crypto.Bn254`).
 
 `Point F` is polymorphic in the coordinate type: `F` is instantiated
 to `Fin Secp256k1.p` for secp256k1's `G₁`, to `Fin Bn254.p` for
-BN254's `G₁`, and to `Fp2` for BN254's `G₂`. Field arithmetic lives
-in `Crypto.FF` (which extends `Fin p` with `Inv` / `HPow` /
-`sqrt`); curve operations (`doublePoint`, `addPoint`, `scalarMul`,
-…) also live in `Crypto.FF` — they consume `Fin p` coordinates via
-a `Curve p` value.
+BN254's `G₁`. (BN254's `G₂` points live in `Crypto.G2` with `Fp2`
+coordinates and their own inductive — the two curves' points don't
+currently share this container.)
 
-This file used to host the modular-arithmetic helpers and the
-Weierstrass operations. They all moved to `Crypto.FF` when we baked
-the modulus into the coordinate type; `Point` is the sole survivor
-because it doesn't care about the underlying field.
+Field-arithmetic extensions to `Fin p` (`Inv` / `HPow` / `sqrt`) live
+in `Crypto.FF`. The curve operations that consume them — `Curve p`,
+`doublePoint`, `addPoint`, `scalarMul`, `decompress`, … — live in
+`Crypto.Weierstrass`.
 -/
 
 @[expose] public section
