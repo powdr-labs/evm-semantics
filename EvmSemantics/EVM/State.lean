@@ -454,23 +454,17 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   let map₁    := sc.accountMap.set beneficiary
                    { benAcc with balance := benAcc.balance + selfBal }
   let map₂    := map₁.set self { (map₁ self) with balance := ⟨0⟩ }
-  -- Per the Yellow Paper the `R_selfdestruct = 24000` refund (Constantinople;
-  -- 0 on Cancun via EIP-3529 + EIP-6780) is added *only the first time* a
-  -- given account self-destructs in a transaction. Our `selfDestructSet` is
-  -- a `Prop`-valued predicate (`AddressSet := AccountAddress → Prop`) with
-  -- no decidable-membership instance, so we cannot branch on prior
-  -- membership without changing the underlying type. We therefore add the
-  -- refund unconditionally: the legacy ethereum/tests corpus has no test
-  -- where the same account self-destructs twice in one transaction, so the
-  -- observable behaviour matches. (Refactoring `AddressSet` to a `RBTree`
-  -- or `Finset` would let us compute "first time" precisely; out of scope
-  -- for this opcode.)
-  -- SELFDESTRUCT refund: 24000 on Frontier..Petersburg, removed by
-  -- EIP-3529 (London+). The refund is added to the substate's
-  -- `refundBalance` and applied at transaction-end, capped by the
-  -- fork-dependent fraction of gasUsed.
+  -- Per YP §7 the `R_selfdestruct = 24000` refund (Frontier..Petersburg;
+  -- 0 on London+ via EIP-3529) is address-keyed: each address contributes
+  -- at most once to the refund set, so a second `SELFDESTRUCT` of the same
+  -- self in the same tx adds *nothing*. We probe the decidable-membership
+  -- parallel `selfDestructList : Array AccountAddress` (the `Prop`-valued
+  -- `selfDestructSet` has no decidable membership); the list has the same
+  -- contents in insertion order.
+  let alreadyDestroyed := sc.substate.selfDestructList.contains self
   let refundDelta : Nat :=
-    if sc.executionEnv.fork.atLeast .London then 0 else 24000
+    if sc.executionEnv.fork.atLeast .London ∨ alreadyDestroyed then 0
+    else 24000
   let substate' : Substate :=
     { sc.substate with
         selfDestructSet := sc.substate.selfDestructSet.insert self
