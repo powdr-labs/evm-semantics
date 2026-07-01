@@ -1878,7 +1878,12 @@ theorem stackMemFlow_sound (s : State) (op : Operation.StackMemFlowOps)
     | [_], h    => nomatch h
   | SLOAD =>
     match h_stack : s.stack, h with
-    | key :: rest, h => cases h; exact .sload s key rest h_dec h_gas h_stack
+    | key :: rest, h =>
+      by_cases h_total : Gas.sloadTotal s key ≤ s.gasAvailable
+      · simp [h_total] at h
+        cases h
+        exact .sload s key rest h_dec h_total h_stack
+      · simp [h_total] at h
     | [], h         => nomatch h
   | SSTORE =>
     by_cases h_perm : ¬ s.executionEnv.permitStateMutation
@@ -3687,7 +3692,16 @@ theorem stackMemFlow_sound_error (s : State) (op : Operation.StackMemFlowOps)
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])
   | SLOAD =>
     match h_stack : s.stack, h with
-    | _ :: _, h => nomatch h
+    | key :: rest, h =>
+      by_cases h_total : Gas.sloadTotal s key ≤ s.gasAvailable
+      · simp [h_total] at h
+      · simp [h_total] at h
+        cases h
+        refine mk_outOfGas h_dec h_stack (Gas.sloadTotal s key) ?_ ?_
+        · show Gas.baseCost s.fork (.StackMemFlow .SLOAD)
+               ≤ Gas.baseCost s.fork (.StackMemFlow .SLOAD) + Gas.sloadColdSurcharge s key
+          omega
+        · omega
     | [], h =>
       cases h
       exact mk_underflow h_dec h_stack (by simp [Operation.popArity, List.length])

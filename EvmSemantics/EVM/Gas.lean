@@ -541,6 +541,20 @@ def Gas.refundDenom (fork : Fork) : Nat :=
       ((s.accountMap s.executionEnv.address).storage key)
       value
 
+/-- EIP-2929 cold-access surcharge for `SLOAD`: `2000` (= cold `2100` −
+    warm `100`) when Berlin+ and the slot `(address, key)` is not yet warm,
+    else `0`. The warm price itself is the static `Gas.baseCost .SLOAD`
+    (`100` from Berlin), so this is the extra charged on a cold first touch. -/
+@[inline] def Gas.sloadColdSurcharge (s : State) (key : UInt256) : Nat :=
+  if s.executionEnv.fork.atLeast .Berlin
+     && !s.substate.isWarmStorageKey (s.executionEnv.address, key)
+  then 2000 else 0
+
+/-- Total gas cost of `SLOAD` at `s` for stack arg `key`: the static warm
+    base plus the EIP-2929 cold surcharge (`Gas.sloadColdSurcharge`). -/
+@[inline] def Gas.sloadTotal (s : State) (key : UInt256) : Nat :=
+  Gas.baseCost s.executionEnv.fork .SLOAD + Gas.sloadColdSurcharge s key
+
 /-- Total gas cost of `RETURN` at `s` for stack args `offset, size`:
     static base + memory-expansion delta for the read range
     `[offset, offset+size)`. -/

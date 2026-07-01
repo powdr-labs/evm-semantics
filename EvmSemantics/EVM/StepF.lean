@@ -418,8 +418,14 @@ def stackMemFlow (s s' : State) :
     | _ => underflow
   | .SLOAD => match s.stack with
     | key :: rest =>
-      .ok (s'.replaceStackAndIncrPC
-            ((s.accountMap s.executionEnv.address).storage key :: rest))
+      -- EIP-2929: charge the full warm base + cold surcharge in one shot
+      -- (from `s`, not the base-only `s'`), then mark the slot warm.
+      if h : Gas.sloadTotal s key ≤ s.gasAvailable then
+        .ok ({ (s.consumeGas (Gas.sloadTotal s key) h) with
+                 substate := s.substate.addAccessedStorageKey
+                               (s.executionEnv.address, key) }.replaceStackAndIncrPC
+              ((s.accountMap s.executionEnv.address).storage key :: rest))
+      else .error .OutOfGas
     | _ => underflow
   | .SSTORE =>
     if ¬ s.executionEnv.permitStateMutation then static

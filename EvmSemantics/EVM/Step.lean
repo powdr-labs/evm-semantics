@@ -951,16 +951,20 @@ inductive StepRunning : State → State → Prop
   -- Storage (persistent and transient).
   ----------------------------------------------------------------------------
 
-  /-- SLOAD: pop key; push storage[key] from the executing contract. -/
+  /-- SLOAD: pop key; push storage[key] from the executing contract.
+      `Gas.sloadTotal s key` bundles the static warm base and the EIP-2929
+      cold surcharge; the slot is marked warm in the substate afterwards. -/
   | sload (s : State) (key : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .SLOAD)
-        (h_gas     : Gas.baseCost s.fork .SLOAD ≤ s.gasAvailable)
+        (h_gas     : Gas.sloadTotal s key ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
       : StepRunning s
           { s with
               stack        := ((s.accountMap s.executionEnv.address).storage key) :: rest
               pc           := s.pc.succ
-              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SLOAD }
+              gasAvailable := s.gasAvailable - Gas.sloadTotal s key
+              substate     := s.substate.addAccessedStorageKey
+                                (s.executionEnv.address, key) }
 
   /-- SSTORE: pop key, value; write storage[key] := value. Requires
       static-mode permission. `Gas.sstoreTotal s key value` bundles the
