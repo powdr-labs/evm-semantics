@@ -63,37 +63,41 @@ def Gy : Nat :=
 /-- Negation `−a mod m`. -/
 @[inline] def modNeg (a m : Nat) : Nat := (m - a % m) % m
 
+/-- Inner square-and-multiply loop for `modPow`: `acc · b^e mod m`,
+    with the base repeatedly squared and the exponent halved. -/
+partial def modPow.go (m b acc e : Nat) : Nat :=
+  if e = 0 then acc
+  else
+    let acc' := if e % 2 = 1 then (acc * b) % m else acc
+    modPow.go m ((b * b) % m) acc' (e / 2)
+
 /-- Square-and-multiply modular exponentiation: `base^e mod m`. -/
-partial def modPow (base e m : Nat) : Nat :=
-  let rec go (b acc e : Nat) : Nat :=
-    if e = 0 then acc
-    else
-      let acc' := if e % 2 = 1 then (acc * b) % m else acc
-      go ((b * b) % m) acc' (e / 2)
-  go (base % m) 1 e
+def modPow (base e m : Nat) : Nat := modPow.go m (base % m) 1 e
+
+/-- Inner extended-Euclidean loop for `modInv`: keeps the standard
+    `(rᵢ, tᵢ)` recurrence, reducing `t` into `[0, m)` at every step so
+    all intermediate values stay in `Nat`. Terminates when `r₁ = 0`;
+    the surviving `t₀` is the modular inverse of the original input. -/
+partial def modInv.go (m r0 r1 t0 t1 : Nat) : Nat :=
+  if r1 = 0 then t0
+  else
+    let q := r0 / r1
+    let qt1 := (q * t1) % m
+    let t := if t0 ≥ qt1 then t0 - qt1 else t0 + (m - qt1)
+    modInv.go m r1 (r0 - q * r1) t1 t
 
 /-- Modular inverse via the extended Euclidean algorithm.
 
-    Iterates the standard `(rᵢ, tᵢ)` recurrence, keeping `t` reduced
-    into `[0, m)` at every step (so we never leave `Nat`). Roughly
-    an order of magnitude faster than the Fermat-via-square-and-multiply
-    alternative (`a^(m−2)` — 256 modular multiplications for
-    secp256k1's 256-bit `m`) because the number of Euclidean
-    reduction steps is `O(log₂ m)` and each step's arithmetic is
-    just a division plus one multiply, not a full modular multiply.
+    Roughly an order of magnitude faster than the Fermat-via-square-
+    and-multiply alternative (`a^(m−2)` — 256 modular multiplications
+    for secp256k1's 256-bit `m`) because the number of Euclidean
+    reduction steps is `O(log₂ m)` and each step's arithmetic is just
+    a division plus one multiply, not a full modular multiply.
 
     Returns `0` for `a ≡ 0 mod m` (undefined behaviour for callers
     that don't pre-check — for our use `r`, `s` are gated `∈ [1, N−1]`
     and doubling never invokes `modInv 0`). -/
-partial def modInv (a m : Nat) : Nat :=
-  let rec go (r0 r1 t0 t1 : Nat) : Nat :=
-    if r1 = 0 then t0
-    else
-      let q := r0 / r1
-      let qt1 := (q * t1) % m
-      let t := if t0 ≥ qt1 then t0 - qt1 else t0 + (m - qt1)
-      go r1 (r0 - q * r1) t1 t
-  go m (a % m) 0 1
+def modInv (a m : Nat) : Nat := modInv.go m m (a % m) 0 1
 
 /-- Modular square root when `m ≡ 3 mod 4`: `sqrt(a) = a^((m+1)/4) mod m`.
     Returns *some* square root — the other is `m − result`. The caller
