@@ -72,12 +72,28 @@ partial def modPow (base e m : Nat) : Nat :=
       go ((b * b) % m) acc' (e / 2)
   go (base % m) 1 e
 
-/-- Modular inverse via Fermat's little theorem: `a⁻¹ = a^(m-2) mod m`
-    (valid when `m` is prime and `a ≠ 0 mod m`). Returns `0` for
-    `a ≡ 0 mod m` (undefined behaviour for callers that don't
-    pre-check). Used with `m = p` for field inversion and `m = N`
-    for scalar inversion. -/
-@[inline] def modInv (a m : Nat) : Nat := modPow a (m - 2) m
+/-- Modular inverse via the extended Euclidean algorithm.
+
+    Iterates the standard `(rᵢ, tᵢ)` recurrence, keeping `t` reduced
+    into `[0, m)` at every step (so we never leave `Nat`). Roughly
+    an order of magnitude faster than the Fermat-via-square-and-multiply
+    alternative (`a^(m−2)` — 256 modular multiplications for
+    secp256k1's 256-bit `m`) because the number of Euclidean
+    reduction steps is `O(log₂ m)` and each step's arithmetic is
+    just a division plus one multiply, not a full modular multiply.
+
+    Returns `0` for `a ≡ 0 mod m` (undefined behaviour for callers
+    that don't pre-check — for our use `r`, `s` are gated `∈ [1, N−1]`
+    and doubling never invokes `modInv 0`). -/
+partial def modInv (a m : Nat) : Nat :=
+  let rec go (r0 r1 t0 t1 : Nat) : Nat :=
+    if r1 = 0 then t0
+    else
+      let q := r0 / r1
+      let qt1 := (q * t1) % m
+      let t := if t0 ≥ qt1 then t0 - qt1 else t0 + (m - qt1)
+      go r1 (r0 - q * r1) t1 t
+  go m (a % m) 0 1
 
 /-- Modular square root when `m ≡ 3 mod 4`: `sqrt(a) = a^((m+1)/4) mod m`.
     Returns *some* square root — the other is `m − result`. The caller
@@ -143,6 +159,37 @@ def scalarMul (k : Nat) (P : Point) : Point := Id.run do
 
 /-- The secp256k1 generator point `G`. -/
 def G : Point := .affine Gx Gy
+
+/-- Simultaneous double-scalar multiplication `k₁·P + k₂·Q` via
+    Shamir's trick: interleave the two scalars' bits so we only pay
+    for one doubling chain (~256 doublings) rather than two. Adds are
+    picked from a 4-entry precomputed table keyed by the current bit
+    of each scalar.
+
+    Correctness follows from the double-and-add invariant applied to
+    the pair `(k₁, k₂)` simultaneously: `2·Q + [i-th bit combo]` at
+    each iteration builds `k₁·P + k₂·Q` MSB-to-LSB. -/
+def scalarMul2 (k1 : Nat) (P1 : Point) (k2 : Nat) (P2 : Point) : Point := Id.run do
+  let P1plus2 := addPoint P1 P2
+  -- Choose the doubling-chain length as the bit-width of the larger scalar.
+  let mut bitlen : Nat := 0
+  let mut m := Nat.max k1 k2
+  while m ≠ 0 do
+    bitlen := bitlen + 1
+    m := m / 2
+  let mut Q : Point := .infinity
+  let mut i := bitlen
+  while i ≠ 0 do
+    i := i - 1
+    Q := doublePoint Q
+    let b1 : Bool := (k1 >>> i) &&& 1 = 1
+    let b2 : Bool := (k2 >>> i) &&& 1 = 1
+    match b1, b2 with
+    | false, false => pure ()
+    | true,  false => Q := addPoint Q P1
+    | false, true  => Q := addPoint Q P2
+    | true,  true  => Q := addPoint Q P1plus2
+  return Q
 
 /-- Check that `(x, y)` lies on the curve `y² = x³ + 7 mod p`. -/
 def onCurve (x y : Nat) : Bool :=

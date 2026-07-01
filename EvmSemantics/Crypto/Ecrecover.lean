@@ -82,7 +82,7 @@ def recoverAddress (h v r s : Nat) : Option ByteArray := do
     -- Q = r⁻¹ · (s · R − e · G) = r⁻¹·s·R + r⁻¹·(−e)·G
     let u1 := modMul (modNeg e N) rInv N
     let u2 := modMul s rInv N
-    match addPoint (scalarMul u1 G) (scalarMul u2 R) with
+    match scalarMul2 u1 G u2 R with
     | .infinity => none
     | .affine qx qy =>
       -- Address = keccak256(qx ‖ qy)[12:32].
