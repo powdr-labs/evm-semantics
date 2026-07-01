@@ -249,29 +249,35 @@ namespace AccountMap
 
 /-- The world-state trie root: `keccak256(addr.toBytes20)` keys mapping
     to `RLP([nonce, balance, storageRoot, codeHash])` values. Pruning
-    is fork-dependent (YP §6.1 + EIP-158):
+    is fork- and origin-dependent (YP §6.1 + EIP-158):
 
-    * **Spurious Dragon onwards** (`SpuriousDragon..Cancun`+): EIP-161
-      empty accounts (`nonce = 0 ∧ balance = 0 ∧ code = ∅`) are
-      omitted. Storage is not in the predicate because the YP defines
-      "empty" without it — a pre-EIP-161 contract could only get
-      storage via `SSTORE`, which requires non-empty code, so any
-      account with storage already fails the no-code check.
     * **Pre-Spurious Dragon** (`Frontier..TangerineWhistle`): every
-      entry — including empty accounts that got "touched" but were
-      otherwise untouched — appears in the trie. Pruning would
-      produce a root that doesn't match the reference implementation.
+      entry appears in the trie, including empty accounts.
+    * **Spurious Dragon onwards**: EIP-161 removes empty accounts
+      *that the transaction touched*. The runner supplies
+      `wasInPreState : AccountAddress → Bool` — an address that was
+      in the pre-state and is now empty was either never touched
+      (touch rolled back on exception/revert, or the tx never
+      referred to it) or was pre-existing-empty; either way YP
+      keeps it. An empty entry in `σ` whose address is *not* in the
+      pre-state was necessarily added *during* the tx (via
+      `transfer`, `enterCall`, `enterCreate`, …) — i.e. touched —
+      and is dropped. Default `wasInPreState := fun _ => false`
+      falls back to filtering every empty entry, which is what the
+      old signature did.
 
     Returns `none` only if RLP encoding fails (an account whose
     individual fields exceed `2^64` bytes — unreachable from any
     gas-bounded execution). -/
-def stateRoot (σ : AccountMap) (fork : EvmSemantics.Fork) :
+def stateRoot (σ : AccountMap) (fork : EvmSemantics.Fork)
+    (wasInPreState : AccountAddress → Bool := fun _ => false) :
     Option UInt256 := do
   let entries := σ.toList
-  -- EIP-161 (Spurious Dragon+) empty-account pruning.
+  -- EIP-161 (Spurious Dragon+) touched-empty pruning.
   let entries :=
     if fork.atLeast .SpuriousDragon then
-      entries.filter (fun (_, a) => ¬ Account.isStateRootEmpty a)
+      entries.filter (fun (addr, a) =>
+        ¬ Account.isStateRootEmpty a || wasInPreState addr)
     else entries
   let pairs ← entries.mapM (fun (addr, a) => do
     let keyHash := EvmSemantics.keccak256 (Rlp.addressBytes addr)

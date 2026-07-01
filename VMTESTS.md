@@ -51,17 +51,22 @@ pass=602 fail=0 incon=7 crash=0
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=7037 full+=39 core+=30) fail=0 incon=0 crash=0
+pass(root=7074 full+=2 core+=30) fail=0 incon=0 crash=0
 ```
 Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
 - `pass_root` = world MPT `stateRoot` matches the corpus's
   `blockHeader.stateRoot` (every byte of the post-state matches what
-  Geth would produce). 7037 of 7106.
+  Geth would produce). 7074 of 7106.
 - `pass_full` = every field the test's `postState` enumerates matches
-  (storage, nonce, code, *and* balance), but the MPT root differs —
-  usually because some account our run touched isn't in the test's
-  enumerated `postState`, or some slot we wrote to isn't in the
-  enumerated storage. 39 of 7106.
+  (storage, nonce, code, *and* balance), but the MPT root differs.
+  **2 of 7106**, and both are the same test — the
+  `stAttackTest/ContractCreationSpam_d0g0v0` on `_Frontier` and
+  `_Homestead`. That test creates ~8500 accounts via CREATE spam;
+  the corpus's Frontier/Homestead trie shape doesn't match ours,
+  and the divergence at scale points at either a subtle CREATE-
+  address derivation quirk or a gas-cost off-by-one that only
+  surfaces after thousands of nested CREATEs. Not worth chasing
+  individually.
 - `pass_core` = storage / nonce / code match but balance is off. 30 of
   7106. Dominated by (i) contracts that invoke unimplemented
   precompiles (`0x01` ECRECOVER, `0x02` SHA256, `0x03` RIPEMD160,

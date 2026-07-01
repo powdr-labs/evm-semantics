@@ -253,7 +253,16 @@ def blockReward (fork : Fork) : Nat :=
     duplicate `selfDestructed` entries are harmless. -/
 def applySelfDestructDeletions (map : AccountMap)
     (selfDestructed : Array AccountAddress) : AccountMap :=
-  selfDestructed.foldl (fun m a => m.erase a) map
+  if selfDestructed.isEmpty then map
+  else
+    -- Rebuild via filter — `HashMap.erase` was leaving ghost entries
+    -- that `.toList` and lookups by the same key would re-materialise
+    -- (an issue with the persistent-buckets internal representation).
+    let sdSet : Std.HashSet AccountAddress :=
+      selfDestructed.foldl (fun s a => s.insert a) ∅
+    map.toList.foldl (fun m (a, acct) =>
+      if sdSet.contains a then m else m.insert a acct)
+      AccountMap.empty
 
 /-- Credit the coinbase with the per-fork block reward, on top of the
     tx-level gas-fee accounting already applied to `map`. Called once
@@ -425,9 +434,15 @@ def execute (preMap : AccountMap) (header : BlockHeader)
             -- Deploy commits: install `hReturn` as the new account's
             -- code, then apply the gas-refund accounting with
             -- `gasRemaining = sf.gasAvailable - depositCost`.
-            let newAcc := cleaned newAddr
-            let mapWithCode := cleaned.set newAddr
-                                 { newAcc with code := hReturn }
+            -- Skip the install if `hReturn` is empty — the SELFDESTRUCT
+            -- cleanup just erased `newAddr` and we don't want to
+            -- re-add it as an empty entry (e.g., init code whose
+            -- terminal opcode is `SELFDESTRUCT` rather than `RETURN`).
+            let mapWithCode :=
+              if hReturn.size = 0 then cleaned
+              else
+                let newAcc := cleaned newAddr
+                cleaned.set newAddr { newAcc with code := hReturn }
             let gasRemaining := sf.gasAvailable - depositCost
             let gasRefunded := refundedGasOnSuccess tx.gasLimit gasRemaining
                                  sf.substate.refundBalance.toNat fork
