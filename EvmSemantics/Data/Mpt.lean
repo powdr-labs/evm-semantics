@@ -2,6 +2,7 @@ module
 
 public import EvmSemantics.Data.Rlp
 public import EvmSemantics.Crypto.Keccak256
+public import EvmSemantics.EVM.Fork
 
 /-!
 `EvmSemantics.Mpt` — a minimal Modified Merkle Patricia Trie for
@@ -236,12 +237,42 @@ end Account
 
 namespace AccountMap
 
+/-- "Empty" under YP §4.1: zero nonce, zero balance, no code. Storage
+    is *not* part of the predicate (an empty account by definition has
+    no code, and pre-Spurious Dragon storage is only updated through
+    `SSTORE` which requires code, so a no-code account has empty
+    storage). We pull this out of `Account.isEmpty` here so the trie's
+    filter can use the same definition without having to evaluate
+    `Storage` membership on every call. -/
+@[inline] def Account.isStateRootEmpty (a : Account) : Bool :=
+  a.nonce.toNat == 0 && a.balance.toNat == 0 && a.code.size == 0
+
 /-- The world-state trie root: `keccak256(addr.toBytes20)` keys mapping
-    to `RLP([nonce, balance, storageRoot, codeHash])` values. Accounts
-    that are EIP-161 *empty* (zero nonce, zero balance, no code,
-    no storage) are omitted. -/
-def stateRoot (σ : AccountMap) : Option UInt256 := do
+    to `RLP([nonce, balance, storageRoot, codeHash])` values. Pruning
+    is fork-dependent (YP §6.1 + EIP-158):
+
+    * **Spurious Dragon onwards** (`SpuriousDragon..Cancun`+): EIP-161
+      empty accounts (`nonce = 0 ∧ balance = 0 ∧ code = ∅`) are
+      omitted. Storage is not in the predicate because the YP defines
+      "empty" without it — a pre-EIP-161 contract could only get
+      storage via `SSTORE`, which requires non-empty code, so any
+      account with storage already fails the no-code check.
+    * **Pre-Spurious Dragon** (`Frontier..TangerineWhistle`): every
+      entry — including empty accounts that got "touched" but were
+      otherwise untouched — appears in the trie. Pruning would
+      produce a root that doesn't match the reference implementation.
+
+    Returns `none` only if RLP encoding fails (an account whose
+    individual fields exceed `2^64` bytes — unreachable from any
+    gas-bounded execution). -/
+def stateRoot (σ : AccountMap) (fork : EvmSemantics.Fork) :
+    Option UInt256 := do
   let entries := σ.toList
+  -- EIP-161 (Spurious Dragon+) empty-account pruning.
+  let entries :=
+    if fork.atLeast .SpuriousDragon then
+      entries.filter (fun (_, a) => ¬ Account.isStateRootEmpty a)
+    else entries
   let pairs ← entries.mapM (fun (addr, a) => do
     let keyHash := EvmSemantics.keccak256 (Rlp.addressBytes addr)
     let aEnc ← Account.encodeForTrie a

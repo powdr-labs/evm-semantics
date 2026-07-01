@@ -36,11 +36,12 @@ echo "## StateTests regression report"
 echo
 echo "_BlockchainTests GeneralStateTests (curated subset) run against the"
 echo "evaluator. \`core\` = storage/nonce/code match; \`full\` also"
-echo "requires exact balances. Non-gating._"
+echo "requires exact balances; \`root\` additionally requires the world"
+echo "MPT \`stateRoot\` to match the corpus's blockHeader. Non-gating._"
 echo
 echo "| metric | baseline | current | Δ |"
 echo "| --- | ---: | ---: | ---: |"
-for key in pass_full pass_core fail incon crash total; do
+for key in pass_root pass_full pass_core fail incon crash total; do
   b="$(cval "$baseline" "$key")"; c="$(cval "$current" "$key")"
   b="${b:-0}"; c="${c:-0}"
   d=$((c - b))
