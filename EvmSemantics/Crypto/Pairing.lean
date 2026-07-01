@@ -77,7 +77,7 @@ def w : Fp12Bn := { c0 := 0, c1 := 1 }
 
 /-- Untwist a `G₂` point `(x', y') ∈ E'(F_p²)` into the isomorphic
     point on `E(F_p¹²)`. Uses `(x', y') ↦ (x'·w², y'·w³)`. -/
-def untwist : G2.Point → Option (Fp12Bn × Fp12Bn)
+def untwist : Bn254.G2Point → Option (Fp12Bn × Fp12Bn)
   | .infinity => none
   | .affine x' y' =>
     let w2 := w^2
@@ -143,7 +143,7 @@ def gammas : Gammas :=
   { γw := γ, γv := γ2, γv2 := γ4 }
 
 /-- Miller loop for BN254: `f_{r, Q}(P)` where `r = 6u+2`. -/
-def millerLoop (Q : G2.Point) (P : Bn254.Point) : Fp12Bn :=
+def millerLoop (Q : Bn254.G2Point) (P : Bn254.Point) : Fp12Bn :=
   match untwist Q, P with
   | none, _ => 1
   | _, .infinity => 1
@@ -194,12 +194,12 @@ def finalExp (f : Fp12Bn) : Fp12Bn :=
   step2 ^ hardExp
 
 /-- The full BN254 optimal ate pairing: `e(P, Q) ∈ μ_N ⊂ F_p¹²*`. -/
-def pairing (P : Bn254.Point) (Q : G2.Point) : Fp12Bn :=
+def pairing (P : Bn254.Point) (Q : Bn254.G2Point) : Fp12Bn :=
   finalExp (millerLoop Q P)
 
 /-- Compute `∏ e(Pᵢ, Qᵢ)` with final exponentiation applied once at
     the end (bilinearity of the Miller loop). -/
-def multiPairing (pairs : List (Bn254.Point × G2.Point)) : Fp12Bn :=
+def multiPairing (pairs : List (Bn254.Point × Bn254.G2Point)) : Fp12Bn :=
   let miller := pairs.foldl (fun acc (P, Q) => acc * millerLoop Q P) 1
   finalExp miller
 

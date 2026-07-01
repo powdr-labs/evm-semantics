@@ -64,6 +64,10 @@ name = "blake2f_test"
 root = "tests.Blake2fTest"
 
 [[lean_exe]]
+name = "bls12_381_test"
+root = "tests.Bls12_381Test"
+
+[[lean_exe]]
 name = "ecrecover_bench"
 root = "tests.EcrecoverBench"
 

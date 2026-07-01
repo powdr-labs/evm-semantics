@@ -4,6 +4,7 @@ public import EvmSemantics.Crypto.Weierstrass
 public import EvmSemantics.Crypto.Fp2
 public import EvmSemantics.Crypto.Fp6
 public import EvmSemantics.Crypto.Fp12
+public import EvmSemantics.Crypto.G2
 
 /-!
 `EvmSemantics.Crypto.Bn254` — the alt_bn128 / BN254 curve constants
@@ -66,6 +67,9 @@ abbrev Fp6 := _root_.Fp6 p
 /-- BN254 `Fp12` — pinned. Same as `Fp6`. -/
 abbrev Fp12 := _root_.Fp12 p
 
+/-- BN254 `G2.Point` — pinned. -/
+abbrev G2Point := EvmSemantics.Crypto.G2.Point p
+
 /-- BN254 G₁ point over `Fp`. -/
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
@@ -90,6 +94,14 @@ def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
 /-- Curve-membership check. -/
 @[inline] def onCurve (x y : Fp) : Bool :=
   EvmSemantics.Crypto.Weierstrass.onCurve curve x y
+
+/-- BN254's G₂ twist coefficient `b' = 3 / (9 + u) ∈ Fp2`
+    (D-type twist). -/
+def g2TwistB : Fp2 :=
+  _root_.Fp2.mulByFp (_root_.Fp2.inv { c0 := 9, c1 := 1 }) 3
+
+/-- BN254's G₂ curve packaged for the polymorphic `G2.*` ops. -/
+def g2Curve : EvmSemantics.Crypto.G2.Curve p := { b := g2TwistB }
 
 end EvmSemantics.Crypto.Bn254
 
