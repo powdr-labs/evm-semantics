@@ -135,6 +135,47 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
 def Gas.sstoreSentry (fork : Fork) (gas : Nat) : Bool :=
   if fork.atLeast .Istanbul then decide (gas ≤ 2300) else false
 
+/-! ### EIP-2929 cold/warm access surcharges (Berlin+)
+
+Pre-Berlin, `baseCost` already returns the fork-appropriate flat price
+(e.g. 700 for `BALANCE`/`EXTCODE*`/CALL-family from EIP-150, 200 → 800
+for `SLOAD` from EIP-1884). From Berlin onwards `baseCost` returns the
+**warm** price (100); the delta up to the **cold** price is charged
+dynamically here based on whether the target is already in the
+`Substate` access lists at the moment of the op.
+
+Numbers (EIP-2929):
+
+  cold_account_access_cost   = 2600
+  cold_sload_cost            = 2100
+  warm_storage_read_cost     = 100
+
+  ⇒ account-access cold surcharge = 2600 − 100 = 2500
+  ⇒ SLOAD cold surcharge          = 2100 − 100 = 2000
+  ⇒ SSTORE cold surcharge         = 2100 (added on top of the dynamic
+                                          SSTORE cost — see EIP-2929
+                                          §"SSTORE changes").
+-/
+
+/-- EIP-2929 cold surcharge for `BALANCE` / `EXTCODESIZE` /
+    `EXTCODECOPY` / `EXTCODEHASH` / `CALL`-family: `+2500` when the
+    target is cold at op-entry, `0` when warm. Returns `0` pre-Berlin
+    (the flat pre-EIP-2929 price already lives in `baseCost`). -/
+@[inline] def Gas.accountAccessSurcharge (fork : Fork) (isWarm : Bool) : Nat :=
+  if fork.atLeast .Berlin ∧ ¬ isWarm then 2500 else 0
+
+/-- EIP-2929 cold surcharge for `SLOAD`: `+2000` when the slot is cold
+    at op-entry, `0` when warm. Returns `0` pre-Berlin. -/
+@[inline] def Gas.sloadAccessSurcharge (fork : Fork) (isWarm : Bool) : Nat :=
+  if fork.atLeast .Berlin ∧ ¬ isWarm then 2000 else 0
+
+/-- EIP-2929 cold surcharge for `SSTORE`: `+2100` added to the dynamic
+    SSTORE cost (from `Gas.sstoreCost`) when the slot is cold at
+    op-entry. Returns `0` pre-Berlin. Note that unlike `SLOAD` this is
+    a full `2100` — SSTORE's warm price is folded into `sstoreCost`. -/
+@[inline] def Gas.sstoreAccessSurcharge (fork : Fork) (isWarm : Bool) : Nat :=
+  if fork.atLeast .Berlin ∧ ¬ isWarm then 2100 else 0
+
 /-- Dynamic gas cost of an SSTORE under `fork`, given the slot's
     `original` value (at frame start), `current` value (just before this
     write), and the `new` value being written.

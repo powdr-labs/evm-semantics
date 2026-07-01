@@ -178,12 +178,33 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
       permitStateMutation := true
       blobVersionedHashes := blobVersionedHashes
       fork                := fork }
+  -- EIP-2929: pre-warm the tx-scope access list. Berlin+ CALL / SLOAD /
+  -- SSTORE / BALANCE / EXTCODE* pay the cold surcharge on their first
+  -- touch; sender, tx.to (or the derived create address), and every
+  -- precompile address are considered warm from the start of the tx.
+  -- Shanghai (EIP-3651) adds the coinbase to that pre-warmed set.
+  -- Skipped pre-Berlin — the access list stays empty and the surcharge
+  -- helpers return 0.
+  let initAccessed : AddressSet := Id.run do
+    if ¬ fork.atLeast .Berlin then return AddressSet.empty
+    let mut s : AddressSet := AddressSet.empty
+    s := s.insert tx.sender
+    s := s.insert toAddr
+    -- Precompiles 0x01..0x09; new precompile addresses arrive at Cancun
+    -- (0x0a KZG) / Prague (BLS12-381), and would be added here per fork.
+    for i in [1:10] do
+      s := s.insert (AccountAddress.ofNat i)
+    if fork.atLeast .Shanghai then
+      s := s.insert header.coinbase
+    return s
   { toMachineState :=
       { gasAvailable := tx.gasLimit - intrinsicGas fork tx.isCreate tx.data,
         activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
-    substate     := { Substate.empty with originalAccountMap := accountMap }
+    substate     := { Substate.empty with
+                        originalAccountMap := accountMap
+                        accessedAccounts   := initAccessed }
     executionEnv := execEnv
     pc           := ⟨0⟩
     stack        := []
