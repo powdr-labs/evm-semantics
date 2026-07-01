@@ -930,9 +930,18 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         let benAddr := AccountAddress.ofUInt256 beneficiary
         let ben     := s.accountMap benAddr
         let selfBal : Bool := (s.accountMap s.executionEnv.address).balance.toNat != 0
+        -- EIP-2929: cold-access surcharge on the beneficiary, folded into
+        -- the total surcharge so a cold OOG fires before the transfer.
+        -- Also warm the beneficiary if the surcharge succeeds.
+        let coldSurch := Gas.accountAccessSurcharge s.fork
+                           (s.substate.isWarmAccount benAddr)
         let surcharge := Gas.selfDestructSurcharge s.fork ben.isEmpty selfBal
+                           + coldSurch
         if hsc : surcharge ≤ s'.gasAvailable then
-          .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
+          let s2 : State :=
+            let sc := s'.consumeGas surcharge hsc
+            { sc with substate := sc.substate.addAccessedAccount benAddr }
+          .ok (s2.selfDestructTo benAddr)
         else .error .OutOfGas
     | _ => underflow
   | .CREATE => match s.stack with
@@ -952,6 +961,10 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
             -- `Rlp.encodeAddrNonce_isSome`).
             let newAddr := createAddress s2.executionEnv.address
                               (s2.accountMap s2.executionEnv.address).nonce
+            -- EIP-2929: warm the just-derived address so a later CALL to
+            -- it in the same tx pays the warm price.
+            let s2 : State :=
+              { s2 with substate := s2.substate.addAccessedAccount newAddr }
             -- EIP-150 forwards 63/64 of the post-cost gas to the
             -- child; that amount is taken from the caller *regardless
             -- of whether creation succeeds or collides*, since on
@@ -994,13 +1007,18 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
                      (UInt256.ofNat 0 :: rest))
             else
+              -- EIP-2929: warm the just-derived CREATE2 address so a
+              -- later CALL to it in the same tx pays the warm price.
+              let newAddr := create2Address s2'.executionEnv.address salt
+                               (MachineState.readPadded s2'.memory
+                                  offset.toNat size.toNat)
+              let s2' : State :=
+                { s2' with substate := s2'.substate.addAccessedAccount newAddr }
               -- See CREATE above: forward gas is consumed even on collision.
               if hfw : Gas.allButOneSixtyFourth s.fork s2'.gasAvailable ≤ s2'.gasAvailable then
                 let forwarded := Gas.allButOneSixtyFourth s.fork s2'.gasAvailable
                 let s3 := s2'.consumeGas forwarded hfw
-                match (s3.accountMap (create2Address s3.executionEnv.address salt
-                         (MachineState.readPadded s3.memory
-                            offset.toNat size.toNat))).isContract with
+                match (s3.accountMap newAddr).isContract with
                 | true =>
                   let caller    := s3.executionEnv.address
                   let callerAcc := s3.accountMap caller
@@ -1010,9 +1028,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                        }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                 | false =>
                   let initCode := MachineState.readPadded s3.memory offset.toNat size.toNat
-                  .ok (s3.enterCreate rest
-                         (create2Address s3.executionEnv.address salt initCode)
-                         value initCode forwarded)
+                  .ok (s3.enterCreate rest newAddr value initCode forwarded)
               else .error .OutOfGas
           else .error .OutOfGas
     | _ => underflow
