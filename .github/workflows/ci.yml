@@ -165,11 +165,13 @@ jobs:
           # `statetests_run.sh` walks the dir tree via `find … -name '*.json'`,
           # so pointing it at the parent `GeneralStateTests` picks up every
           # subdir the sparse-checkout has materialised. Per-file wall-cap
-          # (45s) + parallelism (4): bounds CI time despite the evaluator's
-          # slow functional world-state maps. Deep-recursion tests that
-          # exceed the cap are recorded as INCON (wall-timeout), never hang.
+          # (45s); parallelism defaults to `nproc` (4 on the GitHub-hosted
+          # standard runner). Deep-recursion tests that exceed the cap are
+          # recorded as INCON (wall-timeout), never hang. Progress lines
+          # (per-slow-file + every-200 heartbeat + top-N slowest at the
+          # end) go to stderr and land in the job log.
           .github/scripts/statetests_run.sh \
-            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 4 \
+            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 \
             | tee statetests-output.txt
 
       # GATING: this step fails the job if a previously-passing CALL test now
