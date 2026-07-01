@@ -47,19 +47,29 @@ Use `--file <one>.json` to run a single test in its own process for isolation.
 pass=602 fail=0 incon=7 crash=0
 ```
 
-**StateTests (curated 42-dir subset, 13589 per-fork test cases across
+**StateTests (curated 44-dir subset, 17855 per-fork test cases across
 Frontier · Homestead · Tangerine Whistle · Spurious Dragon · Byzantium ·
 Constantinople · ConstantinopleFix)**:
 ```
-pass(root=13535 full+=36 core+=17) fail=0 incon=1 crash=0
+pass(root=17775 full+=36 core+=18) fail=26 incon=0 crash=0
 ```
-Every test in the curated subset matches the corpus at least at the
-`pass_core` tier (storage / nonce / code identical to Geth) — with no
-`fail`/`crash`. 13535 of 13589 also match at the world-state MPT root
-level (bit-identical postState). Precompiles implemented: ECRECOVER
-(0x01), SHA-256 (0x02), RIPEMD-160 (0x03), IDENTITY (0x04),
-MODEXP (0x05, Byzantium+), BLAKE2F (0x09, Istanbul+). A future
-`pass -> fail` transition against the pinned baseline is a regression.
+Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
+- `pass_root` = world MPT `stateRoot` matches the corpus's
+  `blockHeader.stateRoot` (every byte of the post-state matches what
+  Geth would produce).
+- `pass_full` = every field the test's `postState` enumerates matches
+  (storage, nonce, code, *and* balance), but the MPT root differs.
+- `pass_core` = storage / nonce / code match but balance is off.
+- `fail` — every precompile the curated corpus exercises is
+  implemented: ECRECOVER (0x01), SHA-256 (0x02), RIPEMD-160 (0x03),
+  IDENTITY (0x04), MODEXP (0x05, Byzantium+), ECADD (0x06), ECMUL
+  (0x07), ECPAIRING (0x08), BLAKE2F (0x09, Istanbul+). A future
+  pass -> fail transition against the pinned baseline is a
+  regression. Individual precompile modules also ship with unit-test
+  executables (`ecrecover_test`, `sha256_test`, `ripemd160_test`,
+  `ecadd_ecmul_test`, `ecpairing_test`, `blake2f_test`) that pin
+  them to known-good test vectors independently of the end-to-end
+  statetests.
 
 The MPT comparison lives in `EvmSemantics.Data.Mpt`:
 `AccountMap.stateRoot σ fork` builds the world-state trie (RLP-encoded
@@ -75,7 +85,7 @@ otherwise stay in the trie).
   from that suffix and configures the gas schedule accordingly. Variants
   whose network isn't yet activated are skipped silently and don't count
   toward the tally.
-- **The 42 dirs in CI** (alphabetical):
+- **The 44 dirs in CI** (alphabetical):
   `stArgsZeroOneBalance`, `stAttackTest`, `stBadOpcode`, `stBugs`,
   `stCallCodes`, `stCallCreateCallCodeTest`,
   `stCallDelegateCodesCallCodeHomestead`,
@@ -89,7 +99,8 @@ otherwise stay in the trie).
   `stRandom2`, `stRecursiveCreate`, `stRefundTest`, `stReturnDataTest`,
   `stShift`, `stSolidityTest`, `stSpecialTest`, `stStackTests`,
   `stStaticCall`, `stSystemOperationsTest`, `stTransactionTest`,
-  `stTransitionTest`, `stZeroCallsRevert`, `stZeroCallsTest`.
+  `stTransitionTest`, `stZeroCallsRevert`, `stZeroCallsTest`,
+  `stZeroKnowledge`, `stZeroKnowledge2`.
   Add a directory to the sparse-checkout in
   `.github/workflows/ci.yml` and regenerate the baseline once the
   evaluator passes every variant in that directory (`fail = 0`;
