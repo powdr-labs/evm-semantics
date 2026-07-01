@@ -4,6 +4,7 @@ public import EvmSemantics.Data.UInt256
 public import EvmSemantics.State.Account
 public import EvmSemantics.EVM.Fork
 public import EvmSemantics.Crypto.Sha256
+public import EvmSemantics.Crypto.Ripemd160
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -42,8 +43,8 @@ Extending with a new precompile is a synchronized three-line edit:
    precompile is fork-conditional) to `isPrecompile`.
 3. Add a `if addr = fooAddress then runFoo …` branch in `run`.
 
-This file currently implements `0x02 SHA-256` and `0x04 IDENTITY`
-(both available from Frontier onwards).
+This file currently implements `0x02 SHA-256`, `0x03 RIPEMD-160`, and
+`0x04 IDENTITY` (all available from Frontier onwards).
 -/
 
 @[expose] public section
@@ -86,6 +87,35 @@ def runSha256 (input : ByteArray) (childGas : Nat) : Result :=
   else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x03 RIPEMD-160.
+----------------------------------------------------------------------------
+
+/-- The RIPEMD-160 precompile's address `0x03`. -/
+def ripemd160Address : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 3)
+
+/-- RIPEMD-160 gas (YP §9.4.3): `G_ripemd + G_ripemdword · ⌈|input|/32⌉
+    = 600 + 120 · ⌈|input|/32⌉`. -/
+@[inline] def ripemd160Gas (input : ByteArray) : Nat :=
+  600 + 120 * ((input.size + 31) / 32)
+
+/-- Run the `0x03 RIPEMD-160` precompile: returns `RIPEMD-160(input)`
+    as a 20-byte little-endian digest, zero-padded on the *left* to
+    32 bytes (12 leading zeros + digest), consuming `ripemd160Gas
+    input` gas. -/
+def runRipemd160 (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := ripemd160Gas input
+  if cost ≤ childGas then
+    let digest := Crypto.Ripemd160.hash input
+    -- Pad 12 leading zero bytes to fill the 32-byte precompile output.
+    let padded : ByteArray := Id.run do
+      let mut acc : ByteArray := ByteArray.empty
+      for _ in [0:12] do acc := acc.push 0
+      acc ++ digest
+    .success padded cost
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- 0x04 IDENTITY — return calldata unchanged.
 ----------------------------------------------------------------------------
 
@@ -109,19 +139,18 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
 ----------------------------------------------------------------------------
 
 /-- True iff `addr` is one of the precompile addresses *we model* in
-    `fork`. Currently: SHA-256 (`0x02`) and IDENTITY (`0x04`), both
-    available since Frontier. As we add precompiles, this function
-    grows in lockstep with `run`'s branches; `run`'s totality proof
-    tracks that they stay aligned.
+    `fork`. Currently: SHA-256 (`0x02`), RIPEMD-160 (`0x03`), and
+    IDENTITY (`0x04`), all available since Frontier. As we add
+    precompiles, this function grows in lockstep with `run`'s
+    branches; `run`'s totality proof tracks that they stay aligned.
 
     The `fork` argument is part of the signature because the YP set
-    is fork-dependent — ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
-    BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague —
-    even though the entries modelled today (SHA-256, IDENTITY) are
-    available in every fork, so the body doesn't yet branch on it. -/
+    is fork-dependent — ECRECOVER (`0x01`) is Frontier too but not
+    yet modelled; ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
+    BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague. -/
 @[nolint unusedArguments]
 def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
-  addr = sha256Address || addr = identityAddress
+  addr = sha256Address || addr = ripemd160Address || addr = identityAddress
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -135,6 +164,8 @@ def run (fork : Fork) (addr : AccountAddress)
         (h : isPrecompile fork addr = true) : Result :=
   if h_sha : addr = sha256Address then
     runSha256 input childGas
+  else if h_rmd : addr = ripemd160Address then
+    runRipemd160 input childGas
   else if h_id : addr = identityAddress then
     runIdentity input childGas
   -- Add new precompiles here as further branches.
@@ -142,7 +173,7 @@ def run (fork : Fork) (addr : AccountAddress)
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
-    absurd h (by simp [isPrecompile, h_sha, h_id])
+    absurd h (by simp [isPrecompile, h_sha, h_rmd, h_id])
 
 end Precompile
 end EVM

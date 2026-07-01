@@ -44,6 +44,10 @@ name = "sha256_test"
 root = "tests.Sha256Test"
 
 [[lean_exe]]
+name = "ripemd160_test"
+root = "tests.Ripemd160Test"
+
+[[lean_exe]]
 name = "mpt_smoke"
 root = "tests.MptSmoke"
 
