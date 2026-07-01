@@ -61,7 +61,11 @@ Three tiers, strongest-first (`pass_root ⊃ pass_full ⊃ pass_core`):
   (storage, nonce, code, *and* balance), but the MPT root differs —
   usually because some account our run touched isn't in the test's
   enumerated `postState`, or some slot we wrote to isn't in the
-  enumerated storage. 39 of 9664.
+  enumerated storage. 39 of 9664. Includes the two
+  `stAttackTest/ContractCreationSpam_d0g0v0` variants (`_Frontier`
+  and `_Homestead`) that spam-create ~8500 accounts, where the
+  divergence at scale hides a subtle CREATE-derivation or gas-cost
+  off-by-one that only shows up after thousands of nested CREATEs.
 - `pass_core` = storage / nonce / code match but balance is off. 161
   of 9664. Dominated by (i) contracts that invoke unimplemented
   precompiles (`0x03` RIPEMD160, `0x05` MODEXP) — we treat the

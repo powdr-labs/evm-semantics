@@ -269,10 +269,27 @@ def runOne (testObj : Json) (fork : Fork) : Outcome :=
         | [] => match cmpPost result.finalAccounts pre post true with
                 | [] =>
                   -- All fields the test enumerates match. Try the
-                  -- strongest tier: world-state MPT root match.
+                  -- strongest tier: world-state MPT root match. The
+                  -- `wasInPreState` predicate lets the trie's EIP-161
+                  -- filter distinguish pre-existing empty accounts
+                  -- (kept — YP's "untouched → keep") from touched-
+                  -- empty accounts added during the tx (dropped).
                   let expHex := strField (subObj block "blockHeader") "stateRoot"
                   let expRoot := hexToUInt256 expHex
-                  match AccountMap.stateRoot result.finalAccounts fork with
+                  -- `wasInPreState` decides whether an empty account
+                  -- can stay in the trie (per EIP-161's "untouched"
+                  -- rule). Pre-state entries stay — UNLESS the
+                  -- address is a precompile (0x01..0x09), which is
+                  -- implicitly "touched" whenever any code runs
+                  -- (transaction- or contract-level access to the
+                  -- precompile counts as a touch, so an empty
+                  -- precompile always ends touched and gets pruned).
+                  let isPrecompileAddr (a : AccountAddress) : Bool :=
+                    let n := a.val
+                    decide (1 ≤ n) && decide (n ≤ 9)
+                  let wasInPreState : AccountAddress → Bool :=
+                    fun a => preMap.contains a && ¬ isPrecompileAddr a
+                  match AccountMap.stateRoot result.finalAccounts fork wasInPreState with
                   | some ourRoot =>
                     if ourRoot.toNat == expRoot.toNat then .passRoot
                     else .passFull
