@@ -98,16 +98,16 @@ structure Transaction where
     `data` is `T_d` — the calldata for a call tx, the init code for a
     create tx. -/
 def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.run do
-  let perNonZero := if fork.atLeast .Istanbul then 16 else 68
+  let perNonZero := if fork ≥ .Istanbul then 16 else 68
   let mut g := 21000
   for b in data do
     g := g + (if b == 0 then 4 else perNonZero)
   if isCreate then
     -- `G_txcreate = 32000` was introduced by Homestead (EIP-2);
     -- Frontier create-tx pays only the base 21000.
-    if fork.atLeast .Homestead then g := g + 32000
+    if fork ≥ .Homestead then g := g + 32000
     -- EIP-3860 init-code word cost: 2 per 32-byte word.
-    if fork.atLeast .Shanghai then g := g + 2 * ((data.size + 31) / 32)
+    if fork ≥ .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
 
 /-- The fueled small-step loop. `stepF` is already total (it folds
@@ -151,7 +151,7 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
   let preMap :=
     if tx.isCreate then
       let existing := preMap toAddr
-      let n : UInt256 := if fork.atLeast .SpuriousDragon then ⟨1⟩ else ⟨0⟩
+      let n : UInt256 := if fork ≥ .SpuriousDragon then ⟨1⟩ else ⟨0⟩
       preMap.set toAddr { existing with nonce := n }
     else preMap
   let accountMap := preMap.transfer tx.sender toAddr tx.value
@@ -222,7 +222,7 @@ structure ExecResult where
     Constantinople-era legacy corpus is pre-London, so divisor `2`
     applies for every variant in the current CI subset. -/
 @[inline] def gasRefundCapDivisor (fork : Fork) : Nat :=
-  if fork.atLeast .London then 5 else 2
+  if fork ≥ .London then 5 else 2
 
 /-- Per-fork PoW block reward paid to the coinbase. Block-level
     accounting (not tx-level), but `Tx.execute` adds it because the
@@ -237,9 +237,9 @@ structure ExecResult where
     * `Paris` onwards — `0`: the block reward moved to the consensus
       layer at the merge. -/
 def blockReward (fork : Fork) : Nat :=
-  if fork.atLeast .Paris then 0
-  else if fork.atLeast .Constantinople then 2 * 10^18
-  else if fork.atLeast .Byzantium then 3 * 10^18
+  if fork ≥ .Paris then 0
+  else if fork ≥ .Constantinople then 2 * 10^18
+  else if fork ≥ .Byzantium then 3 * 10^18
   else 5 * 10^18
 
 /-- YP §6.1 end-of-tx cleanup: delete every account that
@@ -434,7 +434,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
         if tx.isCreate then
           let hReturn := sf.hReturn
           let depositCost := State.codeDepositPerByte * hReturn.size
-          let oversized   := fork.atLeast .SpuriousDragon
+          let oversized   := fork ≥ .SpuriousDragon
                               && decide (hReturn.size > State.maxCodeSize)
           let badPrefix   := State.isReservedCodePrefix fork hReturn
           if depositCost ≤ sf.gasAvailable ∧ ¬ oversized ∧ ¬ badPrefix then

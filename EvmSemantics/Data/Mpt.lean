@@ -275,7 +275,7 @@ def stateRoot (σ : AccountMap) (fork : EvmSemantics.Fork)
   let entries := σ.toList
   -- EIP-161 (Spurious Dragon+) touched-empty pruning.
   let entries :=
-    if fork.atLeast .SpuriousDragon then
+    if fork ≥ .SpuriousDragon then
       entries.filter (fun (addr, a) =>
         ¬ Account.isStateRootEmpty a || wasInPreState addr)
     else entries

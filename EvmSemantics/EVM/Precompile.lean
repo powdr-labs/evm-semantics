@@ -55,7 +55,7 @@ Extending with a new precompile is a synchronized three-line edit:
 
 1. Add a `runFoo : ByteArray → Nat → Result` implementing the
    operation's behaviour and gas cost.
-2. Add `addr = fooAddress` (gated by `fork.atLeast …` if the
+2. Add `addr = fooAddress` (gated by `fork ≥ …` if the
    precompile is fork-conditional) to `isPrecompile`.
 3. Add a `if addr = fooAddress then runFoo …` branch in `run`.
 
@@ -318,7 +318,7 @@ def ecaddAddress : AccountAddress :=
     faster. Flat cost — the input is always 128 bytes after padding /
     truncation. -/
 @[inline] def ecaddGas (fork : Fork) : Nat :=
-  if fork.atLeast .Istanbul then 150 else 500
+  if fork ≥ .Istanbul then 150 else 500
 
 /-- Run the `0x06 ECADD` precompile. Invalid input (out-of-field
     coordinate or off-curve point) is treated as an EIP-196 failure:
@@ -346,7 +346,7 @@ def ecmulAddress : AccountAddress :=
     the scalar loop dominates but is bounded by the 256-bit word
     width. -/
 @[inline] def ecmulGas (fork : Fork) : Nat :=
-  if fork.atLeast .Istanbul then 6000 else 40000
+  if fork ≥ .Istanbul then 6000 else 40000
 
 /-- Run the `0x07 ECMUL` precompile. Invalid-input handling matches
     `runEcadd`. -/
@@ -372,7 +372,7 @@ def ecpairingAddress : AccountAddress :=
     `Base=45000, PerPair=34000`. -/
 @[inline] def ecpairingGas (fork : Fork) (input : ByteArray) : Nat :=
   let k := input.size / 192
-  if fork.atLeast .Istanbul then 45000 + 34000 * k else 100000 + 80000 * k
+  if fork ≥ .Istanbul then 45000 + 34000 * k else 100000 + 80000 * k
 
 /-- Run the `0x08 ECPAIRING` precompile. -/
 def runEcpairing (fork : Fork) (input : ByteArray) (childGas : Nat) : Result :=
@@ -611,12 +611,12 @@ def runBlsMapFp2ToG2 (input : ByteArray) (childGas : Nat) : Result :=
 def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
   addr = ecrecoverAddress || addr = sha256Address ||
     addr = ripemd160Address || addr = identityAddress ||
-    (fork.atLeast .Byzantium &&
+    (fork ≥ .Byzantium &&
       (addr = modexpAddress ||
        addr = ecaddAddress || addr = ecmulAddress || addr = ecpairingAddress)) ||
-    (fork.atLeast .Istanbul && addr = blake2fAddress) ||
-    (fork.atLeast .Cancun && addr = kzgAddress) ||
-    (fork.atLeast .Prague &&
+    (fork ≥ .Istanbul && addr = blake2fAddress) ||
+    (fork ≥ .Cancun && addr = kzgAddress) ||
+    (fork ≥ .Prague &&
       (addr = blsG1AddAddress || addr = blsG1MsmAddress ||
        addr = blsG2AddAddress || addr = blsG2MsmAddress ||
        addr = blsPairingAddress ||
@@ -640,7 +640,7 @@ def run (fork : Fork) (addr : AccountAddress)
     runRipemd160 input childGas
   else if h_id : addr = identityAddress then
     runIdentity input childGas
-  else if h_mx : fork.atLeast .Byzantium ∧ addr = modexpAddress then
+  else if h_mx : fork ≥ .Byzantium ∧ addr = modexpAddress then
     runModexp input childGas
   else if h_add : addr = ecaddAddress then
     runEcadd fork input childGas
@@ -648,9 +648,9 @@ def run (fork : Fork) (addr : AccountAddress)
     runEcmul fork input childGas
   else if h_pair : addr = ecpairingAddress then
     runEcpairing fork input childGas
-  else if h_bl : fork.atLeast .Istanbul ∧ addr = blake2fAddress then
+  else if h_bl : fork ≥ .Istanbul ∧ addr = blake2fAddress then
     runBlake2f input childGas
-  else if h_kzg : fork.atLeast .Cancun ∧ addr = kzgAddress then
+  else if h_kzg : fork ≥ .Cancun ∧ addr = kzgAddress then
     runKzg input childGas
   else if h_bg1 : addr = blsG1AddAddress then
     runBlsG1Add input childGas

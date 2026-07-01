@@ -14,9 +14,10 @@ GeneralStateTests corpus's `network` field — `Frontier`, `Homestead`,
 cold/warm access lists are *not* yet modelled — Cancun uses warm-priced
 placeholders.
 
-`Fork.atLeast a b` is the convenient `a ≥ b` ordering on the activation
-sequence; gas helpers branch on this instead of writing many `match`
-arms each. The ordering is the canonical activation order on mainnet.
+`Fork` carries the canonical mainnet activation order as its `≤` /
+`≥` — gas helpers branch on `fork ≥ .London` rather than pattern-
+matching every variant. The order is lifted from `Fork.toOrd`
+below via the standard `LE` / `LT` / `Decidable` instances.
 -/
 
 @[expose] public section
@@ -69,8 +70,9 @@ inductive Fork where
 
 namespace Fork
 
-/-- Ordinal position of `f` on the activation timeline. Used by
-    `atLeast` for compact `fork ≥ X` checks in the gas helpers. -/
+/-- Ordinal position of `f` on the activation timeline. The `LE` /
+    `LT` instances below delegate here, so `fork ≥ X` compares
+    positions on this scale. -/
 def toOrd : Fork → Nat
   | .Frontier        => 0
   | .Homestead       => 1
@@ -91,10 +93,18 @@ def toOrd : Fork → Nat
   | .Prague          => 16
   | .Osaka           => 17
 
-/-- `a.atLeast b` iff `a` is at or after `b` on the activation timeline.
-    Lets `Gas.baseCost`-style helpers say `fork.atLeast .TangerineWhistle` instead
-    of pattern-matching every variant. -/
-def atLeast (a b : Fork) : Bool := decide (a.toOrd ≥ b.toOrd)
+/-- `a ≤ b` iff `a` activated no later than `b` on mainnet. Lifted
+    from `toOrd` so `Nat` order does the work. -/
+instance : LE Fork := ⟨fun a b => a.toOrd ≤ b.toOrd⟩
+
+/-- `a < b` iff `a` activated strictly before `b`. -/
+instance : LT Fork := ⟨fun a b => a.toOrd < b.toOrd⟩
+
+instance (a b : Fork) : Decidable (a ≤ b) :=
+  inferInstanceAs (Decidable (a.toOrd ≤ b.toOrd))
+
+instance (a b : Fork) : Decidable (a < b) :=
+  inferInstanceAs (Decidable (a.toOrd < b.toOrd))
 
 end Fork
 
