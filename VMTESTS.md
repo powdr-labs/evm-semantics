@@ -282,10 +282,12 @@ each with:
      modelled (a pre-existing gas gap).
   Storage/nonce/code are unaffected by either, so `passCore` is the honest,
   expected tier. A passCore-heavy baseline is **not** a regression.
-- **Transaction-validity rejection is not modelled.** Fixtures marked
-  `expectException` (e.g. `INTRINSIC_GAS_TOO_LOW`) expect the tx fully rejected
-  with zero state change; our tx layer still bumps the sender nonce, so those
-  show as `FAIL` (baselined — the two `invalidTr` cases).
+- **Transaction validity is only partially enforced.** The YP §6.2 intrinsic-gas
+  gate *is* enforced: a tx with `g₀ > gasLimit` is rejected with zero state
+  change (fixes the `INTRINSIC_GAS_TOO_LOW` `invalidTr` cases, which now pass at
+  `passRoot`). The remaining validity conditions (upfront-balance affordability,
+  `gasLimit ≤ block gasLimit`, nonce match) are not yet gated in `Tx.execute`;
+  fixtures that hinge on those may still diverge.
 - **Logs** (`logsHash`) are not compared (no RLP-of-logs encoder), same as the
   legacy statetests runner.
 
@@ -326,5 +328,5 @@ The curated dirs are `stExample`, `stStackTests`, `stShift`, `stCodeCopyTest`
 
 Current results (curated subset, Cancun + Prague):
 ```
-pass(root=0 full+=387 core+=517) fail=2 incon=10 crash=0 (total 916)
+pass(root=2 full+=387 core+=517) fail=0 incon=10 crash=0 (total 916)
 ```
