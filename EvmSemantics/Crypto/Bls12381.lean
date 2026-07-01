@@ -7,7 +7,7 @@ public import EvmSemantics.Crypto.Fp12
 public import EvmSemantics.Crypto.G2
 
 /-!
-`EvmSemantics.Crypto.Bls12_381` — the BLS12-381 curve constants plus
+`EvmSemantics.Crypto.Bls12381` — the BLS12-381 curve constants plus
 concrete tower-type bindings.
 
 BLS12-381 is a short-Weierstrass pairing-friendly curve
@@ -30,14 +30,14 @@ free. BLS12-381's sextic non-residue is `ξ = 1 + u ∈ Fp2` —
 
 @[expose] public section
 
-namespace EvmSemantics.Crypto.Bls12_381
+namespace EvmSemantics.Crypto.Bls12381
 
 /-- The BLS parameter `u = −0xd201000000010000` (a specific negative
     integer of Hamming weight 6 in NAF, chosen so that both `p` and
     the group order are prime). We store its absolute value here;
     the negative sign is applied in the Miller loop (which iterates
     over `|u|` in binary and inverts the accumulator for the
-    negative-`u` half — see `Bls12_381.Pairing`). -/
+    negative-`u` half — see `Bls12381.Pairing`). -/
 def absU : Nat := 0xd201000000010000
 
 /-- BLS12-381 base-field prime `p`. Formula: `p = (u−1)² · (u⁴ − u² + 1)/3 + u`
@@ -135,7 +135,7 @@ def G2 : G2Point :=
     { c0 := Fin.ofNat _ G2xC0, c1 := Fin.ofNat _ G2xC1 }
     { c0 := Fin.ofNat _ G2yC0, c1 := Fin.ofNat _ G2yC1 }
 
-end EvmSemantics.Crypto.Bls12_381
+end EvmSemantics.Crypto.Bls12381
 
 /-- BLS12-381's sextic non-residue is `ξ = 1 + u ∈ Fp2`. Multiplication
     by `ξ` has an especially fast specialised form — just two
@@ -143,5 +143,6 @@ end EvmSemantics.Crypto.Bls12_381
     `(a₀ + a₁·u) · (1 + u) = (a₀ − a₁) + (a₀ + a₁)·u`.
     Compared to BN254's `9 + u` this saves the two multiplications
     by 9 per Fp6 op. -/
-@[inline] instance : SexticNonResidue EvmSemantics.Crypto.Bls12_381.p where
+@[inline] instance instBls12381SexticNonResidue :
+    SexticNonResidue EvmSemantics.Crypto.Bls12381.p where
   mulByXi a := { c0 := a.c0 - a.c1, c1 := a.c0 + a.c1 }

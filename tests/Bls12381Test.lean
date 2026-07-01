@@ -1,8 +1,8 @@
-import EvmSemantics.Crypto.Bls12_381_Pairing
+import EvmSemantics.Crypto.Bls12381Pairing
 
-open EvmSemantics.Crypto.Bls12_381 (G G2 addPoint)
+open EvmSemantics.Crypto.Bls12381 (G G2 addPoint)
 open EvmSemantics.Crypto.G2 (negate)
-open EvmSemantics.Crypto.Bls12_381_Pairing (pairing multiPairing)
+open EvmSemantics.Crypto.Bls12381Pairing (pairing multiPairing)
 
 /-! Smoke test for the BLS12-381 optimal ate pairing.
 

@@ -13,6 +13,9 @@ public import EvmSemantics.Crypto.Ecadd
 public import EvmSemantics.Crypto.Ecmul
 public import EvmSemantics.Crypto.Ecpairing
 public import EvmSemantics.Crypto.Blake2f
+public import EvmSemantics.Crypto.Bls12381G1Add
+public import EvmSemantics.Crypto.Bls12381G2Add
+public import EvmSemantics.Crypto.Bls12381PairingCheck
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -426,6 +429,63 @@ def runBlake2f (input : ByteArray) (childGas : Nat) : Result :=
       else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x0B BLS12_G1ADD — BLS12-381 G₁ point addition (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0B`. -/
+def blsG1AddAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0b)
+
+/-- Gas cost: flat 375 (EIP-2537). -/
+@[inline] def blsG1AddGas : Nat := 375
+
+/-- Run BLS12_G1ADD. Invalid input → all-gas-consumed. -/
+def runBlsG1Add (input : ByteArray) (childGas : Nat) : Result :=
+  if blsG1AddGas ≤ childGas then
+    match Crypto.Bls12381G1Add.run? input with
+    | some output => .success output blsG1AddGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0D BLS12_G2ADD — BLS12-381 G₂ point addition (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0D`. -/
+def blsG2AddAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0d)
+
+/-- Gas cost: flat 600 (EIP-2537). -/
+@[inline] def blsG2AddGas : Nat := 600
+
+/-- Run BLS12_G2ADD. -/
+def runBlsG2Add (input : ByteArray) (childGas : Nat) : Result :=
+  if blsG2AddGas ≤ childGas then
+    match Crypto.Bls12381G2Add.run? input with
+    | some output => .success output blsG2AddGas
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
+-- 0x0F BLS12_PAIRING_CHECK — BLS12-381 multi-pairing (Prague+, EIP-2537).
+----------------------------------------------------------------------------
+
+/-- Address `0x0F`. -/
+def blsPairingAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0f)
+
+/-- Gas cost per EIP-2537: `32600 + 43000 · k` where `k` is the
+    number of `(G₁, G₂)` pairs (`|input| / 384`). -/
+@[inline] def blsPairingGas (input : ByteArray) : Nat :=
+  32600 + 43000 * (input.size / 384)
+
+/-- Run BLS12_PAIRING_CHECK. -/
+def runBlsPairing (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := blsPairingGas input
+  if cost ≤ childGas then
+    match Crypto.Bls12381PairingCheck.run? input with
+    | some output => .success output cost
+    | none        => .outOfGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
@@ -447,7 +507,10 @@ def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
     (fork.atLeast .Byzantium &&
       (addr = modexpAddress ||
        addr = ecaddAddress || addr = ecmulAddress || addr = ecpairingAddress)) ||
-    (fork.atLeast .Istanbul && addr = blake2fAddress)
+    (fork.atLeast .Istanbul && addr = blake2fAddress) ||
+    (fork.atLeast .Prague &&
+      (addr = blsG1AddAddress || addr = blsG2AddAddress ||
+       addr = blsPairingAddress))
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -477,13 +540,20 @@ def run (fork : Fork) (addr : AccountAddress)
     runEcpairing fork input childGas
   else if h_bl : fork.atLeast .Istanbul ∧ addr = blake2fAddress then
     runBlake2f input childGas
+  else if h_bg1 : addr = blsG1AddAddress then
+    runBlsG1Add input childGas
+  else if h_bg2 : addr = blsG2AddAddress then
+    runBlsG2Add input childGas
+  else if h_bp : addr = blsPairingAddress then
+    runBlsPairing input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
     absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx,
-                                     h_add, h_mul, h_pair, h_bl])
+                                     h_add, h_mul, h_pair, h_bl,
+                                     h_bg1, h_bg2, h_bp])
 
 end Precompile
 end EVM

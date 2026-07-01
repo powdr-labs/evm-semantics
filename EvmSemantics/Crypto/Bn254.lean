@@ -110,5 +110,6 @@ end EvmSemantics.Crypto.Bn254
     `(a₀ + a₁·u) · (9 + u) = (9a₀ − a₁) + (a₀ + 9a₁)·u`.
     Two constant-multiplications-by-9 + two additions rather than the
     generic Fp2 mul's three base-field muls. -/
-@[inline] instance : SexticNonResidue EvmSemantics.Crypto.Bn254.p where
+@[inline] instance instBn254SexticNonResidue :
+    SexticNonResidue EvmSemantics.Crypto.Bn254.p where
   mulByXi a := { c0 := 9 * a.c0 - a.c1, c1 := a.c0 + 9 * a.c1 }

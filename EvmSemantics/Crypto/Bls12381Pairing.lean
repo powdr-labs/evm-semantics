@@ -5,10 +5,10 @@ public import EvmSemantics.Crypto.Fp2
 public import EvmSemantics.Crypto.Fp6
 public import EvmSemantics.Crypto.Fp12
 public import EvmSemantics.Crypto.G2
-public import EvmSemantics.Crypto.Bls12_381
+public import EvmSemantics.Crypto.Bls12381
 
 /-!
-`EvmSemantics.Crypto.Bls12_381_Pairing` — BLS12-381 optimal ate
+`EvmSemantics.Crypto.Bls12381Pairing` — BLS12-381 optimal ate
 pairing.
 
 Structurally the same as BN254's optimal ate pairing
@@ -35,17 +35,17 @@ The Miller loop bit count is 64 (bit-length of `|u|`), vs BN254's
 
 @[expose] public section
 
-namespace EvmSemantics.Crypto.Bls12_381_Pairing
+namespace EvmSemantics.Crypto.Bls12381Pairing
 
 open EvmSemantics.Crypto.EC
 open EvmSemantics.Crypto.G2
-open EvmSemantics.Crypto.Bls12_381 (p N Fp Fp2 Fp12 Point G2Point)
+open EvmSemantics.Crypto.Bls12381 (p N Fp Fp2 Fp12 Point G2Point)
 
 /-- The Miller-loop counter `|u| = 0xd201000000010000` for BLS12-381,
     where `u` is the (negative) BLS parameter. 64 bits wide, 6 non-
     zero bits (low Hamming weight — the reason BLS curves have
     fast pairings). -/
-def ateLoopCount : Nat := EvmSemantics.Crypto.Bls12_381.absU
+def ateLoopCount : Nat := EvmSemantics.Crypto.Bls12381.absU
 
 ----------------------------------------------------------------------------
 -- Fp12 embedding + line-function evaluation.
@@ -188,4 +188,4 @@ def multiPairing (pairs : List (Point × G2Point)) : Fp12 :=
   let miller := pairs.foldl (fun acc (P, Q) => acc * millerLoop Q P) 1
   finalExp miller
 
-end EvmSemantics.Crypto.Bls12_381_Pairing
+end EvmSemantics.Crypto.Bls12381Pairing

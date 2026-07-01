@@ -64,8 +64,8 @@ name = "blake2f_test"
 root = "tests.Blake2fTest"
 
 [[lean_exe]]
-name = "bls12_381_test"
-root = "tests.Bls12_381Test"
+name = "bls12381_test"
+root = "tests.Bls12381Test"
 
 [[lean_exe]]
 name = "ecrecover_bench"
