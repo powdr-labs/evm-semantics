@@ -3,6 +3,7 @@ module
 public import EvmSemantics.Data.UInt256
 public import EvmSemantics.State.Account
 public import EvmSemantics.EVM.Fork
+public import EvmSemantics.Crypto.Sha256
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -41,8 +42,8 @@ Extending with a new precompile is a synchronized three-line edit:
    precompile is fork-conditional) to `isPrecompile`.
 3. Add a `if addr = fooAddress then runFoo …` branch in `run`.
 
-This file currently implements only `0x04 IDENTITY` (available from
-Frontier onwards).
+This file currently implements `0x02 SHA-256` and `0x04 IDENTITY`
+(both available from Frontier onwards).
 -/
 
 @[expose] public section
@@ -63,6 +64,26 @@ inductive Result where
       transfer (if any) is rolled back via the resume-time snapshot. -/
   | outOfGas
   deriving Inhabited
+
+----------------------------------------------------------------------------
+-- 0x02 SHA-256.
+----------------------------------------------------------------------------
+
+/-- The SHA-256 precompile's address `0x02`. -/
+def sha256Address : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 2)
+
+/-- SHA-256 gas (YP §9.4.2): `G_sha256 + G_sha256word · ⌈|input|/32⌉
+    = 60 + 12 · ⌈|input|/32⌉`. -/
+@[inline] def sha256Gas (input : ByteArray) : Nat :=
+  60 + 12 * ((input.size + 31) / 32)
+
+/-- Run the `0x02 SHA-256` precompile: returns `SHA-256(input)` as a
+    32-byte big-endian digest, consuming `sha256Gas input` gas. -/
+def runSha256 (input : ByteArray) (childGas : Nat) : Result :=
+  let cost := sha256Gas input
+  if cost ≤ childGas then .success (Crypto.Sha256.hash input) cost
+  else .outOfGas
 
 ----------------------------------------------------------------------------
 -- 0x04 IDENTITY — return calldata unchanged.
@@ -88,19 +109,19 @@ def runIdentity (input : ByteArray) (childGas : Nat) : Result :=
 ----------------------------------------------------------------------------
 
 /-- True iff `addr` is one of the precompile addresses *we model* in
-    `fork`. Currently: just IDENTITY (`0x04`), available since
-    Frontier. As we add precompiles, this function grows in lockstep
-    with `run`'s branches; `run`'s totality proof tracks that they stay
-    aligned.
+    `fork`. Currently: SHA-256 (`0x02`) and IDENTITY (`0x04`), both
+    available since Frontier. As we add precompiles, this function
+    grows in lockstep with `run`'s branches; `run`'s totality proof
+    tracks that they stay aligned.
 
     The `fork` argument is part of the signature because the YP set
     is fork-dependent — ECADD/ECMUL/ECPAIRING/MODEXP from Byzantium,
     BLAKE2F from Istanbul, KZG from Cancun, BLS12-381 from Prague —
-    even though the only modelled entry today (`identity`) is
+    even though the entries modelled today (SHA-256, IDENTITY) are
     available in every fork, so the body doesn't yet branch on it. -/
 @[nolint unusedArguments]
 def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
-  addr = identityAddress
+  addr = sha256Address || addr = identityAddress
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -112,14 +133,16 @@ def isPrecompile (_fork : Fork) (addr : AccountAddress) : Bool :=
 def run (fork : Fork) (addr : AccountAddress)
         (input : ByteArray) (childGas : Nat)
         (h : isPrecompile fork addr = true) : Result :=
-  if h_id : addr = identityAddress then
+  if h_sha : addr = sha256Address then
+    runSha256 input childGas
+  else if h_id : addr = identityAddress then
     runIdentity input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
     -- true` is matched by a branch above. `absurd h …` discharges
     -- this case from `h` plus the negated branch guards.
-    absurd h (by simp [isPrecompile, h_id])
+    absurd h (by simp [isPrecompile, h_sha, h_id])
 
 end Precompile
 end EVM
