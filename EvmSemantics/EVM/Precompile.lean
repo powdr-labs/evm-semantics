@@ -272,16 +272,51 @@ def adjustedExpLen (esize expHead : Nat) : Nat :=
 
 /-- Byzantium MODEXP gas cost per EIP-198: `mult_complexity(max
     Bsize Msize) * max(adjustedExpLen, 1) / 20`. -/
-def modexpGas (bsize esize msize expHead : Nat) : Nat :=
+def modexpGasByzantium (bsize esize msize expHead : Nat) : Nat :=
   let adj := Nat.max (adjustedExpLen esize expHead) 1
   multComplexity (Nat.max bsize msize) * adj / 20
+
+/-- Berlin+ MODEXP gas per EIP-2565: `max(200, ⌈max(Bsize, Msize)/8⌉² *
+    max(adjustedExpLen, 1) / 3)`. The unit switched from bytes to
+    64-bit words, and the piecewise `multComplexity` was replaced by
+    a plain square. -/
+def modexpGasBerlin (bsize esize msize expHead : Nat) : Nat :=
+  let words := (Nat.max bsize msize + 7) / 8
+  let adj := Nat.max (adjustedExpLen esize expHead) 1
+  Nat.max 200 (words * words * adj / 3)
+
+/-- Osaka MODEXP gas per EIP-7883, on top of the EIP-2565 skeleton:
+    * multiplicative complexity: `16` when `max(Bsize, Msize) ≤ 32`
+      bytes, else `2 · words²` (i.e. doubled vs. EIP-2565);
+    * iteration count: EIP-2565's, doubled if `Esize > 32`;
+    * floor raised from 200 to 500. -/
+def modexpGasOsaka (bsize esize msize expHead : Nat) : Nat :=
+  let maxLen := Nat.max bsize msize
+  let words := (maxLen + 7) / 8
+  let mult := if maxLen ≤ 32 then 16 else 2 * words * words
+  let iter0 := Nat.max (adjustedExpLen esize expHead) 1
+  let iter := if esize > 32 then iter0 * 2 else iter0
+  Nat.max 500 (mult * iter / 3)
+
+/-- EIP-7823 (Osaka): each of `Bsize`, `Esize`, `Msize` is bounded
+    at 1024 bytes; the precompile fails (OOG) if any exceeds. -/
+@[inline] def modexpOsakaInputTooLarge (bsize esize msize : Nat) : Bool :=
+  bsize > 1024 ∨ esize > 1024 ∨ msize > 1024
+
+/-- Fork-aware MODEXP gas: EIP-198 pre-Berlin, EIP-2565 Berlin–Prague,
+    EIP-7883 from Osaka onwards. Byzantium is the earliest fork where
+    MODEXP exists (the caller in `run` already gates on that). -/
+@[inline] def modexpGas (fork : Fork) (bsize esize msize expHead : Nat) : Nat :=
+  if fork ≥ .Osaka  then modexpGasOsaka  bsize esize msize expHead
+  else if fork ≥ .Berlin then modexpGasBerlin bsize esize msize expHead
+  else modexpGasByzantium bsize esize msize expHead
 
 /-- Run the `0x05 MODEXP` precompile. Parses `(Bsize, Esize, Msize,
     B, E, M)` out of `input` (with EIP-198's trailing-zero
     normalisation), computes the gas cost, and — if it fits in
     `childGas` — returns `B^E mod M` as a `Msize`-byte big-endian
     output. -/
-def runModexp (input : ByteArray) (childGas : Nat) : Result :=
+def runModexp (fork : Fork) (input : ByteArray) (childGas : Nat) : Result :=
   let bsize := bytesToNatPadded input 0 32
   let esize := bytesToNatPadded input 32 32
   let msize := bytesToNatPadded input 64 32
@@ -291,7 +326,12 @@ def runModexp (input : ByteArray) (childGas : Nat) : Result :=
   let expHead :=
     let n := Nat.min esize 32
     bytesToNatPadded input (96 + bsize) n
-  let cost := modexpGas bsize esize msize expHead
+  -- EIP-7823 (Osaka): reject any input whose Bsize/Esize/Msize
+  -- exceeds 1024 bytes. Consume `childGas` (mapped to `.outOfGas` by
+  -- the CALL-family dispatcher).
+  if fork ≥ .Osaka ∧ modexpOsakaInputTooLarge bsize esize msize then .outOfGas
+  else
+  let cost := modexpGas fork bsize esize msize expHead
   if cost ≤ childGas then
     -- Special YP §4.1 edge case: `Msize = 0` returns the empty byte
     -- string (no bytes to encode). This is the natural output of
@@ -641,7 +681,7 @@ def run (fork : Fork) (addr : AccountAddress)
   else if h_id : addr = identityAddress then
     runIdentity input childGas
   else if h_mx : fork ≥ .Byzantium ∧ addr = modexpAddress then
-    runModexp input childGas
+    runModexp fork input childGas
   else if h_add : addr = ecaddAddress then
     runEcadd fork input childGas
   else if h_mul : addr = ecmulAddress then
