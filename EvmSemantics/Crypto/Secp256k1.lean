@@ -27,6 +27,10 @@ def p : Nat := 2^256 - 2^32 - 977
 def N : Nat :=
   0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 
+/-- `p` is nonzero — required for `Fin p` (and hence `FF p`) to be
+    inhabited and for the numeric-tower instances to resolve. -/
+instance : NeZero p := ⟨by unfold p; omega⟩
+
 /-- Generator `x`-coordinate. -/
 def Gx : Nat :=
   0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798

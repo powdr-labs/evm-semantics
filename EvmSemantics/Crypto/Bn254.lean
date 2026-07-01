@@ -37,6 +37,12 @@ def p : Nat := 36*u^4 + 36*u^3 + 24*u^2 + 6*u + 1
     `21888242871839275222246405745257275088548364400416034343698204186575808495617`. -/
 def N : Nat := 36*u^4 + 36*u^3 + 18*u^2 + 6*u + 1
 
+/-- `p` is nonzero — required for `Fin p` (and hence `FF p`) to have
+    inhabitants and for the numeric-tower typeclass instances to
+    resolve. The `+ 1` at the tail of the polynomial makes this
+    trivial: `p ≥ 1`. -/
+instance : NeZero p := ⟨by unfold p; omega⟩
+
 /-- Generator `x`-coordinate. -/
 def Gx : Nat := 1
 
