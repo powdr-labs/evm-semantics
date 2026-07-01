@@ -1,6 +1,7 @@
 module
 
 public import EvmSemantics.Data.UInt256
+public import EvmSemantics.Data.Bytes
 public import Batteries.Tactic.Lint.Misc
 
 /-!
@@ -99,18 +100,13 @@ partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
     else acc
   go 0 padded
 
-/-- Decode a big-endian byte sequence as a `Nat`. Inverse of `wordBytes`
-    (modulo length). Shared by `mload` and `CALLDATALOAD`, which both
-    read a window of bytes (memory or calldata) and interpret it as a
-    256-bit word. -/
-def bytesToBigEndianNat (bs : ByteArray) : Nat :=
-  bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
-
 /-- Read a 32-byte big-endian word from `bs` at `offset`, zero-padding
     past the end. Used by both `MLOAD` (over memory) and `CALLDATALOAD`
-    (over calldata). -/
+    (over calldata). Bytes → Nat conversion lives in
+    `EvmSemantics.Data.Bytes` so the machine helpers, the bytecode
+    decoder, and the MPT trie can share one definition. -/
 def readWord (bs : ByteArray) (offset : Nat) : UInt256 :=
-  UInt256.ofNat (bytesToBigEndianNat (readPadded bs offset 32))
+  UInt256.ofNat (Data.Bytes.bytesToBigEndianNat (readPadded bs offset 32))
 
 /-- MLOAD: read 32 bytes at `addr`, returning the word and the unchanged
     machine state. The caller is responsible for charging the
@@ -119,17 +115,14 @@ def readWord (bs : ByteArray) (offset : Nat) : UInt256 :=
 def mload (μ : MachineState) (addr : UInt256) : UInt256 × MachineState :=
   (readWord μ.memory addr.toNat, μ)
 
-/-- Decompose a 256-bit word into 32 big-endian bytes. -/
-def wordBytes (w : UInt256) : ByteArray :=
-  -- Peel off the low byte `i` times, big-endian accumulation.
-  let rec go (i : Nat) (n : Nat) (acc : List UInt8) : List UInt8 :=
-    if i = 0 then acc else go (i-1) (n / 256) (UInt8.ofNat (n % 256) :: acc)
-  ByteArray.mk (go 32 w.toNat []).toArray
-
 /-- MSTORE: write `v` as 32 bytes at `addr`. The active-words high-water
-    mark is updated by the caller's `consumeMemExp`, not here. -/
+    mark is updated by the caller's `consumeMemExp`, not here.
+    `natToBytesPadded v.toNat 32` is the shared "UInt256 → 32
+    big-endian bytes" encoder (also used by `Rlp.uint256ToBytes32`
+    downstream). -/
 def mstore (μ : MachineState) (addr v : UInt256) : MachineState :=
-  { μ with memory := writeBytes μ.memory (wordBytes v) addr.toNat }
+  { μ with memory := writeBytes μ.memory
+                       (Data.Bytes.natToBytesPadded v.toNat 32) addr.toNat }
 
 /-- MSTORE8: write the low byte of `v` at `addr`. Active-words update is
     the caller's responsibility (`consumeMemExp`). -/
@@ -146,11 +139,10 @@ def mcopy (μ : MachineState) (dst src sz : UInt256) : MachineState :=
 /-- MSIZE: number of *bytes* currently considered active (= 32·activeWords). -/
 def msize (μ : MachineState) : UInt256 := UInt256.ofNat (32 * μ.activeWords.toNat)
 
--- The `let rec`-generated workers inside `writeBytes` and `wordBytes`
--- are private inner loops, not user-facing API; silence `docBlame`.
+-- The `let rec`-generated worker inside `writeBytes` is a private
+-- inner loop, not user-facing API; silence `docBlame`.
 attribute [nolint docBlame]
   MachineState.writeBytes.go
-  MachineState.wordBytes.go
 
 end MachineState
 

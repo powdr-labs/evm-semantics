@@ -260,7 +260,7 @@ def env (s s' : State) : Operation.EnvOps → Except ExecutionException State
       -- A `readPadded` of a fixed 32 bytes allocates 32 bytes regardless of the
       -- offset `i` (out-of-range reads zero-pad), so no bound is needed here.
       let bs := MachineState.readPadded s.executionEnv.calldata i.toNat 32
-      let word := bs.toList.foldl (fun acc b => acc * 256 + b.toNat) 0
+      let word := Data.Bytes.bytesToBigEndianNat bs
       .ok (s'.replaceStackAndIncrPC (UInt256.ofNat word :: rest))
     | _ => underflow
   | .CALLDATASIZE =>

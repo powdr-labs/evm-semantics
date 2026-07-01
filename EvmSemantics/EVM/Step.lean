@@ -884,7 +884,7 @@ inductive StepRunning : State → State → Prop
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.mstoreTotal s offset
               memory       := MachineState.writeBytes s.memory
-                                (MachineState.wordBytes value) offset.toNat
+                                (Data.Bytes.natToBytesPadded value.toNat 32) offset.toNat
               activeWords  := s.activeWordsAfterUInt256 offset.toNat 32 }
 
   /-- MSTORE8: pop offset, value; write the low byte of `value` at memory[offset].
