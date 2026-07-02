@@ -570,10 +570,11 @@ def runBlsG2Msm (input : ByteArray) (childGas : Nat) : Result :=
 /-- Address `0x0F`. -/
 def blsPairingAddress : AccountAddress := AccountAddress.ofUInt256 (UInt256.ofNat 0x0f)
 
-/-- Gas cost per EIP-2537: `32600 + 43000 · k` where `k` is the
-    number of `(G₁, G₂)` pairs (`|input| / 384`). -/
+/-- Gas cost per EIP-2537: `37700 + 32600 · k` where `k` is the
+    number of `(G₁, G₂)` pairs (`|input| / 384`) — base
+    `BLS12_PAIRING_CHECK` cost `37700` plus `32600` per pair. -/
 @[inline] def blsPairingGas (input : ByteArray) : Nat :=
-  32600 + 43000 * (input.size / 384)
+  37700 + 32600 * (input.size / 384)
 
 /-- Run BLS12_PAIRING_CHECK. -/
 def runBlsPairing (input : ByteArray) (childGas : Nat) : Result :=

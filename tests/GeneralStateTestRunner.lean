@@ -23,11 +23,11 @@ enough that a separate, self-contained runner is clearer than a shared module:
   carrying an expanded `state` (per-account post-state, compared directly) plus
   a state-root `hash` (compared via the world MPT root for the strongest tier).
 
-**Scope (minimal framework).** Legacy (`gasPrice`), EIP-1559 (`maxFeePerGas`)
-and EIP-7702 (set-code) transactions are executed; EIP-2930 access-list and
-EIP-4844 blob txs are still reported `INCON` and skipped. Two corpora feed this
-runner: the frozen `ethereum/tests` set (filled for Cancun/Prague) and the
-EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
+**Scope (minimal framework).** Legacy (`gasPrice`), EIP-1559 (`maxFeePerGas`),
+EIP-2930 (access-list), EIP-4844 (blob) and EIP-7702 (set-code) transactions
+are all executed. Two corpora feed this runner: the frozen `ethereum/tests`
+set (filled for Cancun/Prague) and the EEST/`execution-specs` Osaka
+`state_tests` (EIP-7825/7823/7883/7939/7951).
 `Tx.execute` applies the EIP-1559 fee split (London+ burns the base-fee slice,
 crediting the coinbase only the priority tip), so post-London txs reach the
 balance-exact tiers. See `VMTESTS.md`.
@@ -166,17 +166,42 @@ def parseForkExact (s : String) : Option Fork :=
   | _                   => none
 
 /-- Reason a transaction variant can't be executed by this runner, or `none`
-    if it can. Legacy, EIP-1559 and EIP-7702 (set-code) txs run; only EIP-2930
-    access-list and EIP-4844 blob txs are still skipped (their gas/warm-set and
-    fee semantics aren't modelled here yet). Keyed on positive signals per the
-    selected `data` index. -/
-def txUnsupportedReason (txJson : Json) (dataIdx : Nat) : Option String :=
-  if (jsonArr (subObj txJson "blobVersionedHashes")).size > 0 then
-    some "blob tx (EIP-4844) unsupported"
-  else match (jsonArr (subObj txJson "accessLists"))[dataIdx]? with
-    | some (.arr a) => if a.size > 0 then some "access-list tx (EIP-2930) unsupported"
-                       else none
-    | _             => none
+    if it can. All modelled tx kinds now execute — legacy, EIP-1559,
+    EIP-2930 (access-list), EIP-4844 (blob) and EIP-7702 (set-code) — so this
+    is `none` for every transaction; kept as a hook for a future unmodelled
+    envelope. -/
+def txUnsupportedReason (_txJson : Json) : Option String := none
+
+/-- Parse the EIP-2930 access list for the selected `data` index into
+    `(address, storageKeys)` pairs. `accessLists` is an array parallel to
+    `data`/`gasLimit`/`value`; each element is a list of
+    `{address, storageKeys:[…]}`. Empty when absent. -/
+def parseAccessList (txJson : Json) (dataIdx : Nat) :
+    List (AccountAddress × List UInt256) :=
+  match (jsonArr (subObj txJson "accessLists"))[dataIdx]? with
+  | some (.arr entries) =>
+    entries.toList.map (fun e =>
+      let addr := hexToAddress (strField e "address")
+      let keys := (jsonArr (subObj e "storageKeys")).toList.filterMap
+        (fun k => match k with | .str s => some (hexToUInt256 s) | _ => none)
+      (addr, keys))
+  | _ => []
+
+/-- Parse the EIP-4844 `blobVersionedHashes` (a flat array, not indexed by
+    `data`). Empty for non-blob txs. -/
+def parseBlobHashes (txJson : Json) : Array UInt256 :=
+  (jsonArr (subObj txJson "blobVersionedHashes")).filterMap
+    (fun h => match h with | .str s => some (hexToUInt256 s) | _ => none)
+
+/-- EIP-4844 blob-tx validity that needs the type-3 signal (`Tx.execute` can't
+    see it from the collapsed effective price): a blob tx (`maxFeePerBlobGas`
+    present) must carry at least one blob, and every versioned hash must use the
+    KZG version byte `0x01` (the hash's top byte). Fixtures: `emptyBlobhashList`,
+    `wrongBlobhashVersion`. Count / no-create / fee-cap gates live in
+    `Tx.execute`. -/
+def invalidBlob (txJson : Json) (blobHashes : Array UInt256) : Bool :=
+  if (txJson.getObjVal? "maxFeePerBlobGas").toOption.isNone then false
+  else blobHashes.size = 0 ∨ blobHashes.any (fun h => h.toNat >>> 248 ≠ 1)
 
 /-- Effective gas price: for EIP-1559 (`maxFeePerGas` present) it's
     `min(maxFeePerGas, baseFee + maxPriorityFeePerGas)`; otherwise the legacy
@@ -214,6 +239,8 @@ def buildTx (txJson : Json) (dataIdx gasIdx valIdx baseFee : Nat) : Tx.Transacti
     gasLimit  := hexToNat     (arrStr txJson "gasLimit" gasIdx)
     gasPrice  := effectiveGasPrice txJson baseFee
     nonce     := hexToUInt256 (strField txJson "nonce")
+    accessList := parseAccessList txJson dataIdx
+    maxFeePerBlobGas := hexToUInt256 (strField txJson "maxFeePerBlobGas")
     authList  := parseAuthList txJson }
 
 /-- EIP-1559 validity conditions a legacy-shaped `Tx.execute` can't see (it
@@ -306,21 +333,24 @@ def runEntry (preMap : AccountMap) (preEntries : List (String × Json))
   let dataIdx := natField idx "data"
   let gasIdx  := natField idx "gas"
   let valIdx  := natField idx "value"
-  match txUnsupportedReason txJson dataIdx with
+  match txUnsupportedReason txJson with
   | some reason => .incon reason
   | none =>
     let header := decodeEnv env
     let tx := buildTx txJson dataIdx gasIdx valIdx header.baseFeePerGas.toNat
+    let blobHashes := parseBlobHashes txJson
     -- Fuel is a backstop against a 0-gas non-halting evaluator bug; the CI
     -- wall-timeout is the real bound on runaway tests.
     let fuel := 2 * tx.gasLimit + 100_000
-    -- A 1559 tx failing a cap-based validity rule is invalid: not applied, world
-    -- unchanged. Model it as an exceptional no-op (`finalAccounts := preMap`)
-    -- rather than running `Tx.execute` with the collapsed effective price.
+    -- A 1559 / blob tx failing a validity rule that the legacy-shaped
+    -- `Tx.execute` can't see (cap-based 1559 checks, empty/wrong-version blob
+    -- lists) is invalid: not applied, world unchanged — model it as an
+    -- exceptional no-op (`finalAccounts := preMap`).
     let result : Tx.ExecResult :=
-      if invalid1559 txJson gasIdx valIdx header (preMap tx.sender).balance.toNat then
+      if invalid1559 txJson gasIdx valIdx header (preMap tx.sender).balance.toNat
+         ∨ invalidBlob txJson blobHashes then
         { finalAccounts := preMap, outcome := .exceptional }
-      else EvmSemantics.Tx.execute preMap header tx fork fuel
+      else EvmSemantics.Tx.execute preMap header tx fork fuel blobHashes
     match result.outcome with
     | .fuelExhausted => .incon "fuel exhausted"
     | _ =>
