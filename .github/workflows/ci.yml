@@ -24,8 +24,9 @@ jobs:
   # STATICALLY linked against the Lean runtime (`ldd` shows only libc — no
   # libleanshared.so), so the test shards need only the ~115 MB binary, NOT the
   # ~40s elan + Mathlib-cache setup. `build` therefore compiles + lints on one
-  # wide runner, uploads the four test binaries as an artifact, and each shard
-  # downloads that binary, fetches only its own corpus, and runs — no Lean
+  # wide runner, uploads each test binary as its own artifact, and each shard
+  # downloads just the binary it needs, fetches only its own corpus, runs — no
+  # Lean
   # toolchain on the shard. Wall time drops from one ~4-minute serial pipeline
   # to `build (~75s) → slowest shard (~60s)`.
   #
@@ -74,42 +75,42 @@ jobs:
       - name: Run `lake lint` (Batteries' `runLinter`)
         run: lake lint
 
-      # Bundle only the four conformance-runner binaries the shards invoke
-      # (~115 MB each, statically linked so they run standalone). tar+gzip into
-      # one artifact so download-artifact restores a single file each shard
-      # unpacks back into `.lake/build/bin/` — the path the runner scripts
-      # default to, so no BIN-override env vars are needed downstream.
-      - name: Package test binaries
-        run: |
-          tar czf test-binaries.tar.gz -C .lake/build/bin \
-            vmtests statetests gstatetests txtests
-          ls -lh test-binaries.tar.gz
-
-      - name: Upload test binaries
+      # Publish each conformance-runner binary as its OWN artifact, so a shard
+      # downloads only the ~115 MB binary it runs (~33 MB compressed) instead of
+      # all four bundled together (~150 MB). This matters a lot on the smaller
+      # shard runners, whose artifact-download throughput is far lower than the
+      # 32-core box — a 4× payload cut is a 4× cut to that download. The binaries
+      # are statically linked (only libc in `ldd`), so no Lean toolchain is
+      # needed to run them; upload-artifact compresses them for transport.
+      # Retention 1 day: these are a short-lived intra-run hand-off.
+      - name: Upload vmtests binary
         uses: actions/upload-artifact@v7
-        with:
-          name: test-binaries
-          path: test-binaries.tar.gz
-          # Short-lived hand-off between jobs of the same run; no reason to keep.
-          retention-days: 1
+        with: { name: bin-vmtests, path: .lake/build/bin/vmtests, retention-days: 1 }
+      - name: Upload statetests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-statetests, path: .lake/build/bin/statetests, retention-days: 1 }
+      - name: Upload gstatetests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-gstatetests, path: .lake/build/bin/gstatetests, retention-days: 1 }
+      - name: Upload txtests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-txtests, path: .lake/build/bin/txtests, retention-days: 1 }
 
   # ── VMTests shard (light: legacytests VMTests slice, no execution-heavy) ──
   vmtests:
     name: VMTests
     needs: build
-    runs-on: warp-ubuntu-2404-x64-4x
+    runs-on: warp-ubuntu-2404-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Download test binaries
+      - name: Download vmtests binary
         uses: actions/download-artifact@v7
         with:
-          name: test-binaries
-      - name: Unpack test binaries
-        run: |
-          mkdir -p .lake/build/bin
-          tar xzf test-binaries.tar.gz -C .lake/build/bin
-          chmod +x .lake/build/bin/*
+          name: bin-vmtests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/vmtests
 
       # Sparse + blobless fetch of just the VMTests corpus (~11 MB) rather than
       # the full ~2.7 GB legacytests checkout, pinned to the exact revision the
@@ -179,15 +180,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Download test binaries
+      - name: Download statetests binary
         uses: actions/download-artifact@v7
         with:
-          name: test-binaries
-      - name: Unpack test binaries
-        run: |
-          mkdir -p .lake/build/bin
-          tar xzf test-binaries.tar.gz -C .lake/build/bin
-          chmod +x .lake/build/bin/*
+          name: bin-statetests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/statetests
 
       # Sparse + blobless fetch of just the GeneralStateTests subdirs the
       # statetests runner currently passes cleanly on (no FAIL / no INCON / no
@@ -305,15 +304,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Download test binaries
+      - name: Download gstatetests binary
         uses: actions/download-artifact@v7
         with:
-          name: test-binaries
-      - name: Unpack test binaries
-        run: |
-          mkdir -p .lake/build/bin
-          tar xzf test-binaries.tar.gz -C .lake/build/bin
-          chmod +x .lake/build/bin/*
+          name: bin-gstatetests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/gstatetests
 
       # Fetch the MAINTAINED ethereum/tests GeneralStateTests, which ship as a
       # single ~9 MB tarball (`fixtures_general_state_tests.tgz`) at the repo
@@ -395,19 +392,19 @@ jobs:
   eest:
     name: EEST Osaka state_tests
     needs: build
-    runs-on: warp-ubuntu-2404-x64-4x
+    runs-on: warp-ubuntu-2404-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Download test binaries
+      # Reuses the same gstatetests binary as the modern-GST shard — the EEST
+      # Osaka state_tests run through the identical evaluator entry point.
+      - name: Download gstatetests binary
         uses: actions/download-artifact@v7
         with:
-          name: test-binaries
-      - name: Unpack test binaries
-        run: |
-          mkdir -p .lake/build/bin
-          tar xzf test-binaries.tar.gz -C .lake/build/bin
-          chmod +x .lake/build/bin/*
+          name: bin-gstatetests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/gstatetests
 
       # Fetch the EEST (execution-spec-tests) Osaka `state_tests`. ethereum/tests
       # is frozen at Prague, so modern-fork fixtures (EIP-7825/7823/7883/7939/
@@ -478,15 +475,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Download test binaries
+      - name: Download txtests binary
         uses: actions/download-artifact@v7
         with:
-          name: test-binaries
-      - name: Unpack test binaries
-        run: |
-          mkdir -p .lake/build/bin
-          tar xzf test-binaries.tar.gz -C .lake/build/bin
-          chmod +x .lake/build/bin/*
+          name: bin-txtests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/txtests
 
       # Fetch the ethereum/tests TransactionTests suite. Unlike the modern
       # GeneralStateTests (shipped as a root-level tarball), TransactionTests
