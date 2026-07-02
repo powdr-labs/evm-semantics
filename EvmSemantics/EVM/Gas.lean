@@ -664,18 +664,24 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
 
 /-- Gas charged to the parent frame before forwarding for `CREATE`:
-    static base + memory-expansion delta for the init-code window. -/
+    static base + memory-expansion delta for the init-code window +
+    EIP-3860 per-word init-code cost (`2 · ⌈|initcode|/32⌉`, Shanghai+;
+    `0` before). -/
 @[inline] def Gas.createCommitted (s : State) (offset size : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CREATE
   + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+  + Gas.initCodeWordCost s.executionEnv.fork size.toNat
 
 /-- Gas charged to the parent frame before forwarding for `CREATE2`:
     static base + memory-expansion delta for the init-code window +
-    EIP-3860 per-word hashing cost on the init code. -/
+    the per-word keccak hashing cost on the init code (`6 · ⌈n/32⌉`,
+    used for the salted address derivation) + EIP-3860 per-word init-code
+    cost (`2 · ⌈n/32⌉`, Shanghai+; `0` before). -/
 @[inline] def Gas.create2Committed (s : State) (offset size : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CREATE2
   + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
   + Gas.create2HashCost size.toNat
+  + Gas.initCodeWordCost s.executionEnv.fork size.toNat
 
 /-- Total gas cost of `SELFDESTRUCT` at `s` with `beneficiary`: static base
     (`G_selfdestruct = 5000`) + the EIP-150/EIP-161 `25000` new-account
