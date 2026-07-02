@@ -74,7 +74,7 @@ abbrev G2Point := EvmSemantics.Crypto.G2.Point p
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
 /-- The BN254 curve packaged for the generic point operations. -/
-def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { b := Fin.ofNat _ 3 }
+def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { a := 0, b := Fin.ofNat _ 3 }
 
 /-- The BN254 generator point `G = (1, 2)`. -/
 def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
