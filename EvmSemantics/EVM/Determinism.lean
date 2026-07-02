@@ -5,35 +5,74 @@ public import EvmSemantics.EVM.StepF
 public import EvmSemantics.EVM.Equiv
 
 /-!
-`EVM.Determinism` — the small-step relation `Step` is deterministic:
+`EVM.Determinism` — the small-step relation `Step` is (up to
+overlapping exception-rule firings) deterministic:
 `Step s s₁ → Step s s₂ → s₁ = s₂`.
 
-# Strategy
+# Semantic finding
 
-`Step` splits into three inductives (see `EVM/Step.lean`):
+`StepRunning` is intentionally **non-deterministic on exceptions** (see
+`Step.lean:1766`):
 
-* `StepRunning` — one constructor per success opcode plus generic
-  exception constructors. Fires on running frames.
-* `StepReturn` — six `callReturn*` / `createReturn*` constructors that
-  pop a suspended caller after the active frame halts.
-* `Step`       — the wrapper: `running` guards `StepRunning` with
-  `s.halt = .Running` and `¬ isPrecompile codeAddr`; `precompileSuccess`
-  and `precompileOog` handle the precompile arm; `returning` wraps
-  `StepReturn`.
+> "Several exception rules may fire simultaneously from the same state
+> (e.g. underflow AND out-of-gas). The relational semantics is
+> *non-deterministic* about which exception is reported. A
+> deterministic check order can be layered on top later if desired."
 
-Determinism reduces to three independent pieces:
+Concretely, `StepRunning.outOfGas` is parameterised over an arbitrary
+`cost : Nat` satisfying only `Gas.baseCost s.fork op ≤ cost` and
+`s.gasAvailable < cost`. Pick `cost := s.gasAvailable + 1` and the
+rule fires from *any* decoded state — including states where the
+"successful" rule for the same op would also fire. The two successors
+disagree (`{ … stack := (a+b) :: rest }` vs
+`{ s with halt := .Exception .OutOfGas }`), so
+`Step s s₁ → Step s s₂ → s₁ = s₂` is literally false in general.
 
-1. **`StepReturn.deterministic`** — proved here in full.
-2. **`StepRunning.deterministic`** — proved via the `stepF` bridge: any
-   `StepRunning` derivation implies `stepFE s = .ok s' ∨ (stepFE s =
-   .error e ∧ s' = { s with halt := .Exception e })`, so two
-   derivations from the same `s` funnel through the same functional
-   `stepFE s` and land on the same `s'`. The completeness direction
-   used here is proved per-op-family, mirroring the `_sound` lemmas in
-   `Equiv.lean`.
-3. **`Step.deterministic`** — the wrapper split; four Step arms are
-   mutually exclusive via `s.halt` and `Precompile.isPrecompile`, and
-   `Precompile.run` is a function.
+# Strategy for the deterministic result
+
+Three viable routes are documented here; the file makes concrete
+progress on each:
+
+1. **`StepReturn.deterministic`** — the six `callReturn*` /
+   `createReturn*` constructors are already mutually exclusive (via
+   `s.halt` and `f.createAddr`). Proved here in full.
+
+2. **`Step.deterministic_of_running`** — the four-arm split for the
+   top-level `Step` wrapper is exclusive (via `s.halt` and
+   `Precompile.isPrecompile`). Proved here, parameterised over
+   `StepRunning`'s determinism.
+
+3. **`StepRunning.deterministic`** — the hard half, blocked by the
+   semantic non-determinism above. Three tractable paths:
+
+   * **Tighten the semantics.** Replace the parametric `cost` in
+     `outOfGas` with either (a) a strict base-only rule
+     (`s.gasAvailable < Gas.baseCost s.fork op`) plus per-op
+     dynamic-OOG rules, or (b) an `h_cost_exact : cost = someTotalOp`
+     hypothesis that pins cost to the op's actual total. Both
+     approaches touch ~20 call sites in `Equiv.lean` and every
+     dynamic-gas opcode. Multi-PR effort.
+
+   * **Prove the weaker theorem**
+     `Step.non_exception_deterministic`: two derivations that both
+     land on a non-Exception halt must agree. Achievable without
+     changing semantics, but still requires case analysis over all 81
+     success `StepRunning` constructors (one lemma per op-family,
+     mirroring the `_sound` lemmas in `Equiv.lean`).
+
+   * **Use `stepFE` as the canonical successor.** `stepFE : State →
+     Except _ State` is a function by construction, and
+     `stepFE_sound` establishes `Step s (stepF s)`. Determinism-via-
+     completeness reduces to proving the converse
+     `Step s s' → stepFE s = .ok s' ∨ …`, which is the same 81-case
+     job as above but yields a stronger statement (Step ↔ stepFE
+     bijection modulo exception non-determinism).
+
+The stub `StepRunning.deterministic_of_agrees` below implements route
+(3): parameterised over the completeness obligation, it derives the
+running-half determinism uniformly. Its parameter statement,
+`StepRunningStepFEAgreesShape`, is what a follow-up PR (per-op-family,
+mirroring `stopArith_sound` etc.) would prove.
 -/
 
 @[expose] public section
@@ -165,41 +204,44 @@ end StepReturnDet
 
 /-! ## `StepRunning` determinism via `stepFE`
 
-For `StepRunning`, we route through the executable shadow: `stepFE` is
-by construction a function, and `stepFE_sound` establishes that every
-`stepFE`-result gives a valid `Step`. The complementary
-"functional-inversion" lemma we need is:
-
-  `StepRunning.stepFE_agrees : StepRunning s s' →
-     stepFE s = .ok s' ∨
-     (∃ e, stepFE s = .error e ∧ s' = { s with halt := .Exception e })`
-
-With that in hand, `StepRunning s s₁` and `StepRunning s s₂` both
-pin `s'` in terms of the single functional value `stepFE s`, so
-`s₁ = s₂` follows by case analysis.
-
-The functional-inversion lemma is the *completeness* direction of the
-`stepFE` ↔ `Step` correspondence. Its proof mirrors the per-op-family
-`_sound` lemmas in `Equiv.lean` (`stopArith_sound`, `compBit_sound`, …).
-Each `foo_complete` handles one `Operation.*Ops` family by inducting
-on `StepRunning` and unfolding `stepFE.foo` with the matching `h_op`
-hypothesis. -/
+Reduces the running-half of determinism to a per-op-family
+completeness obligation, in the same shape as the `_sound` lemmas in
+`Equiv.lean`. Once every op family has its `_complete` lemma, the
+combined `StepRunning_stepFE_agrees` closes this hypothesis and
+`StepRunning.deterministic_of_agrees` becomes unconditional. -/
 
 /-- The completeness obligation used by `StepRunning.deterministic`.
-    Provable per-op-family, mirroring the `_sound` lemmas in
-    `Equiv.lean`. Each family lemma inducts on `StepRunning`
-    constructors targeting its ops, unfolds the corresponding
-    `stepFE.foo` branch under `h_op : s.decodedOp = some .THAT_OP`,
-    and reads off the equality. -/
+
+    Reads: any `StepRunning s s'` derivation is *reproducible* by the
+    executable shadow — either `stepFE s = .ok s'` (the interesting
+    running-post-state case), or `stepFE s = .error e` and `s'` is the
+    exception-folded halt state (the case where `StepRunning`'s
+    exception rules fire).
+
+    Proof approach — per op-family, mirroring `stopArith_sound`,
+    `compBit_sound`, etc.:
+
+    1. `cases h : StepRunning s s'` — one branch per `StepRunning`
+       constructor.
+    2. On a success arm (`.add`, `.mul`, …), the `h_op` hypothesis
+       pins `s.decodedOp` to the specific opcode, so `stepFE` unfolds
+       to the same case; then read off `.ok s'` by `rfl`.
+    3. On an exception arm (`.outOfGas`, `.stackUnderflow`, …), a
+       matching `.error` witness is produced by discharging the
+       `stepFE` guards that gate on the very hypotheses the arm
+       carries. -/
 def StepRunningStepFEAgreesShape (s s' : State) : Prop :=
   StepRunning s s' →
     stepFE s = .ok s' ∨
     (∃ e, stepFE s = .error e ∧ s' = { s with halt := .Exception e })
 
-/-- Determinism of `StepRunning`, in terms of the functional-inversion
-    hypothesis. Once the per-op-family `_complete` lemmas are
-    assembled into a proof of `StepRunning.stepFE_agrees`, this
-    theorem becomes fully unconditional. -/
+/-- Determinism of `StepRunning`, modulo the functional-inversion
+    hypothesis. As-stated this is **conditionally provable** but the
+    hypothesis is unprovable for the current semantics — see the
+    module docstring, "Semantic finding". The hypothesis becomes
+    provable after tightening `outOfGas` (and the other parametric
+    exception rules) so that at most one exception rule fires from
+    each state. -/
 theorem StepRunning.deterministic_of_agrees
     (StepRunning_stepFE_agrees :
        ∀ {s s' : State}, StepRunningStepFEAgreesShape s s')
@@ -207,10 +249,8 @@ theorem StepRunning.deterministic_of_agrees
     s₁ = s₂ := by
   rcases StepRunning_stepFE_agrees h₁ with h1_ok | ⟨e₁, h1_err, h1_state⟩
   · rcases StepRunning_stepFE_agrees h₂ with h2_ok | ⟨e₂, h2_err, h2_state⟩
-    · -- Both `.ok`: `stepFE` is a function, so `.ok s₁ = .ok s₂`.
-      rw [h1_ok] at h2_ok; cases h2_ok; rfl
-    · -- `h₁` is `.ok`, `h₂` is `.error` — `stepFE s` can't be both.
-      rw [h1_ok] at h2_err; cases h2_err
+    · rw [h1_ok] at h2_ok; cases h2_ok; rfl
+    · rw [h1_ok] at h2_err; cases h2_err
   · rcases StepRunning_stepFE_agrees h₂ with h2_ok | ⟨e₂, h2_err, h2_state⟩
     · rw [h1_err] at h2_ok; cases h2_ok
     · rw [h1_err] at h2_err; cases h2_err
@@ -262,6 +302,28 @@ theorem Step.deterministic_of_running
     | precompileOog h_r₂ _ _           =>
       exact (StepReturn.not_from_running hR₁ h_r₂).elim
     | returning hR₂                    => exact StepReturn.deterministic hR₁ hR₂
+
+/-! ## A concrete counter-example to full determinism, and the next
+    step to eliminate it.
+
+    Below is a witness that the current `StepRunning` semantics is
+    genuinely non-deterministic; keeping it in the file makes the
+    obligation on the semantics tightening explicit. -/
+
+/-- Instantiating `outOfGas` with `cost = s.gasAvailable + 1` always
+    fires, from any decoded, non-halted state. This is what makes the
+    unconditional `StepRunning.deterministic` unprovable today —
+    a state with a successful `.add` derivation ALSO admits this
+    `outOfGas` derivation, with a distinct successor. -/
+theorem StepRunning.outOfGas_always_fires
+    {s : State} {op : Operation}
+    (h_op : s.decodedOp = some op) :
+    StepRunning s ({ s with halt := .Exception .OutOfGas }) := by
+  let cost := Nat.max (Gas.baseCost s.fork op) (s.gasAvailable + 1)
+  refine StepRunning.outOfGas s op cost h_op (Nat.le_max_left _ _) ?_
+  show s.gasAvailable < cost
+  have : s.gasAvailable + 1 ≤ cost := Nat.le_max_right _ _
+  omega
 
 end EVM
 end EvmSemantics
