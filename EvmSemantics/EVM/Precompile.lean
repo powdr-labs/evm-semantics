@@ -254,26 +254,29 @@ def multComplexity (x : Nat) : Nat :=
   else if x ≤ 1024 then x * x / 4 + 96 * x - 3072
   else x * x / 16 + 480 * x - 199680
 
-/-- EIP-198 adjusted-exponent-length. `esize` is the exponent's byte
-    length; `expHead` is the big-endian numeric value of the *first
-    32 bytes* of the exponent (zero-padded at the tail if the
-    exponent is shorter than 32 bytes).
+/-- EIP-198 adjusted-exponent-length, parameterised by the per-byte
+    `coeff` on the `(esize - 32)` head term: `8` for EIP-198/EIP-2565,
+    `16` for EIP-7883 (Osaka). `esize` is the exponent's byte length;
+    `expHead` is the big-endian numeric value of the *first 32 bytes*
+    of the exponent (zero-padded at the tail if the exponent is
+    shorter than 32 bytes). The `⌊log₂ expHead⌋` low-bits term is
+    unaffected by `coeff`.
 
     * `esize ≤ 32 ∧ expHead == 0`: `0`.
     * `esize ≤ 32`: `⌊log₂ expHead⌋` (highest set bit, 0-indexed).
-    * `esize > 32 ∧ expHead == 0`: `8 * (esize - 32)`.
-    * `esize > 32`: `8 * (esize - 32) + ⌊log₂ expHead⌋`. -/
-def adjustedExpLen (esize expHead : Nat) : Nat :=
+    * `esize > 32 ∧ expHead == 0`: `coeff * (esize - 32)`.
+    * `esize > 32`: `coeff * (esize - 32) + ⌊log₂ expHead⌋`. -/
+def adjustedExpLen (coeff esize expHead : Nat) : Nat :=
   if esize ≤ 32 then
     if expHead = 0 then 0 else Nat.log2 expHead
   else
-    let base := 8 * (esize - 32)
+    let base := coeff * (esize - 32)
     if expHead = 0 then base else base + Nat.log2 expHead
 
 /-- Byzantium MODEXP gas cost per EIP-198: `mult_complexity(max
     Bsize Msize) * max(adjustedExpLen, 1) / 20`. -/
 def modexpGasByzantium (bsize esize msize expHead : Nat) : Nat :=
-  let adj := Nat.max (adjustedExpLen esize expHead) 1
+  let adj := Nat.max (adjustedExpLen 8 esize expHead) 1
   multComplexity (Nat.max bsize msize) * adj / 20
 
 /-- Berlin+ MODEXP gas per EIP-2565: `max(200, ⌈max(Bsize, Msize)/8⌉² *
@@ -282,21 +285,25 @@ def modexpGasByzantium (bsize esize msize expHead : Nat) : Nat :=
     a plain square. -/
 def modexpGasBerlin (bsize esize msize expHead : Nat) : Nat :=
   let words := (Nat.max bsize msize + 7) / 8
-  let adj := Nat.max (adjustedExpLen esize expHead) 1
+  let adj := Nat.max (adjustedExpLen 8 esize expHead) 1
   Nat.max 200 (words * words * adj / 3)
 
 /-- Osaka MODEXP gas per EIP-7883, on top of the EIP-2565 skeleton:
     * multiplicative complexity: `16` when `max(Bsize, Msize) ≤ 32`
       bytes, else `2 · words²` (i.e. doubled vs. EIP-2565);
-    * iteration count: EIP-2565's, doubled if `Esize > 32`;
-    * floor raised from 200 to 500. -/
+    * iteration count: EIP-2565's, but with the `(esize - 32)`
+      coefficient raised 8 → 16 (the `⌊log₂ expHead⌋` head term is
+      unchanged);
+    * the EIP-2565 `GQUADDIVISOR` (÷3) is dropped entirely;
+    * floor raised from 200 to 500.
+
+    Final cost is `max(500, mult · max(iter, 1))`. -/
 def modexpGasOsaka (bsize esize msize expHead : Nat) : Nat :=
   let maxLen := Nat.max bsize msize
   let words := (maxLen + 7) / 8
   let mult := if maxLen ≤ 32 then 16 else 2 * words * words
-  let iter0 := Nat.max (adjustedExpLen esize expHead) 1
-  let iter := if esize > 32 then iter0 * 2 else iter0
-  Nat.max 500 (mult * iter / 3)
+  let iter := Nat.max (adjustedExpLen 16 esize expHead) 1
+  Nat.max 500 (mult * iter)
 
 /-- EIP-7823 (Osaka): each of `Bsize`, `Esize`, `Msize` is bounded
     at 1024 bytes; the precompile fails (OOG) if any exceeds. -/
