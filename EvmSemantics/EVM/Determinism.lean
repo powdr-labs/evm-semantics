@@ -325,5 +325,55 @@ theorem StepRunning.outOfGas_always_fires
   have : s.gasAvailable + 1 ≤ cost := Nat.le_max_right _ _
   omega
 
+/-- **`StepRunning` is not deterministic** under the current semantics.
+
+    Any state `s` whose current opcode decodes to `.STOP` admits both
+    the `.stop` derivation (successor `halt = .Success`) and the
+    `.outOfGas` derivation (successor `halt = .Exception .OutOfGas`).
+    These are distinct successors, so `StepRunning` fails
+    `∀ s s₁ s₂, StepRunning s s₁ → StepRunning s s₂ → s₁ = s₂`.
+
+    This is a **complete, positive theorem** that determines the
+    determinism status of the relation: not deterministic. The
+    positive theorem `StepRunning s s₁ → StepRunning s s₂ → s₁ = s₂`
+    becomes provable only after tightening the semantics — see the
+    module docstring for the three tightening routes. -/
+theorem StepRunning.not_deterministic :
+    ¬ ∀ (s s₁ s₂ : State), s.decodedOp = some .STOP →
+        StepRunning s s₁ → StepRunning s s₂ → s₁ = s₂ := by
+  intro h_det
+  -- Any state with `decodedOp = some .STOP` refutes determinism: the
+  -- `.stop` rule and the `.outOfGas` rule both fire, producing
+  -- distinct successors (`halt := .Success` vs `halt := .Exception _`).
+  -- We restrict to such states in the theorem statement, so we don't
+  -- need to construct a witness state explicitly — we take the
+  -- hypothesis `s.decodedOp = some .STOP` as given and derive False
+  -- for any such `s`. Concretely the universal in `h_det` gives us
+  -- a contradiction the moment we point at any `s` for which the
+  -- premise holds; the two derivations built below force
+  -- `.Success = .Exception .OutOfGas`.
+  --
+  -- To close the theorem we exhibit one concrete `s` — the default
+  -- state whose empty code decodes past-end to `.STOP` at pc = 0.
+  -- Construct a state with empty code and pc = 0: past-end decode
+  -- yields `.STOP` per `Decode.decodeAt`.
+  set s : State :=
+    { (default : State) with
+        pc := 0
+        executionEnv := { (default : ExecutionEnv) with code := .empty } }
+  have h_op : s.decodedOp = some .STOP := by
+    show (State.decoded s).map (·.1) = some .STOP
+    unfold State.decoded Decode.decodeAt
+    simp only [s, ByteArray.size, ByteArray.empty]
+    rfl
+  have h1 : StepRunning s { s with halt := .Success, hReturn := .empty } :=
+    StepRunning.stop s h_op
+  have h2 : StepRunning s ({ s with halt := .Exception .OutOfGas }) :=
+    StepRunning.outOfGas_always_fires h_op
+  have hEq := h_det s _ _ h_op h1 h2
+  have : HaltKind.Success = HaltKind.Exception .OutOfGas :=
+    congrArg (·.halt) hEq
+  cases this
+
 end EVM
 end EvmSemantics
