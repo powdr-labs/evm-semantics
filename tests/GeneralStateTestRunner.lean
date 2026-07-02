@@ -23,14 +23,15 @@ enough that a separate, self-contained runner is clearer than a shared module:
   carrying an expanded `state` (per-account post-state, compared directly) plus
   a state-root `hash` (compared via the world MPT root for the strongest tier).
 
-**Scope (minimal framework).** Only unambiguous legacy (`gasPrice`)
-transactions are executed; typed transactions (EIP-1559/2930/4844/7702) are
-reported `INCON` and skipped — this is the dominant limitation on the modern
-corpora (most EEST/`execution-specs` fixtures use typed envelopes). Two corpora
-feed this runner: the frozen `ethereum/tests` set (filled for Cancun/Prague) and
-the EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
-`Tx.execute` performs no EIP-1559 base-fee burn, so many tests land at the
-`passCore` tier (storage/nonce/code match; balances differ). See `VMTESTS.md`.
+**Scope (minimal framework).** Legacy (`gasPrice`) and EIP-1559
+(`maxFeePerGas`) transactions are executed; the variants whose semantics
+aren't modelled here — EIP-2930 access lists, EIP-4844 blobs, EIP-7702
+set-code — are reported `INCON` and skipped. Two corpora feed this runner: the
+frozen `ethereum/tests` set (filled for Cancun/Prague) and the
+EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
+`Tx.execute` performs no EIP-1559 base-fee burn, so post-London txs (legacy and
+1559 alike) land at the `passCore` tier (storage/nonce/code match; balances
+differ by the burned base fee). See `VMTESTS.md`.
 -/
 
 @[expose] public section
@@ -165,30 +166,68 @@ def parseForkExact (s : String) : Option Fork :=
   | "Osaka"             => some .Osaka
   | _                   => none
 
-/-- Is the transaction typed (EIP-1559/2930/4844) for the selected `data`
-    index? Keys on the positive signal — presence of `maxFeePerGas`, a
-    non-empty access list at this index, or blob hashes — rather than absence
-    of `gasPrice` (which would misfire on the `"" → 0` decode). Only
-    unambiguous legacy `gasPrice` transactions run; typed ones are skipped. -/
-def isTypedTx (txJson : Json) (dataIdx : Nat) : Bool :=
-  (txJson.getObjVal? "maxFeePerGas").toOption.isSome
-  || (match (jsonArr (subObj txJson "accessLists"))[dataIdx]? with
-      | some (.arr a) => a.size > 0
-      | _             => false)
-  || (jsonArr (subObj txJson "blobVersionedHashes")).size > 0
+/-- Reason a transaction variant can't be executed by this runner, or `none`
+    if it can. We execute legacy (`gasPrice`) and EIP-1559 (`maxFeePerGas`)
+    transactions; we still skip the variants whose *semantics* aren't modelled
+    here — EIP-2930 access lists (gas + warm set), EIP-4844 blobs, and EIP-7702
+    set-code authorizations. Keyed on positive signals per the selected `data`
+    index (a bare `maxFeePerGas` with an empty access list is a plain type-2 tx
+    and runs; its fee is handled by `effectiveGasPrice`). -/
+def txUnsupportedReason (txJson : Json) (dataIdx : Nat) : Option String :=
+  if (jsonArr (subObj txJson "blobVersionedHashes")).size > 0 then
+    some "blob tx (EIP-4844) unsupported"
+  else if (txJson.getObjVal? "authorizationList").toOption.isSome then
+    some "set-code tx (EIP-7702) unsupported"
+  else match (jsonArr (subObj txJson "accessLists"))[dataIdx]? with
+    | some (.arr a) => if a.size > 0 then some "access-list tx (EIP-2930) unsupported"
+                       else none
+    | _             => none
 
-/-- Build a legacy `Tx.Transaction` from the transaction template and a chosen
-    `(data, gas, value)` index triple. Assumes `isTypedTx` already rejected
-    typed transactions, so `gasPrice` is the fee. `to = ""` marks a
-    contract-creating tx (`recipient = none`). -/
-def buildTx (txJson : Json) (dataIdx gasIdx valIdx : Nat) : Tx.Transaction :=
+/-- Effective gas price: for EIP-1559 (`maxFeePerGas` present) it's
+    `min(maxFeePerGas, baseFee + maxPriorityFeePerGas)`; otherwise the legacy
+    `gasPrice`. A `maxFeePerGas` below `baseFee` yields an effective price below
+    `baseFee`, which `Tx.execute`'s EIP-1559 floor (London+) then rejects as an
+    invalid tx — so no extra gate is needed here. -/
+def effectiveGasPrice (txJson : Json) (baseFee : Nat) : UInt256 :=
+  if (txJson.getObjVal? "maxFeePerGas").toOption.isSome then
+    let maxFee  := hexToNat (strField txJson "maxFeePerGas")
+    let maxPrio := hexToNat (strField txJson "maxPriorityFeePerGas")
+    UInt256.ofNat (Nat.min maxFee (baseFee + maxPrio))
+  else hexToUInt256 (strField txJson "gasPrice")
+
+/-- Build a `Tx.Transaction` from the transaction template and a chosen
+    `(data, gas, value)` index triple, resolving the fee via `effectiveGasPrice`
+    (`baseFee` is the block base fee). Assumes `txUnsupportedReason` already
+    rejected the unmodelled variants. `to = ""` marks a contract-creating tx
+    (`recipient = none`). -/
+def buildTx (txJson : Json) (dataIdx gasIdx valIdx baseFee : Nat) : Tx.Transaction :=
   let toStr := strField txJson "to"
   { sender    := hexToAddress (strField txJson "sender")
     recipient := if toStr = "" then none else some (hexToAddress toStr)
     value     := hexToUInt256 (arrStr txJson "value" valIdx)
     data      := hexToBytes   (arrStr txJson "data" dataIdx)
     gasLimit  := hexToNat     (arrStr txJson "gasLimit" gasIdx)
-    gasPrice  := hexToUInt256 (strField txJson "gasPrice") }
+    gasPrice  := effectiveGasPrice txJson baseFee }
+
+/-- EIP-1559 validity conditions a legacy-shaped `Tx.execute` can't see (it
+    only receives the *effective* `gasPrice`). For a 1559 tx (`maxFeePerGas`
+    present) the tx is invalid — not included, world left unchanged — when:
+    * the priority fee exceeds the fee cap (`maxPriorityFeePerGas > maxFeePerGas`);
+    * the sender can't afford `gasLimit · maxFeePerGas + value` (the balance
+      check uses the *cap*, not the effective price); or
+    * `gasLimit` exceeds the block gas limit.
+    Legacy txs return `false` here — `Tx.execute`'s own gates cover them. -/
+def invalid1559 (txJson : Json) (gasIdx valIdx : Nat)
+    (header : BlockHeader) (senderBalance : Nat) : Bool :=
+  if (txJson.getObjVal? "maxFeePerGas").toOption.isNone then false
+  else
+    let maxFee   := hexToNat (strField txJson "maxFeePerGas")
+    let maxPrio  := hexToNat (strField txJson "maxPriorityFeePerGas")
+    let gasLimit := hexToNat (arrStr txJson "gasLimit" gasIdx)
+    let value    := (hexToUInt256 (arrStr txJson "value" valIdx)).toNat
+    maxPrio > maxFee
+      || gasLimit * maxFee + value > senderBalance
+      || gasLimit > header.gasLimit.toNat
 
 ----------------------------------------------------------------------------
 -- Post-state comparison (mirrors tests/StateTestRunner.lean).
@@ -259,14 +298,21 @@ def runEntry (preMap : AccountMap) (preEntries : List (String × Json))
   let dataIdx := natField idx "data"
   let gasIdx  := natField idx "gas"
   let valIdx  := natField idx "value"
-  if isTypedTx txJson dataIdx then .incon "typed tx unsupported"
-  else
-    let tx := buildTx txJson dataIdx gasIdx valIdx
+  match txUnsupportedReason txJson dataIdx with
+  | some reason => .incon reason
+  | none =>
     let header := decodeEnv env
+    let tx := buildTx txJson dataIdx gasIdx valIdx header.baseFeePerGas.toNat
     -- Fuel is a backstop against a 0-gas non-halting evaluator bug; the CI
     -- wall-timeout is the real bound on runaway tests.
     let fuel := 2 * tx.gasLimit + 100_000
-    let result := EvmSemantics.Tx.execute preMap header tx fork fuel
+    -- A 1559 tx failing a cap-based validity rule is invalid: not applied, world
+    -- unchanged. Model it as an exceptional no-op (`finalAccounts := preMap`)
+    -- rather than running `Tx.execute` with the collapsed effective price.
+    let result : Tx.ExecResult :=
+      if invalid1559 txJson gasIdx valIdx header (preMap tx.sender).balance.toNat then
+        { finalAccounts := preMap, outcome := .exceptional }
+      else EvmSemantics.Tx.execute preMap header tx fork fuel
     match result.outcome with
     | .fuelExhausted => .incon "fuel exhausted"
     | _ =>
