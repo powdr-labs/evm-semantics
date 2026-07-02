@@ -31,9 +31,13 @@ Output is 32 bytes: `0x…01` if `∏ᵢ e(P_i, Q_i) = 1 ∈ F_p¹²`, else
 `0x…00`. Empty input `k = 0` is treated as an empty product `= 1`,
 so output is `0x…01`.
 
-Invalid input (wrong length, coordinate out of field, point not on
-curve) makes the precompile fail with all-gas consumed (mapped to
-`.outOfGas` in the dispatcher).
+Invalid input makes the precompile fail with all-gas consumed
+(mapped to `.outOfGas` in the dispatcher). "Invalid" means any of:
+wrong length, a coordinate ≥ `p`, a G₁ point not on the curve, a
+G₂ point not on the twist, or — critically — a G₂ point that is on
+the twist but *outside the prime-order subgroup* (the twist's
+cofactor is > 1, so on-curve does not imply in-subgroup, and
+EIP-197 requires the check).
 -/
 
 @[expose] public section
@@ -60,7 +64,9 @@ def decodeG1 (input : ByteArray) (off : Nat) : Option Bn254.Point :=
 
 /-- Decode a G₂ point from `input[off..off+128)`. Layout matches
     EIP-197: `X.c1 ‖ X.c0 ‖ Y.c1 ‖ Y.c0` (imaginary before real).
-    `(0, 0, 0, 0)` decodes to infinity. -/
+    `(0, 0, 0, 0)` decodes to infinity. On-curve alone is not
+    sufficient — the twist has a non-trivial cofactor, so we
+    additionally require `[N]Q = ∞` (subgroup membership). -/
 def decodeG2 (input : ByteArray) (off : Nat) : Option Bn254.G2Point :=
   let x1 := readBE input off          32  -- X.imag
   let x0 := readBE input (off +  32)  32  -- X.real
@@ -71,7 +77,8 @@ def decodeG2 (input : ByteArray) (off : Nat) : Option Bn254.G2Point :=
   else
     let X : Fp2Bn := { c0 := Fin.ofNat _ x0, c1 := Fin.ofNat _ x1 }
     let Y : Fp2Bn := { c0 := Fin.ofNat _ y0, c1 := Fin.ofNat _ y1 }
-    if G2.onCurve Bn254.g2Curve X Y then some (.affine X Y)
+    let Q : Bn254.G2Point := .affine X Y
+    if G2.onCurve Bn254.g2Curve X Y ∧ G2.inSubgroup Bn254.N Q then some Q
     else none
 
 /-- Decode `k` pairs of `(G₁, G₂)` from `input`. Returns `none` if
