@@ -21,6 +21,7 @@ public import EvmSemantics.EVM.Equiv
 public import EvmSemantics.Tx
 public import EvmSemantics.Crypto.Keccak256
 public import EvmSemantics.Data.Mpt
+public import EvmSemantics.Data.RlpDecode
 
 /-!
 `EvmSemantics` — a relational small-step / big-step semantics of the
