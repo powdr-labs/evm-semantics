@@ -890,14 +890,15 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       if ¬ s.executionEnv.permitStateMutation then static
       else
         -- `s'` already paid the base fee (`G_selfdestruct = 5000`). Charge
-        -- the new-account surcharge: 25000 iff the beneficiary is empty
-        -- AND self carries balance (= the transfer brings a fresh account
-        -- into existence). Then commit the transfer + halt via
-        -- `State.selfDestructTo`.
+        -- the new-account surcharge (25000 iff the beneficiary is empty AND
+        -- self carries balance) plus the EIP-2929 cold-access surcharge
+        -- (2600 if Berlin+ and beneficiary not yet warm). Then commit the
+        -- transfer + halt via `State.selfDestructTo`.
         let benAddr := AccountAddress.ofUInt256 beneficiary
         let ben     := s.accountMap benAddr
         let selfBal : Bool := (s.accountMap s.executionEnv.address).balance.toNat != 0
         let surcharge := Gas.selfDestructSurcharge s.fork ben.isEmpty selfBal
+                         + Gas.selfDestructColdSurcharge s benAddr
         if hsc : surcharge ≤ s'.gasAvailable then
           .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
         else .error .OutOfGas
@@ -909,42 +910,50 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         match chargeMem s' offset.toNat size.toNat with
         | .error e => .error e
         | .ok s2 =>
-          if s2.executionEnv.depth ≥ 1024 ∨
-              (s2.accountMap s2.executionEnv.address).balance < value then
-            .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
-                   (UInt256.ofNat 0 :: rest))
-          else
-            -- `createAddress` is total — the underlying RLP encoder is
-            -- bounded by the `nonce.toNat < 2^256` argument (see
-            -- `Rlp.encodeAddrNonce_isSome`).
-            let newAddr := createAddress s2.executionEnv.address
-                              (s2.accountMap s2.executionEnv.address).nonce
-            -- EIP-150 forwards 63/64 of the post-cost gas to the
-            -- child; that amount is taken from the caller *regardless
-            -- of whether creation succeeds or collides*, since on
-            -- collision the child returns zero gas. Hence we consume
-            -- `forwarded` before splitting on the collision check.
-            if hfw : Gas.allButOneSixtyFourth s.fork s2.gasAvailable ≤ s2.gasAvailable then
-              let forwarded := Gas.allButOneSixtyFourth s.fork s2.gasAvailable
-              let s3 := s2.consumeGas forwarded hfw
-              -- Address-collision check: if `newAddr` already hosts code
-              -- or has nonce > 0 the create *fails* with the caller's
-              -- nonce still bumped (push 0, no transfer, no frame).
-              -- Discriminated via a `Bool` (`Account.isContract`) so
-              -- the Equiv proof can split cleanly on the match.
-              match (s3.accountMap newAddr).isContract with
-              | true =>
-                let caller    := s3.executionEnv.address
-                let callerAcc := s3.accountMap caller
-                let σ' := s3.accountMap.set caller
-                            { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
-                .ok ({ s3 with accountMap := σ', returnData := .empty
-                     }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
-              | false =>
-                .ok (s3.enterCreate rest newAddr value
-                       (MachineState.readPadded s3.memory offset.toNat size.toNat)
-                       forwarded)
-            else .error .OutOfGas
+          -- EIP-3860 (Shanghai+): the per-word init-code cost is charged as
+          -- part of the committed gas, before the 63/64 forward split (`0`
+          -- on earlier forks). Mirrors CREATE2's `create2HashCost` charge.
+          let initCost := Gas.initCodeWordCost s.fork size.toNat
+          if hic : initCost ≤ s2.gasAvailable then
+            let s2' := s2.consumeGas initCost hic
+            if s2'.executionEnv.depth ≥ 1024 ∨
+                (s2'.accountMap s2'.executionEnv.address).balance < value ∨
+                Account.maxNonce ≤ (s2'.accountMap s2'.executionEnv.address).nonce.toNat then
+              .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
+                     (UInt256.ofNat 0 :: rest))
+            else
+              -- `createAddress` is total — the underlying RLP encoder is
+              -- bounded by the `nonce.toNat < 2^256` argument (see
+              -- `Rlp.encodeAddrNonce_isSome`).
+              let newAddr := createAddress s2'.executionEnv.address
+                                (s2'.accountMap s2'.executionEnv.address).nonce
+              -- EIP-150 forwards 63/64 of the post-cost gas to the
+              -- child; that amount is taken from the caller *regardless
+              -- of whether creation succeeds or collides*, since on
+              -- collision the child returns zero gas. Hence we consume
+              -- `forwarded` before splitting on the collision check.
+              if hfw : Gas.allButOneSixtyFourth s.fork s2'.gasAvailable ≤ s2'.gasAvailable then
+                let forwarded := Gas.allButOneSixtyFourth s.fork s2'.gasAvailable
+                let s3 := s2'.consumeGas forwarded hfw
+                -- Address-collision check: if `newAddr` already hosts code
+                -- or has nonce > 0 the create *fails* with the caller's
+                -- nonce still bumped (push 0, no transfer, no frame).
+                -- Discriminated via a `Bool` (`Account.isContract`) so
+                -- the Equiv proof can split cleanly on the match.
+                match (s3.accountMap newAddr).isContract with
+                | true =>
+                  let caller    := s3.executionEnv.address
+                  let callerAcc := s3.accountMap caller
+                  let σ' := s3.accountMap.set caller
+                              { callerAcc with nonce := callerAcc.nonce + ⟨1⟩ }
+                  .ok ({ s3 with accountMap := σ', returnData := .empty
+                       }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                | false =>
+                  .ok (s3.enterCreate rest newAddr value
+                         (MachineState.readPadded s3.memory offset.toNat size.toNat)
+                         forwarded)
+              else .error .OutOfGas
+          else .error .OutOfGas
     | _ => underflow
   | .CREATE2 => match s.stack with
     | value :: offset :: size :: salt :: rest =>
@@ -953,11 +962,16 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         match chargeMem s' offset.toNat size.toNat with
         | .error e => .error e
         | .ok s2 =>
+          -- Keccak hashing cost (for the salted address) + EIP-3860 per-word
+          -- init-code cost (Shanghai+; `0` before), both charged before the
+          -- 63/64 forward split.
           let hashCost := Gas.create2HashCost size.toNat
+                            + Gas.initCodeWordCost s.fork size.toNat
           if hh : hashCost ≤ s2.gasAvailable then
             let s2' := s2.consumeGas hashCost hh
             if s2'.executionEnv.depth ≥ 1024 ∨
-                (s2'.accountMap s2'.executionEnv.address).balance < value then
+                (s2'.accountMap s2'.executionEnv.address).balance < value ∨
+                Account.maxNonce ≤ (s2'.accountMap s2'.executionEnv.address).nonce.toNat then
               .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
                      (UInt256.ofNat 0 :: rest))
             else

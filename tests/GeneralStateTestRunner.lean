@@ -24,10 +24,12 @@ enough that a separate, self-contained runner is clearer than a shared module:
   a state-root `hash` (compared via the world MPT root for the strongest tier).
 
 **Scope (minimal framework).** Only unambiguous legacy (`gasPrice`)
-transactions are executed; typed transactions (EIP-1559/2930/4844) are reported
-`INCON` and skipped. The corpus is filled for Cancun/Prague only, where our gas
-schedule is incomplete (no EIP-2929 cold/warm, no EIP-3651 warm coinbase) and
-`Tx.execute` performs no EIP-1559 base-fee burn — so most tests land at the
+transactions are executed; typed transactions (EIP-1559/2930/4844/7702) are
+reported `INCON` and skipped — this is the dominant limitation on the modern
+corpora (most EEST/`execution-specs` fixtures use typed envelopes). Two corpora
+feed this runner: the frozen `ethereum/tests` set (filled for Cancun/Prague) and
+the EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
+`Tx.execute` performs no EIP-1559 base-fee burn, so many tests land at the
 `passCore` tier (storage/nonce/code match; balances differ). See `VMTESTS.md`.
 -/
 
@@ -323,16 +325,36 @@ partial def collectJson (dir : System.FilePath) :
     else if path.toString.endsWith ".json" then out := out.push path
   return out.qsort (fun a b => a.toString < b.toString)
 
-/-- Derive a stable, colon-free, per-entry id: `<dir>_<file>_<Fork>_d<d>g<g>v<v>`.
+/-- Turn a modern test key's `::`-name segment into an id-safe token: spaces
+    and colons become `_` so the result can never contain the `": "` field
+    separator that the summary / expected-failures scripts split on. -/
+def sanitizeName (s : String) : String :=
+  (s.replace " " "_").replace ":" "_"
+
+/-- Derive a stable, colon-free, per-entry id: `<dir>_<file>_<Fork>_d<d>g<g>v<v>`,
+    for EEST keys suffixed with the sanitized `::`-name and the post-array index.
     The modern test key is `<path>::<name>-fork_…`; the `<path>` segment (e.g.
     `GeneralStateTests/stCallCodes/Call1024OOG.json`) is used — with the
     `GeneralStateTests/` prefix and `.json` suffix stripped and `/` → `_` — so
     that same-named tests in different directories get distinct ids (a
-    name-only id collides, masking a regression). -/
-def entryId (testKey forkName : String) (d g v : Nat) : String :=
-  let pathPart := (testKey.splitOn "::").head!
+    name-only id collides, masking a regression).
+
+    Legacy `ethereum/tests` keys (`GeneralStateTests/…json::name`) carry exactly
+    one top-level key per file with a distinct `d/g/v` per post entry, so `base`
+    alone is unique and stays byte-stable — no baseline churn. EEST /
+    `execution-specs` keys (`tests/…py::name[params]`) pack many parametrized
+    keys per file — and some pack several post entries under a single key — all
+    at `d0g0v0`; for those we append the sanitized name *and* the post-array
+    index `entryIdx` so every case gets a distinct id instead of collapsing. -/
+def entryId (testKey forkName : String) (d g v entryIdx : Nat) : String :=
+  let parts := testKey.splitOn "::"
+  let pathPart := parts.head!
   let dirFile := (((pathPart.replace "GeneralStateTests/" "").replace ".json" "")).replace "/" "_"
-  s!"{dirFile}_{forkName}_d{d}g{g}v{v}"
+  let base := s!"{dirFile}_{forkName}_d{d}g{g}v{v}"
+  if pathPart.startsWith "GeneralStateTests/" then base
+  else
+    let namePart := String.intercalate "::" (parts.drop 1)
+    s!"{base}_{sanitizeName namePart}_e{entryIdx}"
 
 /-- Run every `(fork, entry)` in one file; one `(tag, id, msg)` per entry
     (`tag ∈ {PASS_ROOT, PASS_FULL, PASS_CORE, FAIL, INCON, CRASH}`). Forks we
@@ -356,12 +378,15 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
         match parseForkExact forkName with
         | none => pure ()
         | some fork =>
+          -- `entryIdx` disambiguates several post entries sharing one EEST key
+          -- (e.g. `test_eip_mainnet.py`, all at d0g0v0); unused for legacy ids.
+          let mut entryIdx := 0
           for entry in jsonArr arr do
             let idx := subObj entry "indexes"
             let d := natField idx "data"
             let g := natField idx "gas"
             let v := natField idx "value"
-            let id := entryId testKey forkName d g v
+            let id := entryId testKey forkName d g v entryIdx
             let r := match runEntry preMap preEntries env txJson fork entry with
               | .passRoot => ("PASS_ROOT", id, "")
               | .passFull => ("PASS_FULL", id, "")
@@ -369,6 +394,7 @@ def runFileResults (path : System.FilePath) : IO (Array (String × String × Str
               | .fail m   => ("FAIL", id, m)
               | .incon m  => ("INCON", id, m)
             out := out.push r
+            entryIdx := entryIdx + 1
     return out
 
 /-- Run `files` keeping up to `jobs` `Task`s continuously in flight, with an
