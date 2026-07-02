@@ -109,7 +109,8 @@ def decodeTx (tx : Json) : Option EvmSemantics.Tx.Transaction := do
       value     := hexToUInt256 (strField tx "value")
       data      := hexToBytes   (strField tx "data")
       gasLimit  := hexToNat     (strField tx "gasLimit")
-      gasPrice  := hexToUInt256 (strField tx "gasPrice") }
+      gasPrice  := hexToUInt256 (strField tx "gasPrice")
+      nonce     := hexToUInt256 (strField tx "nonce") }
 
 /-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
     approximates `factor · e^(numerator / denominator)` using the
