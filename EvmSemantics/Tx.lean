@@ -110,6 +110,12 @@ def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.
     if fork ≥ .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
 
+/-- EIP-7825 (Osaka) per-transaction gas-limit cap: `2^24 =
+    16_777_216`. A transaction whose `gasLimit` exceeds this is
+    *invalid* from Osaka onwards (rejected at tx/block validation),
+    exactly like the intrinsic-gas-too-low gate. -/
+def maxTransactionGas : Nat := 16777216
+
 /-- The fueled small-step loop. `stepF` is already total (it folds
     in-frame exceptions into `halt := .Exception e` and is the identity
     on done states) so the loop is just "iterate until `isDone`". REVERT
@@ -399,6 +405,14 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- `0` in `Nat` and the tx would otherwise run as though it had no gas,
   -- wrongly bumping the sender nonce (fixtures flag this `INTRINSIC_GAS_TOO_LOW`).
   if tx.gasLimit < intrinsicGas fork tx.isCreate tx.data then
+    { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-7825 (Osaka): a transaction may not request more than
+  -- `2^24 = 16_777_216` gas. Like the intrinsic-gas gate this is a
+  -- validity failure — the tx is not applied and the world state is
+  -- left entirely unchanged (no nonce bump, no upfront charge, no
+  -- coinbase credit). Gated on Osaka+ so pre-Osaka behaviour is
+  -- unchanged.
+  else if fork ≥ .Osaka ∧ tx.gasLimit > maxTransactionGas then
     { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-3607 (London+): reject any transaction whose sender has non-empty
   -- code. In principle only reachable via a private-key collision, but
