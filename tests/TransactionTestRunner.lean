@@ -412,6 +412,10 @@ def isValid (fork : Fork) (tx : DecodedTx) : Bool := Id.run do
   if fork ≥ .Osaka ∧ tx.gasLimit > Tx.maxTransactionGas then return false
   -- Intrinsic gas must not exceed the gas limit.
   if intrinsicGasOf fork tx > tx.gasLimit then return false
+  -- EIP-7623 (Prague+): the calldata data floor `21000 + 10·tokens` must
+  -- also be affordable (`INTRINSIC_NO_FLOOR_GAS`). `Tx.dataFloorGas` is `0`
+  -- before Prague, so this is a no-op on earlier forks.
+  if Tx.dataFloorGas fork tx.data > tx.gasLimit then return false
   return true
 
 ----------------------------------------------------------------------------
