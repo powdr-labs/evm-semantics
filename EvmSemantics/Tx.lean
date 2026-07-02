@@ -442,6 +442,11 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   if tx.gasLimit < Nat.max (intrinsicGas fork tx.isCreate tx.data)
                            (dataFloorGas fork tx.data) then
     { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-3860 (Shanghai+): a contract-creating transaction whose init code
+  -- exceeds `MAX_INITCODE_SIZE = 49152` is *invalid* (fixtures flag
+  -- INITCODE_SIZE_EXCEEDED) — no state change, like the intrinsic-gas gate.
+  else if tx.isCreate ∧ Gas.initCodeTooLarge fork tx.data.size then
+    { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-7825 (Osaka): a transaction may not request more than
   -- `2^24 = 16_777_216` gas. Like the intrinsic-gas gate this is a
   -- validity failure — the tx is not applied and the world state is
