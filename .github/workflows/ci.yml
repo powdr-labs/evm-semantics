@@ -298,3 +298,67 @@ jobs:
           path: |
             gstatetests-output.txt
             gstatetests-summary.txt
+
+      # Fetch the EEST (execution-spec-tests / now ethereum/execution-specs)
+      # Osaka `state_tests`. ethereum/tests is frozen at Prague, so modern-fork
+      # fixtures (EIP-7825/7823/7883/7939/7951/…) live only here, shipped as a
+      # release-asset tarball. We download the `develop` bundle (Osaka is not yet
+      # a mainnet fork, so it is absent from `stable`) and extract just
+      # `fixtures/state_tests/osaka`. Pin EEST_REV together with
+      # .github/eest-osaka-expected-failures.txt, never alone.
+      - name: Fetch EEST Osaka state_tests corpus
+        if: always()
+        env:
+          EEST_REV: v5.4.0
+        run: |
+          url="https://github.com/ethereum/execution-spec-tests/releases/download/$EEST_REV/fixtures_develop.tar.gz"
+          curl -sSL --retry 3 -o fixtures_develop.tar.gz "$url"
+          mkdir -p eest
+          # Extract only the Osaka state_tests subtree (the tarball also carries
+          # blockchain_tests and every other fork; we only run Osaka state_tests
+          # here — Cancun/Prague are already covered by the ethereum/tests job).
+          tar xzf fixtures_develop.tar.gz -C eest fixtures/state_tests/osaka
+          rm -f fixtures_develop.tar.gz
+          # Guard: a wrong asset/path silently extracts nothing → `total 0` →
+          # skipped comparison read as a false green. Fail loud instead.
+          count=$(find eest -name '*.json' | wc -l)
+          echo "Extracted $count Osaka state_test json files."
+          [ "$count" -gt 0 ] || { echo "::error::no Osaka state_tests extracted — check EEST_REV / asset name"; exit 1; }
+
+      # Non-gating: reports the modern Osaka conformance picture and flags
+      # regressions against .github/eest-osaka-expected-failures.txt (sorted
+      # "<id>: <tier>" lines; no aggregate counts, so branches never conflict on
+      # adjacent lines). Reuses the same subprocess-isolation runner + summary /
+      # check scripts as the ethereum/tests job.
+      - name: Run EEST Osaka state_tests
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/scripts/gstatetests_run.sh \
+            eest/fixtures/state_tests/osaka 45 30 | tee eest-osaka-output.txt
+
+      - name: Summarize and compare EEST Osaka state_tests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/gstatetests_summary.sh eest-osaka-output.txt > eest-osaka-summary.txt; then
+            .github/scripts/gstatetests_check.sh \
+              .github/eest-osaka-expected-failures.txt eest-osaka-summary.txt \
+              eest-osaka-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=EEST Osaka::eest osaka run produced no parseable summary; skipping regression comparison."
+            {
+              echo "## EEST Osaka state_tests regression report"
+              echo
+              echo "⚠️ The EEST Osaka run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`eest-osaka-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload EEST Osaka report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eest-osaka-report
+          path: |
+            eest-osaka-output.txt
+            eest-osaka-summary.txt
