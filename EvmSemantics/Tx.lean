@@ -407,6 +407,12 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- bumped and the coinbase gets no upfront gas.
   else if fork ≥ .London ∧ (preMap tx.sender).code.size > 0 then
     { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-2681: a sender already at the nonce ceiling (2^64-1) cannot have its
+  -- nonce incremented, so the transaction is invalid and leaves the world
+  -- state entirely unchanged — no nonce bump, no upfront gas charge, no
+  -- coinbase credit — matching the intrinsic-gas and EIP-3607 rejections.
+  else if Account.maxNonce ≤ (preMap tx.sender).nonce.toNat then
+    { finalAccounts := preMap, outcome := .exceptional }
   else if collide then rollback
   else
     -- Tx-level precompile dispatch is *not* a special case here: a tx

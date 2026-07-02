@@ -911,7 +911,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         | .error e => .error e
         | .ok s2 =>
           if s2.executionEnv.depth ≥ 1024 ∨
-              (s2.accountMap s2.executionEnv.address).balance < value then
+              (s2.accountMap s2.executionEnv.address).balance < value ∨
+              Account.maxNonce ≤ (s2.accountMap s2.executionEnv.address).nonce.toNat then
             .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
@@ -958,7 +959,8 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           if hh : hashCost ≤ s2.gasAvailable then
             let s2' := s2.consumeGas hashCost hh
             if s2'.executionEnv.depth ≥ 1024 ∨
-                (s2'.accountMap s2'.executionEnv.address).balance < value then
+                (s2'.accountMap s2'.executionEnv.address).balance < value ∨
+                Account.maxNonce ≤ (s2'.accountMap s2'.executionEnv.address).nonce.toNat then
               .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
                      (UInt256.ofNat 0 :: rest))
             else

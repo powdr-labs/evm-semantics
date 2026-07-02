@@ -1492,7 +1492,8 @@ inductive StepRunning : State → State → Prop
         (h_perm  : s.executionEnv.permitStateMutation = true)
         (h_gas   : Gas.createCommitted s offset size ≤ s.gasAvailable)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
-                     (s.accountMap s.executionEnv.address).balance < value)
+                     (s.accountMap s.executionEnv.address).balance < value ∨
+                     Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
@@ -1517,7 +1518,8 @@ inductive StepRunning : State → State → Prop
         (h_perm  : s.executionEnv.permitStateMutation = true)
         (h_gas   : Gas.createCommitted s offset size ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                        (s.accountMap s.executionEnv.address).balance < value))
+                        (s.accountMap s.executionEnv.address).balance < value ∨
+                        Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat))
         (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.createCommitted s offset size))
         (h_coll  : (s.accountMap (EvmSemantics.createAddress s.executionEnv.address
@@ -1544,7 +1546,8 @@ inductive StepRunning : State → State → Prop
         (h_perm   : s.executionEnv.permitStateMutation = true)
         (h_gas    : Gas.createCommitted s offset size ≤ s.gasAvailable)
         (h_take   : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                         (s.accountMap s.executionEnv.address).balance < value))
+                         (s.accountMap s.executionEnv.address).balance < value ∨
+                         Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat))
         (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.createCommitted s offset size))
         (h_nocoll : (s.accountMap (EvmSemantics.createAddress s.executionEnv.address
@@ -1574,7 +1577,8 @@ inductive StepRunning : State → State → Prop
         (h_perm  : s.executionEnv.permitStateMutation = true)
         (h_gas   : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
-                     (s.accountMap s.executionEnv.address).balance < value)
+                     (s.accountMap s.executionEnv.address).balance < value ∨
+                     Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.create2Committed s offset size
@@ -1592,7 +1596,8 @@ inductive StepRunning : State → State → Prop
         (h_perm  : s.executionEnv.permitStateMutation = true)
         (h_gas   : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_take  : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                        (s.accountMap s.executionEnv.address).balance < value))
+                        (s.accountMap s.executionEnv.address).balance < value ∨
+                        Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat))
         (h_fwd   : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                      (s.gasAvailable - Gas.create2Committed s offset size))
         (h_coll  : (s.accountMap
@@ -1618,7 +1623,8 @@ inductive StepRunning : State → State → Prop
         (h_perm   : s.executionEnv.permitStateMutation = true)
         (h_gas    : Gas.create2Committed s offset size ≤ s.gasAvailable)
         (h_take   : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                         (s.accountMap s.executionEnv.address).balance < value))
+                         (s.accountMap s.executionEnv.address).balance < value ∨
+                         Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat))
         (h_fwd    : forwarded = Gas.allButOneSixtyFourth s.executionEnv.fork
                       (s.gasAvailable - Gas.create2Committed s offset size))
         (h_nocoll : (s.accountMap
