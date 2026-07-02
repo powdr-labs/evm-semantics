@@ -9,19 +9,39 @@ on:
   # that never runs.
   merge_group:
 
-# Only keep the latest run per branch/PR; cancel superseded ones.
+# Only keep the latest run per branch/PR; cancel superseded ones. Scoped to the
+# workflow + ref, so it cancels the whole fan-out (build + every shard) as a
+# unit when a new push supersedes it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: Build, lint, VMTests, StateTests, and modern GeneralStateTests
-    # 32-core WarpBuild runner (same provider powdr uses). The build (`lake
-    # build`) and the per-file test runners below are CPU-bound and scale with
-    # cores, so a wide machine cuts wall time substantially versus the 2-core
-    # `ubuntu-latest`. Start with one machine; revisit sharding across runners
-    # if a single 32x box is still too slow.
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build once, then fan the independent test suites out across parallel jobs.
+  #
+  # The build (`lake build`) is cheap (~20s) and the compiled test binaries are
+  # STATICALLY linked against the Lean runtime (`ldd` shows only libc — no
+  # libleanshared.so), so the test shards need only the ~115 MB binary, NOT the
+  # ~40s elan + Mathlib-cache setup. `build` therefore compiles + lints on one
+  # wide runner, uploads each test binary as its own artifact, and each shard
+  # downloads just the binary it needs, fetches only its own corpus, and runs —
+  # no Lean toolchain on the shard. Measured: this cuts the wall time from one
+  # ~4-minute serial pipeline to ~3 minutes (`build ~90s` warm → slowest shard
+  # ~60s, run in parallel). The floor is now `build + slowest single suite`,
+  # not the sum of all suites.
+  #
+  # GATING is preserved exactly as it was in the old single job: a build/lint
+  # failure fails `build`, and a CALL-state-test regression fails `statetests`
+  # (its `--strict` compare is the only non-`continue-on-error` test step). The
+  # other four suites stay informational. The `ci` gate job at the bottom
+  # aggregates every job into one stable required-check name.
+  # ─────────────────────────────────────────────────────────────────────────
+  build:
+    name: Build and lint
+    # 32-core WarpBuild runner (same provider powdr uses). `lake build` is the
+    # only CPU-bound step here and finishes in ~20s; the width mostly helps the
+    # first cold build. Shards pick their own sizes below.
     runs-on: warp-ubuntu-2404-x64-32x
     steps:
       - name: Checkout
@@ -56,6 +76,43 @@ jobs:
       - name: Run `lake lint` (Batteries' `runLinter`)
         run: lake lint
 
+      # Publish each conformance-runner binary as its OWN artifact, so a shard
+      # downloads only the ~115 MB binary it runs (~33 MB compressed) instead of
+      # all four bundled together (~150 MB). This matters a lot on the smaller
+      # shard runners, whose artifact-download throughput is far lower than the
+      # 32-core box — a 4× payload cut is a 4× cut to that download. The binaries
+      # are statically linked (only libc in `ldd`), so no Lean toolchain is
+      # needed to run them; upload-artifact compresses them for transport.
+      # Retention 1 day: these are a short-lived intra-run hand-off.
+      - name: Upload vmtests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-vmtests, path: .lake/build/bin/vmtests, retention-days: 1 }
+      - name: Upload statetests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-statetests, path: .lake/build/bin/statetests, retention-days: 1 }
+      - name: Upload gstatetests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-gstatetests, path: .lake/build/bin/gstatetests, retention-days: 1 }
+      - name: Upload txtests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-txtests, path: .lake/build/bin/txtests, retention-days: 1 }
+
+  # ── VMTests shard (light: legacytests VMTests slice, no execution-heavy) ──
+  vmtests:
+    name: VMTests
+    needs: build
+    runs-on: warp-ubuntu-2404-x64-8x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download vmtests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-vmtests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/vmtests
+
       # Sparse + blobless fetch of just the VMTests corpus (~11 MB) rather than
       # the full ~2.7 GB legacytests checkout, pinned to the exact revision the
       # committed expected-failures list was generated against. Bump CORPUS_REV
@@ -70,16 +127,84 @@ jobs:
           git init -q
           git remote add origin https://github.com/ethereum/legacytests
           git sparse-checkout init --cone
-          # VMTests (for the vmtests suite) + the GeneralStateTests
-          # subdirs the statetests runner currently passes cleanly on
-          # (no FAIL / no INCON / no CRASH). The full
-          # `GeneralStateTests` tree is ~400 MB; this curated set is
-          # ~70 MB. Add a dir here once the evaluator passes every
-          # variant in it; the committed
-          # `.github/statetests-expected-failures.txt` snapshot ensures that a
-          # regression flips one of the listed tests to a worse tier.
+          git sparse-checkout set Constantinople/VMTests
+          git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
+          git checkout -q FETCH_HEAD
+
+      # Non-gating: reports the VMTests pass/fail picture and flags regressions,
+      # but never blocks the PR. The expected-failures list lives in
+      # .github/vmtests-expected-failures.txt (sorted "<id>: <tier>" lines; no
+      # aggregate counts, so branches that fix or add failing tests do not
+      # produce merge conflicts on adjacent lines).
+      - name: Run full VMTests suite
+        continue-on-error: true
+        run: |
+          ./.lake/build/bin/vmtests corpus/Constantinople/VMTests \
+            | tee vmtests-output.txt
+
+      - name: Summarize and compare against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          # Only compare if a complete summary was produced. A failed/partial
+          # vmtests run yields no parseable aggregate line, so vmtests_summary.sh
+          # exits non-zero; in that case skip the comparison rather than diff an
+          # empty summary (which would falsely report "no regressions, many
+          # improvements").
+          if .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt; then
+            .github/scripts/vmtests_check.sh \
+              .github/vmtests-expected-failures.txt vmtests-summary.txt \
+              vmtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## VMTests regression report"
+              echo
+              echo "⚠️ The vmtests run did not produce a parseable summary (incomplete run, missing output, or an output-format change), so the regression comparison was **skipped** to avoid false results. See the \`vmtests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload VMTests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vmtests-report
+          path: |
+            vmtests-output.txt
+            vmtests-summary.txt
+
+  # ── CALL state-tests shard (GATING: curated legacytests GeneralStateTests) ──
+  statetests:
+    name: StateTests (CALL, gating)
+    needs: build
+    runs-on: warp-ubuntu-2404-x64-32x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download statetests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-statetests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/statetests
+
+      # Sparse + blobless fetch of just the GeneralStateTests subdirs the
+      # statetests runner currently passes cleanly on (no FAIL / no INCON / no
+      # CRASH). The full `GeneralStateTests` tree is ~400 MB; this curated set is
+      # ~70 MB. Add a dir here once the evaluator passes every variant in it; the
+      # committed `.github/statetests-expected-failures.txt` snapshot ensures a
+      # regression flips one of the listed tests to a worse tier. Pinned to
+      # CORPUS_REV — bump together with the expected-failures file, never alone.
+      - name: Fetch CALL state-tests corpus
+        env:
+          CORPUS_REV: 1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb
+        run: |
+          mkdir corpus && cd corpus
+          git init -q
+          git remote add origin https://github.com/ethereum/legacytests
+          git sparse-checkout init --cone
           git sparse-checkout set \
-            Constantinople/VMTests \
             Constantinople/BlockchainTests/GeneralStateTests/stArgsZeroOneBalance \
             Constantinople/BlockchainTests/GeneralStateTests/stAttackTest \
             Constantinople/BlockchainTests/GeneralStateTests/stBadOpcode \
@@ -131,6 +256,64 @@ jobs:
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
 
+      # Reports the GeneralStateTests conformance picture against the curated
+      # subset. Wrapped in a per-file wall-cap (45s) + parallelism (30, sized for
+      # the 32-core runner): the evaluator's functional world-state maps make
+      # some calls slow, and deep-recursion tests that exceed the cap are
+      # recorded as INCON (wall-timeout) rather than hanging CI.
+      - name: Run GeneralStateTests (curated subset)
+        continue-on-error: true
+        run: |
+          .github/scripts/statetests_run.sh \
+            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 30 \
+            | tee statetests-output.txt
+
+      # GATING: this step fails the shard if any test regresses to a worse tier
+      # than the expected-failures file records (severity: pass < INCON < FAIL
+      # < CRASH). A crashed/partial run yields no parseable summary and is
+      # reported (not gated) via the else branch. NOT continue-on-error — this
+      # is the one test step that blocks the merge, exactly as in the old job.
+      - name: Summarize and compare CALL state tests against expected failures
+        if: always()
+        run: |
+          if .github/scripts/statetests_summary.sh statetests-output.txt > statetests-summary.txt; then
+            .github/scripts/statetests_check.sh --strict \
+              .github/statetests-expected-failures.txt statetests-summary.txt \
+              statetests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=StateTests::statetests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## StateTests (CALL) regression report"
+              echo
+              echo "⚠️ The statetests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`statetests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload StateTests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: statetests-report
+          path: |
+            statetests-output.txt
+            statetests-summary.txt
+
+  # ── Modern GeneralStateTests shard (ethereum/tests tarball, ~whole corpus) ──
+  modgst:
+    name: Modern GeneralStateTests
+    needs: build
+    runs-on: warp-ubuntu-2404-x64-32x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download gstatetests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-gstatetests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/gstatetests
+
       # Fetch the MAINTAINED ethereum/tests GeneralStateTests, which ship as a
       # single ~9 MB tarball (`fixtures_general_state_tests.tgz`) at the repo
       # root rather than as checked-in dirs. A blobless partial clone +
@@ -169,110 +352,13 @@ jobs:
           echo "Extracted $count GeneralStateTests json files."
           [ "$count" -gt 0 ] || { echo "::error::no GeneralStateTests extracted — check TESTS_REV / archive paths"; exit 1; }
 
-      # Non-gating: this step reports the VMTests pass/fail picture and flags
-      # regressions, but never blocks the PR. The expected-failures list lives
-      # in .github/vmtests-expected-failures.txt (sorted "<id>: <tier>" lines;
-      # no aggregate counts, so branches that fix or add failing tests do not
-      # produce merge conflicts on adjacent lines).
-      - name: Run full VMTests suite
-        continue-on-error: true
-        run: |
-          ./.lake/build/bin/vmtests corpus/Constantinople/VMTests \
-            | tee vmtests-output.txt
-
-      - name: Summarize and compare against expected failures
-        if: always()
-        continue-on-error: true
-        run: |
-          # Only compare if a complete summary was produced. A failed/partial
-          # vmtests run yields no parseable aggregate line, so vmtests_summary.sh
-          # exits non-zero; in that case skip the comparison rather than diff an
-          # empty summary (which would falsely report "no regressions, many
-          # improvements").
-          if .github/scripts/vmtests_summary.sh vmtests-output.txt > vmtests-summary.txt; then
-            .github/scripts/vmtests_check.sh \
-              .github/vmtests-expected-failures.txt vmtests-summary.txt \
-              vmtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
-            {
-              echo "## VMTests regression report"
-              echo
-              echo "⚠️ The vmtests run did not produce a parseable summary (incomplete run, missing output, or an output-format change), so the regression comparison was **skipped** to avoid false results. See the \`vmtests-report\` artifact."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload VMTests report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: vmtests-report
-          path: |
-            vmtests-output.txt
-            vmtests-summary.txt
-
-      # Non-gating: reports the GeneralStateTests conformance picture against
-      # the curated subset checked out above and flags regressions. The
-      # expected-failures list lives in .github/statetests-expected-failures.txt
-      # (sorted "<id>: <tier>" lines; no aggregate counts, so branches that fix
-      # or add failing tests do not produce merge conflicts on adjacent lines).
-      # Wrapped in `timeout` because the evaluator's functional world-state
-      # maps make some calls slow; a hang must not block CI.
-      - name: Run GeneralStateTests (curated subset)
-        if: always()
-        continue-on-error: true
-        run: |
-          # `statetests_run.sh` walks the dir tree via `find … -name '*.json'`,
-          # so pointing it at the parent `GeneralStateTests` picks up every
-          # subdir the sparse-checkout has materialised. Per-file wall-cap
-          # (45s) + parallelism (30, sized for the 32-core runner): bounds CI
-          # time despite the evaluator's slow functional world-state maps.
-          # Deep-recursion tests that exceed the cap are recorded as INCON
-          # (wall-timeout), never hang.
-          .github/scripts/statetests_run.sh \
-            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 30 \
-            | tee statetests-output.txt
-
-      # GATING: this step fails the job if any test regresses to a worse tier
-      # than the expected-failures file records (severity: pass < INCON < FAIL
-      # < CRASH). A crashed/partial run yields no parseable summary and is
-      # reported (not gated) via the else branch.
-      - name: Summarize and compare CALL state tests against expected failures
-        if: always()
-        run: |
-          if .github/scripts/statetests_summary.sh statetests-output.txt > statetests-summary.txt; then
-            .github/scripts/statetests_check.sh --strict \
-              .github/statetests-expected-failures.txt statetests-summary.txt \
-              statetests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::warning title=StateTests::statetests produced no parseable summary; skipping regression comparison."
-            {
-              echo "## StateTests (CALL) regression report"
-              echo
-              echo "⚠️ The statetests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`statetests-report\` artifact."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload StateTests report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: statetests-report
-          path: |
-            statetests-output.txt
-            statetests-summary.txt
-
-      # Non-gating: reports the modern GeneralStateTests conformance picture
-      # over (almost) the whole corpus and flags regressions. The expected-
-      # failures list lives in .github/gstatetests-expected-failures.txt
-      # (sorted "<id>: <tier>" lines; no aggregate counts, so branches that fix
-      # or add failing tests do not produce merge conflicts on adjacent lines).
-      # Run via the per-file subprocess-isolation wrapper (45s cap, parallelism
-      # 30 sized for the 32-core runner): a panic/OOM in one pathological test
-      # (the evaluator's unbounded huge-offset memory alloc) is contained as a
+      # Non-gating: reports the modern GeneralStateTests conformance picture over
+      # (almost) the whole corpus and flags regressions against
+      # .github/gstatetests-expected-failures.txt. Run via the per-file
+      # subprocess-isolation wrapper (45s cap, parallelism 30 sized for the
+      # 32-core runner): a panic/OOM in one pathological test is contained as a
       # `crash` for that file instead of aborting the whole run.
       - name: Run modern GeneralStateTests
-        if: always()
         continue-on-error: true
         run: |
           .github/scripts/gstatetests_run.sh \
@@ -304,43 +390,72 @@ jobs:
             gstatetests-output.txt
             gstatetests-summary.txt
 
-      # Fetch the EEST (execution-spec-tests / now ethereum/execution-specs)
-      # Osaka `state_tests`. ethereum/tests is frozen at Prague, so modern-fork
-      # fixtures (EIP-7825/7823/7883/7939/7951/…) live only here, shipped as a
-      # release-asset tarball. We download the `develop` bundle (Osaka is not yet
-      # a mainnet fork, so it is absent from `stable`) and extract just
-      # `fixtures/state_tests/osaka`. Pin EEST_REV together with
-      # .github/eest-osaka-expected-failures.txt, never alone.
+  # ── EEST shard: Osaka state_tests + transaction_tests (one tarball) ──
+  eest:
+    name: EEST Osaka (state + transaction tests)
+    needs: build
+    runs-on: warp-ubuntu-2404-x64-8x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      # This shard runs BOTH EEST suites off the single tarball fetched below,
+      # so it needs two binaries: gstatetests for the Osaka state_tests (same
+      # evaluator entry point as the modern-GST shard) and txtests for the
+      # transaction_tests (decode/validate only).
+      - name: Download gstatetests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-gstatetests
+          path: .lake/build/bin
+      - name: Download txtests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-txtests
+          path: .lake/build/bin
+      - name: Make binaries executable
+        run: chmod +x .lake/build/bin/gstatetests .lake/build/bin/txtests
+
+      # Fetch the EEST (execution-spec-tests) Osaka `state_tests`. ethereum/tests
+      # is frozen at Prague, so modern-fork fixtures (EIP-7825/7823/7883/7939/
+      # 7951/…) live only here, shipped as a release-asset tarball. We download
+      # the `develop` bundle (Osaka is not yet a mainnet fork, so it is absent
+      # from `stable`) and extract just `fixtures/state_tests/osaka`. Pin
+      # EEST_REV together with .github/eest-osaka-expected-failures.txt.
       - name: Fetch EEST Osaka state_tests corpus
-        if: always()
         env:
           EEST_REV: v5.4.0
         run: |
           url="https://github.com/ethereum/execution-spec-tests/releases/download/$EEST_REV/fixtures_develop.tar.gz"
           curl -sSL --retry 3 -o fixtures_develop.tar.gz "$url"
           mkdir -p eest
-          # Extract only the Osaka state_tests subtree (the tarball also carries
+          # Extract the Osaka state_tests subtree (the tarball also carries
           # blockchain_tests and every other fork; we only run Osaka state_tests
-          # here — Cancun/Prague are already covered by the ethereum/tests job).
-          tar xzf fixtures_develop.tar.gz -C eest fixtures/state_tests/osaka
+          # here — Cancun/Prague are already covered by the ethereum/tests job)
+          # plus the modern transaction_tests subtree (EIP-7702 set-code tx
+          # decode/validate vectors, absent from the frozen ethereum/tests
+          # TransactionTests). Both come from the one download.
+          tar xzf fixtures_develop.tar.gz -C eest \
+            fixtures/state_tests/osaka fixtures/transaction_tests
           rm -f fixtures_develop.tar.gz
           # Guard: a wrong asset/path silently extracts nothing → `total 0` →
           # skipped comparison read as a false green. Fail loud instead.
-          count=$(find eest -name '*.json' | wc -l)
+          count=$(find eest/fixtures/state_tests/osaka -name '*.json' | wc -l)
           echo "Extracted $count Osaka state_test json files."
           [ "$count" -gt 0 ] || { echo "::error::no Osaka state_tests extracted — check EEST_REV / asset name"; exit 1; }
+          ttcount=$(find eest/fixtures/transaction_tests -name '*.json' | wc -l)
+          echo "Extracted $ttcount EEST transaction_test json files."
+          [ "$ttcount" -gt 0 ] || { echo "::error::no EEST transaction_tests extracted — check EEST_REV / asset name"; exit 1; }
 
       # Non-gating: reports the modern Osaka conformance picture and flags
-      # regressions against .github/eest-osaka-expected-failures.txt (sorted
-      # "<id>: <tier>" lines; no aggregate counts, so branches never conflict on
-      # adjacent lines). Reuses the same subprocess-isolation runner + summary /
-      # check scripts as the ethereum/tests job.
+      # regressions against .github/eest-osaka-expected-failures.txt. Reuses the
+      # subprocess-isolation runner + summary / check scripts. Parallelism 8
+      # (sized for this 4-core shard — the Osaka corpus is small, so a wide fan
+      # buys nothing and would oversubscribe RAM with 115 MB workers).
       - name: Run EEST Osaka state_tests
-        if: always()
         continue-on-error: true
         run: |
           .github/scripts/gstatetests_run.sh \
-            eest/fixtures/state_tests/osaka 45 30 | tee eest-osaka-output.txt
+            eest/fixtures/state_tests/osaka 45 8 | tee eest-osaka-output.txt
 
       - name: Summarize and compare EEST Osaka state_tests against expected failures
         if: always()
@@ -368,6 +483,61 @@ jobs:
             eest-osaka-output.txt
             eest-osaka-summary.txt
 
+      # Non-gating: the modern EEST transaction_tests (EIP-7702 set-code tx
+      # decode/validate vectors, extracted above from the same EEST tarball as
+      # the Osaka state_tests). Reuses the txtests runner + scripts against a
+      # separate baseline .github/eest-txtests-expected-failures.txt. Parallelism
+      # 8 to match this shard's runner (txtests is a single decode-only process,
+      # so this is just Lean-task scheduling — cheap regardless).
+      - name: Run EEST transaction_tests
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/scripts/txtests_run.sh \
+            eest/fixtures/transaction_tests 8 | tee eest-txtests-output.txt
+
+      - name: Summarize and compare EEST transaction_tests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/txtests_summary.sh eest-txtests-output.txt > eest-txtests-summary.txt; then
+            .github/scripts/txtests_check.sh \
+              .github/eest-txtests-expected-failures.txt eest-txtests-summary.txt \
+              eest-txtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=EEST transaction_tests::txtests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## EEST transaction_tests regression report"
+              echo
+              echo "⚠️ The EEST transaction_tests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`eest-txtests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload EEST transaction_tests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eest-txtests-report
+          path: |
+            eest-txtests-output.txt
+            eest-txtests-summary.txt
+
+  # ── TransactionTests shard (ethereum/tests sparse checkout; decode+validate) ──
+  txtests:
+    name: TransactionTests
+    needs: build
+    runs-on: warp-ubuntu-2404-x64-32x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download txtests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-txtests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/txtests
+
       # Fetch the ethereum/tests TransactionTests suite. Unlike the modern
       # GeneralStateTests (shipped as a root-level tarball), TransactionTests
       # live as checked-in JSON dirs, so we sparse-checkout just that subtree
@@ -375,7 +545,6 @@ jobs:
       # GeneralStateTests corpus (bump both together with the expected-failures
       # files, never alone).
       - name: Fetch TransactionTests corpus
-        if: always()
         env:
           # tag v17.2 — kept in lockstep with the modern GeneralStateTests rev.
           TESTS_REV: c67e485ff8b5be9abc8ad15345ec21aa22e290d9
@@ -395,11 +564,8 @@ jobs:
           [ "$count" -gt 0 ] || { echo "::error::no TransactionTests checked out — check TESTS_REV / sparse path"; exit 1; }
 
       # Non-gating: reports the TransactionTests pass/fail picture and flags
-      # regressions against .github/txtests-expected-failures.txt (sorted
-      # "<id>: <tier>" lines; no aggregate counts, so branches never conflict on
-      # adjacent lines).
+      # regressions against .github/txtests-expected-failures.txt.
       - name: Run TransactionTests
-        if: always()
         continue-on-error: true
         run: |
           .github/scripts/txtests_run.sh \
@@ -430,3 +596,43 @@ jobs:
           path: |
             txtests-output.txt
             txtests-summary.txt
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Single stable aggregate check. Branch protection / the merge queue should
+  # require THIS job ("CI / Gate") rather than the individual shard names, so
+  # the required-check name stays put even as shards are added or renamed.
+  #
+  # It fails iff any upstream job did not succeed. Because the non-gating
+  # suites' compare steps are `continue-on-error`, those shards stay green on a
+  # conformance regression and only go red on an infra failure (checkout /
+  # artifact download / corpus fetch) — which SHOULD block, exactly as it did
+  # when those fetches lived in the old single job. `build` gates on build/lint;
+  # `statetests` gates on a CALL-suite regression. Net: identical gating to the
+  # pre-split job, now reported through one durable check.
+  # ─────────────────────────────────────────────────────────────────────────
+  ci:
+    name: Gate
+    needs: [build, vmtests, statetests, modgst, eest, txtests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all jobs succeeded
+        env:
+          RESULTS: >-
+            build=${{ needs.build.result }}
+            vmtests=${{ needs.vmtests.result }}
+            statetests=${{ needs.statetests.result }}
+            modgst=${{ needs.modgst.result }}
+            eest=${{ needs.eest.result }}
+            txtests=${{ needs.txtests.result }}
+        run: |
+          echo "Upstream job results: $RESULTS"
+          failed=0
+          for kv in $RESULTS; do
+            case "$kv" in
+              *=success) ;;
+              *) echo "::error::${kv%%=*} did not succeed (${kv#*=})"; failed=1 ;;
+            esac
+          done
+          [ "$failed" -eq 0 ] || { echo "CI gate: one or more jobs failed."; exit 1; }
+          echo "CI gate: all jobs succeeded."

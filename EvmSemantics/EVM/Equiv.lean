@@ -502,7 +502,11 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     ({ (if (value.toNat != 0) then
                           { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
                         else s3) with
-                        returnData := .empty }.replaceStackAndIncrPC
+                        returnData := .empty,
+                        substate := (if (value.toNat != 0) then
+                                       { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+                                     else s3).substate.addAccessedAccount
+                                       (AccountAddress.ofUInt256 toArg) }.replaceStackAndIncrPC
                       (UInt256.ofNat 0 :: rest))
                     = ({ s with
                         gasAvailable := s.gasAvailable
@@ -511,6 +515,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                         returnData := .empty
+                        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
                         stack := UInt256.ofNat 0 :: rest
                         pc := s.pc.succ } : State) := by
                   by_cases h_vnz : value.toNat != 0 <;>
@@ -518,6 +523,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           State.replaceStackAndIncrPC,
                           State.activeWordsAfterUInt256_2, Gas.callCommitted,
                           UInt256.succ, MachineState.memExpansionDelta2, h_vnz,
+                          Substate.addAccessedAccount,
                           show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl] <;>
                     grind
                 rw [post_eq]
@@ -677,7 +683,12 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   ({ (if (value.toNat != 0) then
                         { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
                       else s3) with
-                      returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                      returnData := .empty,
+                      substate := (if (value.toNat != 0) then
+                                     { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
+                                   else s3).substate.addAccessedAccount
+                                     (AccountAddress.ofUInt256 toArg) }.replaceStackAndIncrPC
+                    (UInt256.ofNat 0 :: rest))
                   = ({ s with
                       gasAvailable := s.gasAvailable
                         - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
@@ -685,6 +696,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       activeWords := s.activeWordsAfterUInt256_2
                         argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                       returnData := .empty
+                      substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
                       stack := UInt256.ofNat 0 :: rest
                       pc := s.pc.succ } : State) := by
                 by_cases h_vnz : value.toNat != 0 <;>
@@ -692,6 +704,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         State.replaceStackAndIncrPC,
                         State.activeWordsAfterUInt256_2, Gas.callcodeCommitted,
                         UInt256.succ, MachineState.memExpansionDelta2, h_vnz,
+                        Substate.addAccessedAccount,
                         show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl] <;>
                   grind
               rw [post_eq]
@@ -1174,6 +1187,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
       · simp [h_perm] at h
         have h_perm' : s.executionEnv.permitStateMutation = true := by
           simp at h_perm; exact h_perm
+        -- EIP-3860 size-abort branch returns `.error`, contradicting `h : … = .ok`.
+        split at h
+        · nomatch h
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE)) h_gas).canExpandMemory
@@ -1336,6 +1352,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
       · simp [h_perm] at h
         have h_perm' : s.executionEnv.permitStateMutation = true := by
           simp at h_perm; exact h_perm
+        -- EIP-3860 size-abort branch returns `.error`, contradicting `h : … = .ok`.
+        split at h
+        · nomatch h
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE2)) h_gas).canExpandMemory
@@ -3710,6 +3729,12 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show (Operation.System .CREATE).isStateMutating = true; rfl
         · simp at h_perm; exact h_perm
       · simp only [if_neg h_perm] at h
+        -- EIP-3860: oversized init code aborts exceptionally with OutOfGas.
+        split at h
+        · cases h
+          refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+          · show Gas.baseCost s.fork (.System .CREATE) ≤ s.gasAvailable + 1; omega
+          · omega
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE)) h_gas).canExpandMemory
@@ -3763,6 +3788,12 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show (Operation.System .CREATE2).isStateMutating = true; rfl
         · simp at h_perm; exact h_perm
       · simp only [if_neg h_perm] at h
+        -- EIP-3860: oversized init code aborts exceptionally with OutOfGas.
+        split at h
+        · cases h
+          refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+          · show Gas.baseCost s.fork (.System .CREATE2) ≤ s.gasAvailable + 1; omega
+          · omega
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE2)) h_gas).canExpandMemory
