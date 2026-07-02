@@ -245,13 +245,28 @@ def decode1559 (items : List Rlp.Item) : Option DecodedTx := do
          data, toLen, accessAddrs := addrs, accessKeys := keys, yParity,
          vRaw := yParity, r, s }
 
-/-- Decode result: a typed transaction, or a signal to skip (`INCON`) for
-    envelope types outside this runner's scope. -/
+/-- Decode result: a typed transaction, an out-of-scope typed envelope
+    (carrying its EIP-2718 type byte — its verdict is fork-dependent), or a
+    malformed encoding (invalid on every fork). -/
 inductive DecodeResult where
-  | ok    : DecodedTx → DecodeResult
-  | skip  : String → DecodeResult    -- out-of-scope typed envelope
-  | bad   : DecodeResult              -- malformed / undecodable ⇒ invalid tx
+  | ok          : DecodedTx → DecodeResult
+  | unsupported : Nat → DecodeResult  -- typed envelope this runner can't decode
+  | bad         : DecodeResult         -- malformed / undecodable ⇒ invalid tx
   deriving Inhabited
+
+/-- Whether the EIP-2718 transaction `type` byte is *activated* at `fork`.
+    An envelope whose type is not activated is `TYPE_NOT_SUPPORTED` — invalid
+    on that fork regardless of its body. `0x01`/`0x02` are handled directly
+    by the decoder; this covers the out-of-scope defined types (`0x03`
+    EIP-4844 blob, `0x04` EIP-7702 set-code) and the undefined/reserved range
+    (`0x05`–`0x7f`, never activated). -/
+def typedTypeActivated (typeByte : Nat) (fork : Fork) : Bool :=
+  match typeByte with
+  | 0x01 => fork ≥ .Berlin
+  | 0x02 => fork ≥ .London
+  | 0x03 => fork ≥ .Cancun
+  | 0x04 => fork ≥ .Prague
+  | _    => false
 
 /-- Decode raw `txbytes` (already hex-decoded) into a `DecodedTx`. A
     leading byte `< 0x80` (in the EIP-2718 envelope range `0x00..0x7f`)
@@ -279,7 +294,9 @@ def decodeTxBytes (raw : ByteArray) : DecodeResult :=
       | _                  => .bad
     else if first ≥ 0x03 ∧ first ≤ 0x7f then
       -- EIP-4844 (0x03), EIP-7702 (0x04), or a reserved type: out of scope.
-      .skip s!"typed-envelope-0x{first}"
+      -- Its per-fork verdict is decided in `runFileResults` via
+      -- `typedTypeActivated` (invalid where the type isn't activated).
+      .unsupported first
     else
       -- Leading byte in 0x80..0xbf: a bare RLP string, not a valid tx.
       .bad
@@ -529,7 +546,16 @@ def runFileResults (path : System.FilePath) :
           let id := s!"{fileTag}_{sanitize testName}_{forkName}"
           let r : String × String × String :=
             match decoded with
-            | .skip why => ("INCON", id, why)
+            | .unsupported tb =>
+              -- A typed envelope we don't decode. If its type isn't activated
+              -- on this fork it is `TYPE_NOT_SUPPORTED` (invalid), which we can
+              -- check; if it *is* activated we can't validate its body ⇒ INCON.
+              if typedTypeActivated tb fork then
+                ("INCON", id, s!"unsupported typed envelope 0x{tb} (active at fork)")
+              else
+                let expectValid := hasField expected "sender" && hasField expected "hash"
+                if expectValid then ("FAIL", id, s!"type 0x{tb} unexpectedly valid")
+                else ("PASS", id, "")
             | .bad =>
               -- Undecodable ⇒ we treat the tx as invalid; that is correct
               -- iff the fixture also marks it invalid for this fork.
