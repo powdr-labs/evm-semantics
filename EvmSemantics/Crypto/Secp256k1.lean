@@ -54,7 +54,7 @@ abbrev Fp := Fin p
 abbrev Point := EvmSemantics.Crypto.EC.Point Fp
 
 /-- The secp256k1 curve packaged for the generic point operations. -/
-def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { b := Fin.ofNat _ 7 }
+def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { a := 0, b := Fin.ofNat _ 7 }
 
 /-- The secp256k1 generator point `G`. -/
 def G : Point := .affine (Fin.ofNat _ Gx) (Fin.ofNat _ Gy)
