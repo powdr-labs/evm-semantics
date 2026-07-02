@@ -43,4 +43,4 @@ fi
 # without this, `set -o pipefail` would fail the whole script after a valid run.
 { grep -E '^(FAIL|INCON|CRASH) ' "$raw" || true; } \
   | sed -E 's/^(FAIL|INCON|CRASH) ([^:]+):.*/\2: \1/' \
-  | sort -u
+  | sort -t":" -k1,1 -u

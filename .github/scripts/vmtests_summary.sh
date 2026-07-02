@@ -42,4 +42,4 @@ fi
 # wrote a valid summary (and CI would treat a clean run as unparseable).
 { grep -E '^[[:space:]]+(FAIL|CRASH) ' "$raw" || true; } \
   | sed -E 's/^[[:space:]]+(FAIL|CRASH) ([^:]+):.*/\2: \1/' \
-  | sort -u
+  | sort -t":" -k1,1 -u
