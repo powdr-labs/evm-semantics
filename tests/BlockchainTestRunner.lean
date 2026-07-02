@@ -17,18 +17,21 @@ applies the block's withdrawals and the (pre-Merge) block reward, and
 finally compares the resulting world against the test's expanded
 `postState` (and the last block's `stateRoot`).
 
-This is **Stage 1**: it executes *valid* chains and compares the post-state
-in the same three tiers as the state-test runners
-(`passCore` ⊂ `passFull` ⊂ `passRoot`). Two things are deferred to a later
-stage and reported `INCON` so they land in the baseline rather than
-counting as failures:
+It executes *valid* chains and compares the post-state in the same three
+tiers as the state-test runners (`passCore` ⊂ `passFull` ⊂ `passRoot`). All
+transaction types execute through `Tx.execute` — legacy, EIP-2930 access
+lists, EIP-1559 fee-market, EIP-4844 blobs and EIP-7702 set-code (the access
+list / blob versioned hashes / authorization list are parsed from the block
+tx and passed through, as in the `gstatetests` runner).
+
+Still deferred and reported `INCON` (so they land in the baseline rather
+than counting as failures):
 
 * **Invalid-block tests** — a block carrying `expectException` must be
-  *rejected* by header/consensus validation, which this stage does not yet
-  perform.
-* **Unmodelled transaction types** — EIP-2930 access lists, EIP-4844 blobs
-  and EIP-7702 set-code txs (as in the `gstatetests` runner); legacy and
-  EIP-1559 transactions execute.
+  *rejected* by header/consensus validation, which needs a block-`rlp`
+  decoder and the header transition checks (a later stage).
+* **Fork-transition networks** (e.g. `CancunToPragueAtTime15k`) — the
+  timestamp-triggered mid-chain fork switch is not modelled.
 -/
 
 @[expose] public section
@@ -143,17 +146,29 @@ def decodeBlockHeader (bh : Json) : BlockHeader :=
 -- Transaction build (block-tx JSON: scalar fields, `sender` given).
 ----------------------------------------------------------------------------
 
-/-- Reason a block transaction can't be executed by this runner, or `none`.
-    Legacy and EIP-1559 (empty access list) execute; access-list / blob /
-    set-code txs are unmodelled (mirrors `GeneralStateTestRunner`). -/
-def txUnsupportedReason (tx : Json) : Option String :=
-  if (jsonArr (subObj tx "blobVersionedHashes")).size > 0 then
-    some "blob tx (EIP-4844) unsupported"
-  else if hasField tx "authorizationList" then
-    some "set-code tx (EIP-7702) unsupported"
-  else if (jsonArr (subObj tx "accessList")).size > 0 then
-    some "access-list tx (EIP-2930) unsupported"
-  else none
+/-- Parse a block tx's EIP-2930 `accessList` (`[{address, storageKeys:[…]}]`)
+    into `(address, storageKeys)` pairs. Empty when absent. -/
+def parseAccessList (tx : Json) : List (AccountAddress × List UInt256) :=
+  (jsonArr (subObj tx "accessList")).toList.map (fun e =>
+    let addr := hexToAddress (strField e "address")
+    let keys := (jsonArr (subObj e "storageKeys")).toList.filterMap
+      (fun k => match k with | .str s => some (hexToUInt256 s) | _ => none)
+    (addr, keys))
+
+/-- Parse the EIP-4844 `blobVersionedHashes` array. Empty for non-blob txs. -/
+def parseBlobHashes (tx : Json) : Array UInt256 :=
+  (jsonArr (subObj tx "blobVersionedHashes")).filterMap
+    (fun h => match h with | .str s => some (hexToUInt256 s) | _ => none)
+
+/-- Parse the EIP-7702 `authorizationList` into `Tx.Authorization`s, using the
+    fixture's recovered `signer` as the authority (the runner takes the tx
+    `sender` directly rather than recovering it). -/
+def parseAuthList (tx : Json) : List Tx.Authorization :=
+  (jsonArr (subObj tx "authorizationList")).toList.map (fun e =>
+    { chainId   := hexToNat     (strField e "chainId")
+      address   := hexToAddress (strField e "address")
+      nonce     := hexToNat     (strField e "nonce")
+      authority := hexToAddress (strField e "signer") })
 
 /-- Effective gas price: `min(maxFeePerGas, baseFee + maxPriorityFeePerGas)`
     for EIP-1559, else the legacy `gasPrice`. -/
@@ -174,7 +189,10 @@ def buildTx (tx : Json) (baseFee : Nat) : Tx.Transaction :=
     data      := hexToBytes   (strField tx "data")
     gasLimit  := hexToNat     (strField tx "gasLimit")
     gasPrice  := effectiveGasPrice tx baseFee
-    nonce     := hexToUInt256 (strField tx "nonce") }
+    nonce     := hexToUInt256 (strField tx "nonce")
+    accessList := parseAccessList tx
+    maxFeePerBlobGas := hexToUInt256 (strField tx "maxFeePerBlobGas")
+    authList  := parseAuthList tx }
 
 ----------------------------------------------------------------------------
 -- Block-level system calls (EIP-4788 beacon roots).
@@ -284,9 +302,9 @@ def applyWithdrawals (m : AccountMap) (block : Json) : AccountMap := Id.run do
   return m
 
 /-- Execute one block against `preMap`: run every transaction in order
-    (threading the post-state), then apply withdrawals and — once for the
-    whole block — the pre-Merge block reward. Returns `.error reason` for an
-    unmodelled tx type or a fuel-exhausted run (⇒ `INCON`). -/
+    (threading the post-state), then apply the end-of-block request system
+    calls, withdrawals and — once for the whole block — the pre-Merge block
+    reward. Returns `.error reason` for a fuel-exhausted run (⇒ `INCON`). -/
 def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork) :
     Except String AccountMap := do
   let header := decodeBlockHeader (subObj block "blockHeader")
@@ -295,17 +313,16 @@ def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork) :
   -- block-hash history (Prague+).
   let mut m := applyBlockHashHistory (applyBeaconRoot preMap block header fork) block header fork
   for tx in jsonArr (subObj block "transactions") do
-    match txUnsupportedReason tx with
-    | some r => throw r
-    | none =>
-      let t := buildTx tx baseFee
-      let fuel := 2 * t.gasLimit + 100_000
-      -- `applyReward := false`: the fixed block subsidy is paid once per
-      -- block below, not per transaction.
-      let result := EvmSemantics.Tx.execute m header t fork fuel #[] (applyReward := false)
-      match result.outcome with
-      | .fuelExhausted => throw "fuel exhausted"
-      | _ => m := result.finalAccounts
+    let t := buildTx tx baseFee
+    let blobHashes := parseBlobHashes tx
+    let fuel := 2 * t.gasLimit + 100_000
+    -- `applyReward := false`: the fixed block subsidy is paid once per
+    -- block below, not per transaction. Legacy / EIP-2930 / EIP-1559 /
+    -- EIP-4844 / EIP-7702 all execute through `Tx.execute`.
+    let result := EvmSemantics.Tx.execute m header t fork fuel blobHashes (applyReward := false)
+    match result.outcome with
+    | .fuelExhausted => throw "fuel exhausted"
+    | _ => m := result.finalAccounts
   -- End-of-block: EIP-7002/7251 request system calls, withdrawals, then the
   -- (pre-Merge) block reward on the block's own coinbase.
   m := applyBlockEndRequests m header fork
