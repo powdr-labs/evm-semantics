@@ -84,6 +84,14 @@ structure Transaction where
   /-- `T_n` — the sender's expected on-chain nonce. Must equal
       `σ[T_s]_n` at execution time, else the tx is invalid (YP §6.2). -/
   nonce     : UInt256 := ⟨0⟩
+  /-- EIP-2930 access list: `(address, storageKeys)` pairs pre-warmed for
+      EIP-2929 pricing and charged in the intrinsic gas. `[]` for legacy /
+      1559 txs. -/
+  accessList : List (AccountAddress × List UInt256) := []
+  /-- EIP-4844 blob fee cap (`max_fee_per_blob_gas`); `0` for non-blob txs.
+      The versioned hashes travel as the `blobVersionedHashes` argument to
+      `buildInitState`/`execute` (they also feed the `BLOBHASH` opcode). -/
+  maxFeePerBlobGas : UInt256 := ⟨0⟩
   deriving Inhabited
 
 /-- `true` iff this is a contract-creating transaction. -/
@@ -112,6 +120,25 @@ def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.
     -- EIP-3860 init-code word cost: 2 per 32-byte word.
     if fork ≥ .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
+
+/-- EIP-2930 access-list intrinsic surcharge: `2400` per listed address plus
+    `1900` per listed storage key. `0` for an empty list. -/
+def accessListGas (al : List (AccountAddress × List UInt256)) : Nat :=
+  al.foldl (fun g (_, keys) => g + 2400 + 1900 * keys.length) 0
+
+/-- Full intrinsic gas for `tx`: the base `intrinsicGas` plus the EIP-2930
+    access-list surcharge. This is the value that must fit under `gasLimit`
+    and that seeds `gasAvailable`. -/
+def txIntrinsicGas (fork : Fork) (tx : Transaction) : Nat :=
+  intrinsicGas fork tx.isCreate tx.data + accessListGas tx.accessList
+
+/-- EIP-4844 gas per blob = `2¹⁷ = 131072`. -/
+def gasPerBlob : Nat := 131072
+
+/-- Maximum blobs a single transaction may carry: 6 at Cancun, 9 at Prague
+    (EIP-7691), 6 again at Osaka (EIP-7594 per-tx cap). -/
+def maxBlobsPerTx (fork : Fork) : Nat :=
+  if fork ≥ .Osaka then 6 else if fork ≥ .Prague then 9 else 6
 
 /-- EIP-7623 (Prague) calldata token count: `zero_bytes + 4 · nonzero_bytes`.
     With `STANDARD_TOKEN_COST = 4` this reproduces the EIP-2028 per-byte prices
@@ -177,7 +204,10 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
     State :=
   let sender0 := preMap tx.sender
   let toAddr  := tx.targetAddress sender0
-  let upfront := tx.gasLimit * tx.gasPrice.toNat
+  -- Upfront debit: the gas allowance `T_g · T_p` plus, for an EIP-4844 blob
+  -- tx, the blob fee `blob_gas_used · blob_base_fee` (fully burned).
+  let blobFee := gasPerBlob * blobVersionedHashes.size * header.blobBaseFee.toNat
+  let upfront := tx.gasLimit * tx.gasPrice.toNat + blobFee
   let preMap := preMap.set tx.sender
     { sender0 with nonce := sender0.nonce + UInt256.ofNat 1
                    balance := sender0.balance - UInt256.ofNat upfront }
@@ -216,7 +246,7 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
       blobVersionedHashes := blobVersionedHashes
       fork                := fork }
   { toMachineState :=
-      { gasAvailable := tx.gasLimit - intrinsicGas fork tx.isCreate tx.data,
+      { gasAvailable := tx.gasLimit - txIntrinsicGas fork tx,
         activeWords := ⟨0⟩
         memory := .empty, returnData := .empty, hReturn := .empty }
     accountMap   := accountMap
@@ -234,11 +264,16 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
         else 9
       { Substate.empty with
           originalAccountMap := accountMap
+          -- EIP-2930: the access list's addresses join the warm-account set…
           accessedAccounts :=
             tx.sender :: toAddr
               :: ((List.range numPrecompiles).map (fun i => AccountAddress.ofNat (i + 1))
                     ++ (if fork ≥ .Shanghai then [header.coinbase] else [])
-                    ++ (if fork ≥ .Osaka then [AccountAddress.ofNat 0x100] else [])) }
+                    ++ (if fork ≥ .Osaka then [AccountAddress.ofNat 0x100] else [])
+                    ++ tx.accessList.map (·.1))
+          -- …and its `(address, slot)` pairs join the warm-storage-key set.
+          accessedStorageKeys :=
+            tx.accessList.flatMap (fun (a, keys) => keys.map (fun k => (a, k))) }
     executionEnv := execEnv
     pc           := ⟨0⟩
     stack        := []
@@ -427,6 +462,8 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   let newAddr  := s0.executionEnv.address
   let gasPrice := tx.gasPrice.toNat
   let baseFee  := header.baseFeePerGas.toNat
+  -- EIP-4844 blob fee (burned): `blob_gas_used · blob_base_fee`.
+  let blobFee  := gasPerBlob * blobVersionedHashes.size * header.blobBaseFee.toNat
   -- The block reward is paid to the coinbase regardless of tx
   -- outcome; we layer it on top of every non-`fuelExhausted`
   -- result-map below via `applyBlockReward`.
@@ -460,7 +497,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- floor (`21000 + 10·tokens`); below the max of the two it is
   -- invalid (INTRINSIC_GAS_BELOW_FLOOR_GAS_COST). Pre-Prague
   -- `dataFloorGas = 0`, so this reduces to `gasLimit < intrinsicGas`.
-  else if tx.gasLimit < Nat.max (intrinsicGas fork tx.isCreate tx.data)
+  else if tx.gasLimit < Nat.max (txIntrinsicGas fork tx)
                                 (dataFloorGas fork tx.data) then
     { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-3860 (Shanghai+): a contract-creating tx whose init code
@@ -488,13 +525,20 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- the check is `gasPrice ≥ baseFee`. Fixture: INSUFFICIENT_MAX_FEE_PER_GAS.
   else if fork ≥ .London ∧ tx.gasPrice < header.baseFeePerGas then
     { finalAccounts := preMap, outcome := .exceptional }
-  -- Upfront affordability: sender must afford both the upfront gas
-  -- charge `T_g · T_p` and the transferred value `T_v` — i.e.
-  -- `T_g · T_p + T_v ≤ σ[T_s]_b`. Fixtures: INSUFFICIENT_ACCOUNT_FUNDS /
-  -- GASLIMIT_PRICE_PRODUCT_OVERFLOW (the overflow case is subsumed
-  -- because `T_g · T_p` in `Nat` cannot overflow, and any product ≥ 2²⁵⁶
-  -- is trivially larger than any 256-bit balance).
-  else if tx.gasLimit * gasPrice + tx.value.toNat >
+  -- EIP-4844 (Cancun+) blob-tx validity: a tx carrying versioned hashes must
+  -- target an account (no create), stay within the per-tx blob cap, and its
+  -- blob-fee cap must cover the block blob base fee. Fixtures: TYPE_3_TX_*.
+  else if blobVersionedHashes.size > 0 ∧
+          (tx.isCreate
+           ∨ blobVersionedHashes.size > maxBlobsPerTx fork
+           ∨ tx.maxFeePerBlobGas < header.blobBaseFee) then
+    { finalAccounts := preMap, outcome := .exceptional }
+  -- Upfront affordability: sender must afford the upfront gas charge
+  -- `T_g · T_p`, the transferred value `T_v`, and (for a blob tx) the blob
+  -- fee `blob_gas_used · blob_base_fee`. Fixtures: INSUFFICIENT_ACCOUNT_FUNDS
+  -- / GASLIMIT_PRICE_PRODUCT_OVERFLOW (overflow subsumed: `Nat` can't overflow,
+  -- and any product ≥ 2²⁵⁶ trivially exceeds a 256-bit balance).
+  else if tx.gasLimit * gasPrice + tx.value.toNat + blobFee >
            senderAcc.balance.toNat then
     { finalAccounts := preMap, outcome := .exceptional }
   else if collide then rollback
