@@ -25,10 +25,11 @@ jobs:
   # libleanshared.so), so the test shards need only the ~115 MB binary, NOT the
   # ~40s elan + Mathlib-cache setup. `build` therefore compiles + lints on one
   # wide runner, uploads each test binary as its own artifact, and each shard
-  # downloads just the binary it needs, fetches only its own corpus, runs — no
-  # Lean
-  # toolchain on the shard. Wall time drops from one ~4-minute serial pipeline
-  # to `build (~75s) → slowest shard (~60s)`.
+  # downloads just the binary it needs, fetches only its own corpus, and runs —
+  # no Lean toolchain on the shard. Measured: this cuts the wall time from one
+  # ~4-minute serial pipeline to ~3 minutes (`build ~90s` warm → slowest shard
+  # ~60s, run in parallel). The floor is now `build + slowest single suite`,
+  # not the sum of all suites.
   #
   # GATING is preserved exactly as it was in the old single job: a build/lint
   # failure fails `build`, and a CALL-state-test regression fails `statetests`
@@ -100,7 +101,7 @@ jobs:
   vmtests:
     name: VMTests
     needs: build
-    runs-on: warp-ubuntu-2404-x64-8x
+    runs-on: warp-ubuntu-2404-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -392,7 +393,7 @@ jobs:
   eest:
     name: EEST Osaka state_tests
     needs: build
-    runs-on: warp-ubuntu-2404-x64-8x
+    runs-on: warp-ubuntu-2404-x64-16x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
