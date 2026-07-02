@@ -110,6 +110,12 @@ def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.
     if fork ≥ .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
 
+/-- EIP-7825 (Osaka) per-transaction gas-limit cap: `2^24 =
+    16_777_216`. A transaction whose `gasLimit` exceeds this is
+    *invalid* from Osaka onwards (rejected at tx/block validation),
+    exactly like the intrinsic-gas-too-low gate. -/
+def maxTransactionGas : Nat := 16777216
+
 /-- The fueled small-step loop. `stepF` is already total (it folds
     in-frame exceptions into `halt := .Exception e` and is the identity
     on done states) so the loop is just "iterate until `isDone`". REVERT
@@ -266,8 +272,18 @@ def blockReward (fork : Fork) : Nat :=
     (`Frontier..TangerineWhistle`), an entry that's present-but-empty
     still appears in the trie, whereas a deleted entry doesn't.
     `Std.HashMap.erase` is a no-op if the key isn't there, so
-    duplicate `selfDestructed` entries are harmless. -/
-def applySelfDestructDeletions (map : AccountMap)
+    duplicate `selfDestructed` entries are harmless.
+
+    EIP-6780 (Cancun+): SELFDESTRUCT only *actually deletes* the
+    account when it was created in the same transaction; otherwise
+    only the balance transfer already applied in `selfDestructTo`
+    persists (the code, nonce, and storage remain). We approximate
+    "created in this tx" as "was not a contract in the pre-tx state"
+    — anything that was already a contract before this tx started
+    (nonzero nonce or non-empty code) is exempt from deletion on
+    Cancun+. This matches the reference impl's behavior on the
+    `suicideNonConst`-family tests. -/
+def applySelfDestructDeletions (fork : Fork) (preMap : AccountMap) (map : AccountMap)
     (selfDestructed : Array AccountAddress) : AccountMap :=
   if selfDestructed.isEmpty then map
   else
@@ -276,8 +292,14 @@ def applySelfDestructDeletions (map : AccountMap)
     -- (an issue with the persistent-buckets internal representation).
     let sdSet : Std.HashSet AccountAddress :=
       selfDestructed.foldl (fun s a => s.insert a) ∅
+    let eip6780 := fork ≥ .Cancun
     map.toList.foldl (fun m (a, acct) =>
-      if sdSet.contains a then m else m.insert a acct)
+      if sdSet.contains a then
+        -- On Cancun+, only actually delete accounts that weren't
+        -- already contracts before this tx (i.e., created THIS tx).
+        if eip6780 ∧ (preMap a).isContract then m.insert a acct
+        else m
+      else m.insert a acct)
       AccountMap.empty
 
 /-- Credit the coinbase with the per-fork block reward, on top of the
@@ -384,6 +406,27 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- wrongly bumping the sender nonce (fixtures flag this `INTRINSIC_GAS_TOO_LOW`).
   if tx.gasLimit < intrinsicGas fork tx.isCreate tx.data then
     { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-7825 (Osaka): a transaction may not request more than
+  -- `2^24 = 16_777_216` gas. Like the intrinsic-gas gate this is a
+  -- validity failure — the tx is not applied and the world state is
+  -- left entirely unchanged (no nonce bump, no upfront charge, no
+  -- coinbase credit). Gated on Osaka+ so pre-Osaka behaviour is
+  -- unchanged.
+  else if fork ≥ .Osaka ∧ tx.gasLimit > maxTransactionGas then
+    { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-3607 (London+): reject any transaction whose sender has non-empty
+  -- code. In principle only reachable via a private-key collision, but
+  -- fixtures do exercise it directly. Like the intrinsic-gas failure, this
+  -- is an *invalid* tx: no state change at all — sender nonce is not
+  -- bumped and the coinbase gets no upfront gas.
+  else if fork ≥ .London ∧ (preMap tx.sender).code.size > 0 then
+    { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-2681: a sender already at the nonce ceiling (2^64-1) cannot have its
+  -- nonce incremented, so the transaction is invalid and leaves the world
+  -- state entirely unchanged — no nonce bump, no upfront gas charge, no
+  -- coinbase credit — matching the intrinsic-gas and EIP-3607 rejections.
+  else if Account.maxNonce ≤ (preMap tx.sender).nonce.toNat then
+    { finalAccounts := preMap, outcome := .exceptional }
   -- YP §6.2 validity: the sender must be able to afford both the upfront
   -- gas charge `T_g · T_p` and the transferred value `T_v` — i.e.
   -- `T_g · T_p + T_v ≤ σ[T_s]_b`. Otherwise the tx is invalid: no state
@@ -455,7 +498,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
         -- happens to match the reference impl's "delete on
         -- SELFDESTRUCT" pre-Spurious-Dragon behaviour in every
         -- corpus variant we run.
-        let cleaned := applySelfDestructDeletions sf.accountMap
+        let cleaned := applySelfDestructDeletions fork preMap sf.accountMap
                          sf.substate.selfDestructList
         if tx.isCreate then
           let hReturn := sf.hReturn
