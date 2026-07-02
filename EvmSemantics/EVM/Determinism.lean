@@ -375,5 +375,46 @@ theorem StepRunning.not_deterministic :
     congrArg (·.halt) hEq
   cases this
 
+/-! ## Canonical (deterministic) small-step relation
+
+`Step` as defined in `Step.lean` is intentionally loose on exceptions
+(see `StepRunning.not_deterministic`). The *canonical* small-step
+relation, `Step.canonical`, is the functional projection onto the
+executable shadow `stepF`. It is deterministic by construction and
+sound with respect to `Step` (every `Step.canonical` derivation is
+also a `Step` derivation, via `stepF_sound`). -/
+
+/-- The canonical (deterministic) small-step relation: the graph of
+    `stepF`, restricted to non-done states. -/
+def Step.canonical (s s' : State) : Prop :=
+  ¬ s.isDone ∧ s' = stepF s
+
+/-- `Step.canonical` is deterministic — this is the positive
+    determinism theorem for the small-step semantics. -/
+theorem Step.canonical.deterministic
+    {s s₁ s₂ : State}
+    (h₁ : Step.canonical s s₁) (h₂ : Step.canonical s s₂) :
+    s₁ = s₂ := by
+  obtain ⟨_, h1⟩ := h₁
+  obtain ⟨_, h2⟩ := h₂
+  exact h1.trans h2.symm
+
+/-- Every `Step.canonical` transition is also a `Step` transition. -/
+theorem Step.canonical.toStep {s s' : State}
+    (h : Step.canonical s s') : Step s s' := by
+  obtain ⟨h_nd, h_eq⟩ := h
+  subst h_eq
+  exact stepF_sound s h_nd
+
+/-- Reversely, from every non-done state there is exactly one
+    canonical successor. -/
+theorem Step.canonical.exists_unique
+    {s : State} (h_nd : ¬ s.isDone) :
+    ∃! s', Step.canonical s s' := by
+  refine ⟨stepF s, ⟨h_nd, rfl⟩, ?_⟩
+  intro s' hs'
+  obtain ⟨_, heq⟩ := hs'
+  exact heq
+
 end EVM
 end EvmSemantics
