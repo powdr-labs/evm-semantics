@@ -29,9 +29,9 @@ aren't modelled here — EIP-2930 access lists, EIP-4844 blobs, EIP-7702
 set-code — are reported `INCON` and skipped. Two corpora feed this runner: the
 frozen `ethereum/tests` set (filled for Cancun/Prague) and the
 EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
-`Tx.execute` performs no EIP-1559 base-fee burn, so post-London txs (legacy and
-1559 alike) land at the `passCore` tier (storage/nonce/code match; balances
-differ by the burned base fee). See `VMTESTS.md`.
+`Tx.execute` applies the EIP-1559 fee split (London+ burns the base-fee slice,
+crediting the coinbase only the priority tip), so post-London txs reach the
+balance-exact tiers. See `VMTESTS.md`.
 -/
 
 @[expose] public section
@@ -207,11 +207,13 @@ def buildTx (txJson : Json) (dataIdx gasIdx valIdx baseFee : Nat) : Tx.Transacti
     value     := hexToUInt256 (arrStr txJson "value" valIdx)
     data      := hexToBytes   (arrStr txJson "data" dataIdx)
     gasLimit  := hexToNat     (arrStr txJson "gasLimit" gasIdx)
-    gasPrice  := effectiveGasPrice txJson baseFee }
+    gasPrice  := effectiveGasPrice txJson baseFee
+    nonce     := hexToUInt256 (strField txJson "nonce") }
 
 /-- EIP-1559 validity conditions a legacy-shaped `Tx.execute` can't see (it
-    only receives the *effective* `gasPrice`). For a 1559 tx (`maxFeePerGas`
-    present) the tx is invalid — not included, world left unchanged — when:
+    only receives the *effective* `gasPrice`, not the fee cap). For a 1559 tx
+    (`maxFeePerGas` present) the tx is invalid — not included, world left
+    unchanged — when:
     * the priority fee exceeds the fee cap (`maxPriorityFeePerGas > maxFeePerGas`);
     * the sender can't afford `gasLimit · maxFeePerGas + value` (the balance
       check uses the *cap*, not the effective price); or
