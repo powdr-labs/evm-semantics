@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Run against the merge queue's temporary branch so this job reports a status
+  # for the `merge_group` event; without it the queue waits forever for a check
+  # that never runs.
+  merge_group:
 
 # Only keep the latest run per branch/PR; cancel superseded ones.
 concurrency:

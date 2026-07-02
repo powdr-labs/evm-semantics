@@ -425,6 +425,17 @@ inductive StepRunning : State → State → Prop
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .NOT }
 
+  /-- `CLZ` (EIP-7939, Osaka): pushes the count of leading zero bits. -/
+  | clz (s : State) (a : UInt256) (rest : List UInt256)
+        (h_op      : s.decodedOp = some .CLZ)
+        (h_gas     : Gas.baseCost s.fork .CLZ ≤ s.gasAvailable)
+        (h_stack   : s.stack = a :: rest)
+      : StepRunning s
+          { s with
+              stack        := UInt256.clz a :: rest
+              pc           := s.pc.succ
+              gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CLZ }
+
   | byte_ (s : State) (i x : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .BYTE)
         (h_gas     : Gas.baseCost s.fork .BYTE ≤ s.gasAvailable)
