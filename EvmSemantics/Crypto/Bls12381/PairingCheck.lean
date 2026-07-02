@@ -23,7 +23,8 @@ Wire format: `k · 384` bytes for `k ≥ 0`, arranged as `k` pairs of
     └─────────────────────────────────┘
 
 Output: 32 bytes — `0x…01` if `∏ᵢ e(Pᵢ, Qᵢ) = 1 ∈ F_p¹²`, else
-`0x…00`. Empty input (`k = 0`) → `0x…01` (empty product).
+`0x…00`. Empty input (`k = 0`) is **invalid** (EIP-2537 requires a
+positive multiple of 384 bytes) → `.outOfGas` in the dispatcher.
 
 Gas (EIP-2537): `32600 + 43000 · k`. Invalid input (wrong length,
 out-of-field coordinate, off-curve point, subgroup violation)
@@ -54,7 +55,9 @@ def pairBytes : Nat := 384
 def decodePairs (input : ByteArray) : Option (List (Point × G2Point)) :=
   Id.run do
     let sz := input.size
-    if sz % pairBytes ≠ 0 then return none
+    -- EIP-2537: empty input is invalid (not an empty product). The length
+    -- must be a positive multiple of 384.
+    if sz = 0 ∨ sz % pairBytes ≠ 0 then return none
     let k := sz / pairBytes
     let mut acc : List (Point × G2Point) := []
     for i in [0:k] do
