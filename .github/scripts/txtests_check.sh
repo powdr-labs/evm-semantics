@@ -49,8 +49,9 @@ echo "## TransactionTests regression report"
 echo
 echo "_ethereum/tests \`TransactionTests\` run against the transaction decoder /"
 echo "validator (RLP decode, EIP-155 & typed signing-hash sender recovery, tx"
-echo "hash, intrinsic gas, static validity). Legacy + EIP-2930 + EIP-1559 are"
-echo "checked; EIP-4844 / EIP-7702 envelopes are reported \`incon\`. Non-gating._"
+echo "hash, intrinsic gas, static validity). Legacy + EIP-2930 + EIP-1559 +"
+echo "EIP-7702 are checked; EIP-4844 (0x03) and reserved type bytes activated at"
+echo "a fork are reported \`incon\`. Non-gating._"
 echo
 if [ -n "$total_line" ]; then
   echo "| metric | count |"

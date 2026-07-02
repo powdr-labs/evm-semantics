@@ -81,6 +81,9 @@ structure Transaction where
   gasLimit  : Nat
   /-- `T_p` — the gas price paid to the coinbase per unit of gas used. -/
   gasPrice  : UInt256
+  /-- `T_n` — the sender's expected on-chain nonce. Must equal
+      `σ[T_s]_n` at execution time, else the tx is invalid (YP §6.2). -/
+  nonce     : UInt256 := ⟨0⟩
   deriving Inhabited
 
 /-- `true` iff this is a contract-creating transaction. -/
@@ -358,15 +361,24 @@ def applyBlockReward (map : AccountMap) (coinbase : AccountAddress)
 
 /-- Layer the tx-level gas accounting onto `map`: credit the sender
     `gasRefunded · gasPrice` (the unused-gas refund) and credit the
-    coinbase `(gasLimit - gasRefunded) · gasPrice` (the gas reward).
+    coinbase the *priority tip*.
+
+    Pre-London the coinbase gets the full `gasUsed · gasPrice`. From
+    London onwards (EIP-1559) the coinbase only gets the tip
+    `gasUsed · (gasPrice - baseFee)` — the base-fee slice
+    `gasUsed · baseFee` is burned (not credited to anyone), leaving
+    the world's ether supply strictly deflationary on that portion.
+
     Robust to `sender = coinbase`: the updates are applied in
     sequence, so the coinbase write reads the post-sender-write
     balance. -/
 def applyTxGasAccounting (map : AccountMap)
     (sender coinbase : AccountAddress)
-    (gasLimit gasRefunded gasPrice : Nat) : AccountMap :=
+    (gasLimit gasRefunded gasPrice baseFee : Nat) (fork : Fork) : AccountMap :=
+  let gasUsed        := gasLimit - gasRefunded
+  let coinbasePrice  := if fork ≥ .London then gasPrice - baseFee else gasPrice
   let senderCredit   := UInt256.ofNat (gasRefunded * gasPrice)
-  let coinbaseCredit := UInt256.ofNat ((gasLimit - gasRefunded) * gasPrice)
+  let coinbaseCredit := UInt256.ofNat (gasUsed * coinbasePrice)
   let m₁ := map.set sender
     { (map sender) with balance := (map sender).balance + senderCredit }
   m₁.set coinbase
@@ -381,13 +393,14 @@ def applyTxGasAccounting (map : AccountMap)
     the unspent gas; substate refund counter is discarded). -/
 def failPostStateRefunded (preMap : AccountMap)
     (sender coinbase : AccountAddress)
-    (gasLimit gasRefunded gasPrice : Nat) : AccountMap :=
+    (gasLimit gasRefunded gasPrice baseFee : Nat) (fork : Fork) : AccountMap :=
   let s := preMap sender
   let upfront := UInt256.ofNat (gasLimit * gasPrice)
   let m₀ := preMap.set sender
     { s with nonce := s.nonce + UInt256.ofNat 1
              balance := s.balance - upfront }
   applyTxGasAccounting m₀ sender coinbase gasLimit gasRefunded gasPrice
+    baseFee fork
 
 /-- Materialise the post-state of a transaction that aborts before
     execution (collision, OOG-on-intrinsic, fuel exhausted) or that
@@ -396,8 +409,8 @@ def failPostStateRefunded (preMap : AccountMap)
     `gasLimit·gasPrice` charge is applied via `applyTxGasAccounting`
     with `gasRefunded = 0`. -/
 def failPostState (preMap : AccountMap) (sender coinbase : AccountAddress)
-    (gasLimit gasPrice : Nat) : AccountMap :=
-  failPostStateRefunded preMap sender coinbase gasLimit 0 gasPrice
+    (gasLimit gasPrice baseFee : Nat) (fork : Fork) : AccountMap :=
+  failPostStateRefunded preMap sender coinbase gasLimit 0 gasPrice baseFee fork
 
 /-- Execute one transaction against `preMap` under `header`/`fork`.
 
@@ -413,6 +426,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   let coinbase := header.coinbase
   let newAddr  := s0.executionEnv.address
   let gasPrice := tx.gasPrice.toNat
+  let baseFee  := header.baseFeePerGas.toNat
   -- The block reward is paid to the coinbase regardless of tx
   -- outcome; we layer it on top of every non-`fuelExhausted`
   -- result-map below via `applyBlockReward`.
@@ -422,70 +436,66 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- "no state changes, all gas to coinbase" arm.
   let rollback : ExecResult :=
     { finalAccounts := withReward (failPostState preMap tx.sender coinbase
-                                     tx.gasLimit gasPrice),
+                                     tx.gasLimit gasPrice baseFee fork),
       outcome := .exceptional }
   -- Address-collision check for create tx: per YP, a target with code
   -- or non-zero nonce makes the create fail before any code runs.
   let preExisting := preMap newAddr
   let collide : Bool := tx.isCreate ∧ preExisting.isContract
-  -- YP §6.2 validity: a transaction whose intrinsic gas `g₀` exceeds its
-  -- `gasLimit` is *invalid* and is not applied — the world state is left
-  -- entirely unchanged (no nonce bump, no upfront gas charge, no coinbase
-  -- credit). Without this gate `gasAvailable := gasLimit - g₀` underflows to
-  -- `0` in `Nat` and the tx would otherwise run as though it had no gas,
-  -- wrongly bumping the sender nonce (fixtures flag this `INTRINSIC_GAS_TOO_LOW`).
-  -- EIP-7623 (Prague) widens this gate: a valid tx must afford *both* the
-  -- standard intrinsic gas and the calldata data floor (`21000 + 10·tokens`);
-  -- below the max of the two it is invalid (`INTRINSIC_GAS_BELOW_FLOOR_GAS_COST`
-  -- / `INTRINSIC_GAS_TOO_LOW`). Pre-Prague `dataFloorGas = 0`, so this is exactly
-  -- the old `gasLimit < intrinsicGas` check.
-  if tx.gasLimit < Nat.max (intrinsicGas fork tx.isCreate tx.data)
-                           (dataFloorGas fork tx.data) then
+  let senderAcc := preMap tx.sender
+  -- YP §6.2 validity gates, in canonical order. An *invalid* tx leaves
+  -- the world completely unchanged (no nonce bump, no gas charge, no
+  -- coinbase credit — every fixture flagging one of the exception
+  -- markers below expects this shape).
+  --
+  -- Nonce match (Frontier+): `T_n = σ[T_s]_n`. Fixtures:
+  -- NONCE_MISMATCH_TOO_LOW / NONCE_MISMATCH_TOO_HIGH.
+  if tx.nonce.toNat ≠ senderAcc.nonce.toNat then
     { finalAccounts := preMap, outcome := .exceptional }
-  -- EIP-3860 (Shanghai+): a contract-creating transaction whose init code
-  -- exceeds `MAX_INITCODE_SIZE = 49152` is *invalid* (fixtures flag
-  -- INITCODE_SIZE_EXCEEDED) — no state change, like the intrinsic-gas gate.
-  else if tx.isCreate ∧ Gas.initCodeTooLarge fork tx.data.size then
+  -- Intrinsic gas ≤ gasLimit. Without this gate the `gasAvailable :=
+  -- gasLimit - g₀` computation would underflow in `Nat` to `0` and the
+  -- tx would run as though it had no gas budget (fixtures:
+  -- INTRINSIC_GAS_TOO_LOW). EIP-7623 (Prague) widens this: a valid tx
+  -- must afford *both* the standard intrinsic gas and the calldata data
+  -- floor (`21000 + 10·tokens`); below the max of the two it is
+  -- invalid (INTRINSIC_GAS_BELOW_FLOOR_GAS_COST). Pre-Prague
+  -- `dataFloorGas = 0`, so this reduces to `gasLimit < intrinsicGas`.
+  else if tx.gasLimit < Nat.max (intrinsicGas fork tx.isCreate tx.data)
+                                (dataFloorGas fork tx.data) then
     { finalAccounts := preMap, outcome := .exceptional }
-  -- EIP-7825 (Osaka): a transaction may not request more than
-  -- `2^24 = 16_777_216` gas. Like the intrinsic-gas gate this is a
-  -- validity failure — the tx is not applied and the world state is
-  -- left entirely unchanged (no nonce bump, no upfront charge, no
-  -- coinbase credit). Gated on Osaka+ so pre-Osaka behaviour is
-  -- unchanged.
+  -- EIP-3860 (Shanghai+): a contract-creating tx whose init code
+  -- exceeds `MAX_INITCODE_SIZE = 49152` bytes is invalid before the
+  -- intrinsic-gas charge has been applied. Fixture:
+  -- INITCODE_SIZE_EXCEEDED.
+  else if tx.isCreate ∧ fork ≥ .Shanghai ∧
+          tx.data.size > Gas.maxInitCodeSize then
+    { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-7825 (Osaka+): a transaction may not request more than
+  -- `2^24 = 16_777_216` gas. Fixture: TX_GASLIMIT_ABOVE_CAP.
   else if fork ≥ .Osaka ∧ tx.gasLimit > maxTransactionGas then
     { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-3607 (London+): reject any transaction whose sender has non-empty
   -- code. In principle only reachable via a private-key collision, but
-  -- fixtures do exercise it directly. Like the intrinsic-gas failure, this
-  -- is an *invalid* tx: no state change at all — sender nonce is not
-  -- bumped and the coinbase gets no upfront gas.
-  else if fork ≥ .London ∧ (preMap tx.sender).code.size > 0 then
+  -- fixtures do drive it directly.
+  else if fork ≥ .London ∧ senderAcc.code.size > 0 then
     { finalAccounts := preMap, outcome := .exceptional }
-  -- EIP-2681: a sender already at the nonce ceiling (2^64-1) cannot have its
-  -- nonce incremented, so the transaction is invalid and leaves the world
-  -- state entirely unchanged — no nonce bump, no upfront gas charge, no
-  -- coinbase credit — matching the intrinsic-gas and EIP-3607 rejections.
-  else if Account.maxNonce ≤ (preMap tx.sender).nonce.toNat then
+  -- EIP-2681: a sender already at the nonce ceiling (2^64-1) cannot have
+  -- its nonce incremented, so the transaction is invalid.
+  else if Account.maxNonce ≤ senderAcc.nonce.toNat then
     { finalAccounts := preMap, outcome := .exceptional }
-  -- EIP-1559 (London+): the transaction's fee cap must cover the block base
-  -- fee. For a legacy / type-1 tx `gasPrice` *is* the fee cap, so the check
-  -- is `gasPrice ≥ baseFee`; a lower price is an invalid tx (fixtures flag
-  -- INSUFFICIENT_MAX_FEE_PER_GAS) and leaves the world state unchanged — no
-  -- nonce bump, no upfront charge, no coinbase credit. (The modern GST
-  -- runner only executes legacy `gasPrice` txs; typed txs are skipped, so
-  -- `gasPrice` is always the effective fee cap here.)
+  -- EIP-1559 (London+): the transaction's fee cap must cover the block
+  -- base fee. For a legacy / type-1 tx `gasPrice` *is* the fee cap, so
+  -- the check is `gasPrice ≥ baseFee`. Fixture: INSUFFICIENT_MAX_FEE_PER_GAS.
   else if fork ≥ .London ∧ tx.gasPrice < header.baseFeePerGas then
     { finalAccounts := preMap, outcome := .exceptional }
-  -- YP §6.2 validity: the sender must be able to afford both the upfront
-  -- gas charge `T_g · T_p` and the transferred value `T_v` — i.e.
-  -- `T_g · T_p + T_v ≤ σ[T_s]_b`. Otherwise the tx is invalid: no state
-  -- change (matches fixtures flagging INSUFFICIENT_ACCOUNT_FUNDS /
-  -- GASLIMIT_PRICE_PRODUCT_OVERFLOW — the overflow case is subsumed
-  -- because `T_g · T_p` in `Nat` cannot overflow, and any value exceeding
-  -- 2²⁵⁶ is trivially greater than the balance).
-  else if tx.gasLimit * tx.gasPrice.toNat + tx.value.toNat >
-           (preMap tx.sender).balance.toNat then
+  -- Upfront affordability: sender must afford both the upfront gas
+  -- charge `T_g · T_p` and the transferred value `T_v` — i.e.
+  -- `T_g · T_p + T_v ≤ σ[T_s]_b`. Fixtures: INSUFFICIENT_ACCOUNT_FUNDS /
+  -- GASLIMIT_PRICE_PRODUCT_OVERFLOW (the overflow case is subsumed
+  -- because `T_g · T_p` in `Nat` cannot overflow, and any product ≥ 2²⁵⁶
+  -- is trivially larger than any 256-bit balance).
+  else if tx.gasLimit * gasPrice + tx.value.toNat >
+           senderAcc.balance.toNat then
     { finalAccounts := preMap, outcome := .exceptional }
   else if collide then rollback
   else
@@ -541,7 +551,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
         -- is floored too — cap the unspent-gas refund at `gasLimit - floor`.
         let refunded := applyDataFloor fork tx.gasLimit sf.gasAvailable tx.data
         let map := failPostStateRefunded preMap tx.sender coinbase
-                     tx.gasLimit refunded gasPrice
+                     tx.gasLimit refunded gasPrice baseFee fork
         { finalAccounts := withReward map, outcome := .exceptional }
       | _ =>
         -- YP §6.1 end-of-tx cleanup: zero out every account that
@@ -577,7 +587,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
                                  (refundedGasOnSuccess tx.gasLimit gasRemaining
                                    sf.substate.refundBalance.toNat fork) tx.data
             let map' := applyTxGasAccounting mapWithCode tx.sender coinbase
-                          tx.gasLimit gasRefunded gasPrice
+                          tx.gasLimit gasRefunded gasPrice baseFee fork
             { finalAccounts := withReward map', outcome := .success }
           else
             -- Deploy rejected by EIP-3541, EIP-170, or deposit-gas
@@ -588,7 +598,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
                                (refundedGasOnSuccess tx.gasLimit sf.gasAvailable
                                  sf.substate.refundBalance.toNat fork) tx.data
           let map' := applyTxGasAccounting cleaned tx.sender coinbase
-                        tx.gasLimit gasRefunded gasPrice
+                        tx.gasLimit gasRefunded gasPrice baseFee fork
           { finalAccounts := withReward map', outcome := .success }
 
 end Tx
