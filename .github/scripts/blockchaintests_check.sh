@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# Compare a freshly generated blockchaintests summary against the committed
+# *expected-failures* file (sorted "<id>: <tier>" lines) and emit a Markdown
+# regression report on stdout (for $GITHUB_STEP_SUMMARY).
+#
+# This is a REPORT (non-gating): it exits 0 and only surfaces regressions as
+# GitHub `::warning::` annotations. Regression / improvement classification is
+# tier-aware (severity order: pass < INCON < FAIL < CRASH), so INCON -> FAIL,
+# FAIL -> CRASH, and pass -> anything all count as regressions.
+#
+# The aggregate count table is read from the runner's raw output, so the
+# committed file never contains numbers that different branches would both
+# touch.
+#
+# Usage: blockchaintests_check.sh <expected-failures-file> <current-summary-file> <raw-output-file>
+set -uo pipefail
+
+expected="${1:?usage: blockchaintests_check.sh <expected> <current> <raw>}"
+current="${2:?usage: blockchaintests_check.sh <expected> <current> <raw>}"
+raw="${3:?usage: blockchaintests_check.sh <expected> <current> <raw>}"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+awk '
+  BEGIN { sev["pass"]=0; sev["INCON"]=1; sev["FAIL"]=2; sev["CRASH"]=3 }
+  function tier(line, a) { split(line, a, ": "); return a[2] }
+  function id(line, a)   { split(line, a, ": "); return a[1] }
+  FNR==NR { base[id($0)] = tier($0); next }
+  {
+    i = id($0); c = tier($0); b = (i in base) ? base[i] : "pass"
+    delete base[i]
+    if (sev[c] > sev[b]) print "REG " i " " b " " c
+    else if (sev[c] < sev[b]) print "IMP " i " " b " " c
+  }
+  END {
+    for (i in base) print "IMP " i " " base[i] " pass"
+  }
+' "$expected" "$current" | sort -u > "$tmp/diff"
+
+mapfile -t regressions < <(grep '^REG ' "$tmp/diff" || true)
+mapfile -t improvements < <(grep '^IMP ' "$tmp/diff" || true)
+
+total_line="$(grep -E 'pass\(root=[0-9]+ full\+=[0-9]+ core\+=[0-9]+\) fail=[0-9]+' "$raw" | tail -1 || true)"
+num() { sed -nE "s/.*[ (]$1=([0-9]+).*/\1/p" <<<"$total_line"; }
+
+echo "## BlockchainTests regression report"
+echo
+echo "_execution-spec-tests \`blockchain_test\` fixtures: execute each block's"
+echo "transactions (+ EIP-4788/EIP-2935 system calls, withdrawals, block reward)"
+echo "and compare the world against \`postState\`. \`core\` = storage/nonce/code"
+echo "match; \`full\` also requires exact balances; \`root\` additionally requires"
+echo "the world MPT root to match the last block's \`stateRoot\`. Non-gating._"
+echo
+if [ -n "$total_line" ]; then
+  echo "| metric | count |"
+  echo "| --- | ---: |"
+  for key in pass_root:root pass_full:'full\+' pass_core:'core\+' fail:fail incon:incon crash:crash; do
+    label="${key%%:*}"; pat="${key##*:}"
+    echo "| \`$label\` | $(num "$pat") |"
+  done
+  echo "| \`total\` | $(sed -nE 's/.*total ([0-9]+).*/\1/p' <<<"$total_line") |"
+  echo
+else
+  echo "> Note: no aggregate line found in the raw output — count table omitted."
+  echo
+fi
+
+if [ "${#regressions[@]}" -gt 0 ]; then
+  echo "### ⚠️ ${#regressions[@]} regression(s) — worse tier than expected"
+  echo
+  for line in "${regressions[@]}"; do
+    read -r _ id b c <<<"$line"
+    echo "- \`$id\`: expected \`$b\`, got \`$c\`"
+    echo "::warning title=BlockchainTests regression::$id regressed ($b -> $c)"
+  done
+  echo
+else
+  echo "### ✅ No regressions"
+  echo
+fi
+
+if [ "${#improvements[@]}" -gt 0 ]; then
+  echo "### 🎉 ${#improvements[@]} improvement(s) — better tier than expected"
+  echo
+  for line in "${improvements[@]}"; do
+    read -r _ id b c <<<"$line"
+    echo "- \`$id\`: expected \`$b\`, got \`$c\`"
+  done
+  echo
+  echo "> Refresh the expected-failures file once these are intentional:"
+  echo "> \`.github/scripts/blockchaintests_summary.sh <raw> > .github/blockchaintests-expected-failures.txt\`"
+  echo
+fi
+
+exit 0
