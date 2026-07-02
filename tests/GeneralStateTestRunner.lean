@@ -176,8 +176,6 @@ def parseForkExact (s : String) : Option Fork :=
 def txUnsupportedReason (txJson : Json) (dataIdx : Nat) : Option String :=
   if (jsonArr (subObj txJson "blobVersionedHashes")).size > 0 then
     some "blob tx (EIP-4844) unsupported"
-  else if (txJson.getObjVal? "authorizationList").toOption.isSome then
-    some "set-code tx (EIP-7702) unsupported"
   else match (jsonArr (subObj txJson "accessLists"))[dataIdx]? with
     | some (.arr a) => if a.size > 0 then some "access-list tx (EIP-2930) unsupported"
                        else none
@@ -195,6 +193,16 @@ def effectiveGasPrice (txJson : Json) (baseFee : Nat) : UInt256 :=
     UInt256.ofNat (Nat.min maxFee (baseFee + maxPrio))
   else hexToUInt256 (strField txJson "gasPrice")
 
+/-- Parse the EIP-7702 `authorizationList` into `Tx.Authorization`s. Uses the
+    fixture's recovered `signer` as the authority (consistent with this runner
+    taking `transaction.sender` directly rather than recovering it). -/
+def parseAuthList (txJson : Json) : List Tx.Authorization :=
+  (jsonArr (subObj txJson "authorizationList")).toList.map (fun e =>
+    { chainId   := hexToNat     (strField e "chainId")
+      address   := hexToAddress (strField e "address")
+      nonce     := hexToNat     (strField e "nonce")
+      authority := hexToAddress (strField e "signer") })
+
 /-- Build a `Tx.Transaction` from the transaction template and a chosen
     `(data, gas, value)` index triple, resolving the fee via `effectiveGasPrice`
     (`baseFee` is the block base fee). Assumes `txUnsupportedReason` already
@@ -208,7 +216,8 @@ def buildTx (txJson : Json) (dataIdx gasIdx valIdx baseFee : Nat) : Tx.Transacti
     data      := hexToBytes   (arrStr txJson "data" dataIdx)
     gasLimit  := hexToNat     (arrStr txJson "gasLimit" gasIdx)
     gasPrice  := effectiveGasPrice txJson baseFee
-    nonce     := hexToUInt256 (strField txJson "nonce") }
+    nonce     := hexToUInt256 (strField txJson "nonce")
+    authList  := parseAuthList txJson }
 
 /-- EIP-1559 validity conditions a legacy-shaped `Tx.execute` can't see (it
     only receives the *effective* `gasPrice`, not the fee cap). For a 1559 tx
