@@ -1174,6 +1174,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
       · simp [h_perm] at h
         have h_perm' : s.executionEnv.permitStateMutation = true := by
           simp at h_perm; exact h_perm
+        -- EIP-3860 size-abort branch returns `.error`, contradicting `h : … = .ok`.
+        split at h
+        · nomatch h
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE)) h_gas).canExpandMemory
@@ -1336,6 +1339,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
       · simp [h_perm] at h
         have h_perm' : s.executionEnv.permitStateMutation = true := by
           simp at h_perm; exact h_perm
+        -- EIP-3860 size-abort branch returns `.error`, contradicting `h : … = .ok`.
+        split at h
+        · nomatch h
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE2)) h_gas).canExpandMemory
@@ -3710,6 +3716,12 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show (Operation.System .CREATE).isStateMutating = true; rfl
         · simp at h_perm; exact h_perm
       · simp only [if_neg h_perm] at h
+        -- EIP-3860: oversized init code aborts exceptionally with OutOfGas.
+        split at h
+        · cases h
+          refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+          · show Gas.baseCost s.fork (.System .CREATE) ≤ s.gasAvailable + 1; omega
+          · omega
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE)) h_gas).canExpandMemory
@@ -3763,6 +3775,12 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · show (Operation.System .CREATE2).isStateMutating = true; rfl
         · simp at h_perm; exact h_perm
       · simp only [if_neg h_perm] at h
+        -- EIP-3860: oversized init code aborts exceptionally with OutOfGas.
+        split at h
+        · cases h
+          refine mk_outOfGas h_dec h_stack (s.gasAvailable + 1) ?_ ?_
+          · show Gas.baseCost s.fork (.System .CREATE2) ≤ s.gasAvailable + 1; omega
+          · omega
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE2)) h_gas).canExpandMemory
