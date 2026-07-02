@@ -62,6 +62,22 @@ namespace Tx
 
 open EvmSemantics.EVM
 
+/-- A single EIP-7702 authorization tuple. `authority` is the recovered
+    signer (the account being delegated). Applying it sets `authority`'s code
+    to the delegation designator `0xef0100 ‖ address` (or clears it when
+    `address = 0`) and bumps `authority`'s nonce, provided `chainId ∈ {0,
+    block.chainId}` and `nonce` matches the authority's current nonce. -/
+structure Authorization where
+  /-- Chain id the authorization is scoped to (`0` = any chain). -/
+  chainId   : Nat
+  /-- Delegation target; `0` clears an existing delegation. -/
+  address   : AccountAddress
+  /-- Expected nonce of the authority at application time. -/
+  nonce     : Nat
+  /-- Recovered authority (signer) address. -/
+  authority : AccountAddress
+  deriving Inhabited
+
 /-- A decoded transaction. `recipient = none` flags a contract-creating
     tx (YP `Tᵢ = true`, the "T_to" field); `data` is then the *init code*,
     otherwise it is the call-frame's `calldata`. (We call the field
@@ -92,10 +108,59 @@ structure Transaction where
       The versioned hashes travel as the `blobVersionedHashes` argument to
       `buildInitState`/`execute` (they also feed the `BLOBHASH` opcode). -/
   maxFeePerBlobGas : UInt256 := ⟨0⟩
+  /-- EIP-7702 (type-4) authorization list; `[]` for other tx kinds. -/
+  authList  : List Authorization := []
   deriving Inhabited
 
 /-- `true` iff this is a contract-creating transaction. -/
 @[inline] def Transaction.isCreate (tx : Transaction) : Bool := tx.recipient.isNone
+
+/-- EIP-7702 delegation-designator prefix `0xef0100`. -/
+def delegationPrefix : ByteArray := ⟨#[0xef, 0x01, 0x00]⟩
+
+/-- The 23-byte EIP-7702 delegation designator `0xef0100 ‖ addr`. -/
+def delegationDesignator (addr : AccountAddress) : ByteArray :=
+  delegationPrefix ++ Data.Bytes.natToBytesPadded addr.val 20
+
+/-- If `code` is a 23-byte `0xef0100`-prefixed delegation designator, the
+    20-byte target it points to; else `none`. -/
+def delegationTarget (code : ByteArray) : Option AccountAddress :=
+  if code.size = 23 ∧ code[0]! = 0xef ∧ code[1]! = 0x01 ∧ code[2]! = 0x00 then
+    some (AccountAddress.ofNat (Data.Bytes.bytesToBigEndianNat (code.extract 3 23)))
+  else none
+
+/-- EIP-7702 code resolution (one hop): if `code` is a delegation designator,
+    the target account's code in `m`; otherwise `code` unchanged. A designator
+    pointing at another designator is *not* followed a second time. -/
+def resolveDelegatedCode (m : AccountMap) (code : ByteArray) : ByteArray :=
+  match delegationTarget code with
+  | some target => (m target).code
+  | none        => code
+
+/-- Apply one EIP-7702 authorization to the world (if valid): set the
+    authority's code to the designator for `address` (or clear it when
+    `address = 0`) and bump its nonce. Skipped (world unchanged) unless
+    `chainId ∈ {0, blockChainId}`, the authority's current nonce matches, and
+    the authority is not already a non-delegation contract. -/
+def applyAuthorization (blockChainId : Nat) (m : AccountMap) (a : Authorization) :
+    AccountMap :=
+  let acc := m a.authority
+  let chainOk := a.chainId = 0 ∨ a.chainId = blockChainId
+  let nonceOk := acc.nonce.toNat = a.nonce
+  -- The authority must be an EOA or already delegated (code empty or a
+  -- designator) — a genuine contract can't be re-pointed.
+  let codeOk := acc.code.size = 0 ∨ (delegationTarget acc.code).isSome
+  if chainOk ∧ nonceOk ∧ codeOk then
+    let newCode := if a.address.val = 0 then ByteArray.empty
+                   else delegationDesignator a.address
+    m.set a.authority
+      { acc with code := newCode, nonce := acc.nonce + UInt256.ofNat 1 }
+  else m
+
+/-- Apply every authorization in order (left to right). -/
+def applyAuthorizations (blockChainId : Nat) (m : AccountMap)
+    (auths : List Authorization) : AccountMap :=
+  auths.foldl (applyAuthorization blockChainId) m
 
 /-- Intrinsic transaction gas `g₀` (YP §6.2). Fork- and tx-kind-aware:
 
@@ -127,10 +192,12 @@ def accessListGas (al : List (AccountAddress × List UInt256)) : Nat :=
   al.foldl (fun g (_, keys) => g + 2400 + 1900 * keys.length) 0
 
 /-- Full intrinsic gas for `tx`: the base `intrinsicGas` plus the EIP-2930
-    access-list surcharge. This is the value that must fit under `gasLimit`
-    and that seeds `gasAvailable`. -/
+    access-list surcharge and the EIP-7702 per-authorization cost
+    (`PER_EMPTY_ACCOUNT_COST = 25000` each). This is the value that must fit
+    under `gasLimit` and seeds `gasAvailable`. -/
 def txIntrinsicGas (fork : Fork) (tx : Transaction) : Nat :=
   intrinsicGas fork tx.isCreate tx.data + accessListGas tx.accessList
+    + 25000 * tx.authList.length
 
 /-- EIP-4844 gas per blob = `2¹⁷ = 131072`. -/
 def gasPerBlob : Nat := 131072
@@ -222,10 +289,15 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
       preMap.set toAddr { existing with nonce := n }
     else preMap
   let accountMap := preMap.transfer tx.sender toAddr tx.value
+  -- EIP-7702 (Prague+): apply the authorization list, installing delegation
+  -- designators on the authorities' code, before the frame is built.
+  let accountMap := applyAuthorizations header.chainId.toNat accountMap tx.authList
   -- A create tx runs `data` as the init code with empty calldata; a
-  -- call tx runs the target's existing code with `data` as calldata.
+  -- call tx runs the target's existing code with `data` as calldata —
+  -- resolving an EIP-7702 delegation designator to the pointed-to code.
   let calldata := if tx.isCreate then ByteArray.empty else tx.data
-  let code     := if tx.isCreate then tx.data else (accountMap toAddr).code
+  let code     := if tx.isCreate then tx.data
+                  else resolveDelegatedCode accountMap (accountMap toAddr).code
   let execEnv : ExecutionEnv :=
     { address := toAddr
       origin  := tx.sender
@@ -270,8 +342,11 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
               :: ((List.range numPrecompiles).map (fun i => AccountAddress.ofNat (i + 1))
                     ++ (if fork ≥ .Shanghai then [header.coinbase] else [])
                     ++ (if fork ≥ .Osaka then [AccountAddress.ofNat 0x100] else [])
-                    ++ tx.accessList.map (·.1))
-          -- …and its `(address, slot)` pairs join the warm-storage-key set.
+                    ++ tx.accessList.map (·.1)
+                    -- EIP-7702: warm each authority and its delegation target.
+                    ++ tx.authList.flatMap (fun a => [a.authority, a.address]))
+          -- …and the access list's `(address, slot)` pairs join the
+          -- warm-storage-key set.
           accessedStorageKeys :=
             tx.accessList.flatMap (fun (a, keys) => keys.map (fun k => (a, k))) }
     executionEnv := execEnv
@@ -513,8 +588,10 @@ def execute (preMap : AccountMap) (header : BlockHeader)
     { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-3607 (London+): reject any transaction whose sender has non-empty
   -- code. In principle only reachable via a private-key collision, but
-  -- fixtures do drive it directly.
-  else if fork ≥ .London ∧ senderAcc.code.size > 0 then
+  -- fixtures do drive it directly. EIP-7702 carve-out: a sender whose code is
+  -- a delegation designator is still an EOA and may originate transactions.
+  else if fork ≥ .London ∧ senderAcc.code.size > 0
+          ∧ (delegationTarget senderAcc.code).isNone then
     { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-2681: a sender already at the nonce ceiling (2^64-1) cannot have
   -- its nonce incremented, so the transaction is invalid.

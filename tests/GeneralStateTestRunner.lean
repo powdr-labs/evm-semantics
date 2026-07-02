@@ -24,10 +24,10 @@ enough that a separate, self-contained runner is clearer than a shared module:
   a state-root `hash` (compared via the world MPT root for the strongest tier).
 
 **Scope (minimal framework).** Legacy (`gasPrice`), EIP-1559 (`maxFeePerGas`),
-EIP-2930 (access-list) and EIP-4844 (blob) transactions are executed; only
-EIP-7702 set-code txs remain unmodelled and are reported `INCON`. Two corpora
-feed this runner: the frozen `ethereum/tests` set (filled for Cancun/Prague)
-and the EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
+EIP-2930 (access-list), EIP-4844 (blob) and EIP-7702 (set-code) transactions
+are all executed. Two corpora feed this runner: the frozen `ethereum/tests`
+set (filled for Cancun/Prague) and the EEST/`execution-specs` Osaka
+`state_tests` (EIP-7825/7823/7883/7939/7951).
 `Tx.execute` applies the EIP-1559 fee split (London+ burns the base-fee slice,
 crediting the coinbase only the priority tip), so post-London txs reach the
 balance-exact tiers. See `VMTESTS.md`.
@@ -166,14 +166,11 @@ def parseForkExact (s : String) : Option Fork :=
   | _                   => none
 
 /-- Reason a transaction variant can't be executed by this runner, or `none`
-    if it can. Legacy, EIP-1559, EIP-2930 (access-list) and EIP-4844 (blob) txs
-    all run; only EIP-7702 set-code txs (`authorizationList` present) remain
-    unmodelled — applying their authorizations / delegated-call resolution
-    isn't implemented yet. -/
-def txUnsupportedReason (txJson : Json) : Option String :=
-  if (txJson.getObjVal? "authorizationList").toOption.isSome then
-    some "set-code tx (EIP-7702) unsupported"
-  else none
+    if it can. All modelled tx kinds now execute — legacy, EIP-1559,
+    EIP-2930 (access-list), EIP-4844 (blob) and EIP-7702 (set-code) — so this
+    is `none` for every transaction; kept as a hook for a future unmodelled
+    envelope. -/
+def txUnsupportedReason (_txJson : Json) : Option String := none
 
 /-- Parse the EIP-2930 access list for the selected `data` index into
     `(address, storageKeys)` pairs. `accessLists` is an array parallel to
@@ -218,6 +215,16 @@ def effectiveGasPrice (txJson : Json) (baseFee : Nat) : UInt256 :=
     UInt256.ofNat (Nat.min maxFee (baseFee + maxPrio))
   else hexToUInt256 (strField txJson "gasPrice")
 
+/-- Parse the EIP-7702 `authorizationList` into `Tx.Authorization`s. Uses the
+    fixture's recovered `signer` as the authority (consistent with this runner
+    taking `transaction.sender` directly rather than recovering it). -/
+def parseAuthList (txJson : Json) : List Tx.Authorization :=
+  (jsonArr (subObj txJson "authorizationList")).toList.map (fun e =>
+    { chainId   := hexToNat     (strField e "chainId")
+      address   := hexToAddress (strField e "address")
+      nonce     := hexToNat     (strField e "nonce")
+      authority := hexToAddress (strField e "signer") })
+
 /-- Build a `Tx.Transaction` from the transaction template and a chosen
     `(data, gas, value)` index triple, resolving the fee via `effectiveGasPrice`
     (`baseFee` is the block base fee). Assumes `txUnsupportedReason` already
@@ -233,7 +240,8 @@ def buildTx (txJson : Json) (dataIdx gasIdx valIdx baseFee : Nat) : Tx.Transacti
     gasPrice  := effectiveGasPrice txJson baseFee
     nonce     := hexToUInt256 (strField txJson "nonce")
     accessList := parseAccessList txJson dataIdx
-    maxFeePerBlobGas := hexToUInt256 (strField txJson "maxFeePerBlobGas") }
+    maxFeePerBlobGas := hexToUInt256 (strField txJson "maxFeePerBlobGas")
+    authList  := parseAuthList txJson }
 
 /-- EIP-1559 validity conditions a legacy-shaped `Tx.execute` can't see (it
     only receives the *effective* `gasPrice`, not the fee cap). For a 1559 tx
