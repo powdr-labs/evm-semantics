@@ -5,17 +5,18 @@ public import EvmSemantics.Crypto.FF
 
 /-!
 `EvmSemantics.Crypto.Weierstrass` — short-Weierstrass curve arithmetic
-`y² = x³ + b` (i.e. `a = 0`) over `F_p`, in affine coordinates.
+`y² = x³ + a·x + b` over `F_p`, in affine coordinates.
 
 The whole file is generic in `p` (any prime, given `[NeZero p]`);
-concrete curves (`Secp256k1` with `b = 7`, `Bn254` with `b = 3`)
-supply a `Curve p` value and re-export the ops under their own
-namespace.
+concrete curves (`Secp256k1` with `a = 0, b = 7`, `Bn254` with
+`a = 0, b = 3`, `Secp256r1`/P-256 with `a = −3`) supply a `Curve p`
+value and re-export the ops under their own namespace.
 
-Both Ethereum curves this codebase touches (secp256k1 and BN254) are
-of this shape, hence "short Weierstrass" in the file name — no
-Montgomery, twisted-Edwards, or general-`a` support is provided or
-needed. `Point` (the affine-plus-infinity container) lives in
+The three `a = 0` curves this codebase started with (secp256k1, BN254,
+BLS12-381 G1) are the `a = 0` special case; EIP-7951 (P-256) added the
+first `a ≠ 0` user, so the doubling slope and curve equation carry the
+`a` coefficient. No Montgomery or twisted-Edwards support is provided.
+`Point` (the affine-plus-infinity container) lives in
 `EvmSemantics.Crypto.EC`; field extensions of `Fin p` (`Inv`,
 `HPow`, `sqrt`) live in `EvmSemantics.Crypto.FF`.
 -/
@@ -27,30 +28,31 @@ namespace EvmSemantics.Crypto.Weierstrass
 open EvmSemantics.Crypto.EC (Point)
 open EvmSemantics.Crypto.FF (sqrt)
 
-/-- A short-Weierstrass curve `y² = x³ + b` over `F_p`. -/
+/-- A short-Weierstrass curve `y² = x³ + a·x + b` over `F_p`. -/
 structure Curve (p : Nat) where
-  /-- The curve equation coefficient. -/
+  /-- The linear coefficient `a` (`0` for secp256k1 / BN254 / BLS12-381 G1;
+      `−3 mod p` for P-256). -/
+  a : Fin p
+  /-- The constant coefficient `b`. -/
   b : Fin p
 
-/-- `(x, y) ∈ E(F_p)` iff `y² = x³ + b`. `[NeZero p]` is required
+/-- `(x, y) ∈ E(F_p)` iff `y² = x³ + a·x + b`. `[NeZero p]` is required
     for the operator resolution (the linter can't see through
     typeclass instance elaboration, hence `nolint`). -/
 @[nolint unusedArguments]
 def onCurve {p : Nat} [NeZero p] (c : Curve p) (x y : Fin p) : Bool :=
-  y * y = x * (x * x) + c.b
+  y * y = x * (x * x) + c.a * x + c.b
 
-/-- Double a curve point. Formula for `a = 0` short-Weierstrass:
-    `λ = 3·x² / (2·y);  x' = λ² − 2·x;  y' = λ·(x − x') − y`.
-    The `Curve` argument is unused (doubling only needs `a = 0`,
-    baked in) but kept for API symmetry with `addPoint c`. -/
-@[nolint unusedArguments]
-def doublePoint {p : Nat} [NeZero p] (_c : Curve p) :
+/-- Double a curve point. Short-Weierstrass slope with the `a`
+    coefficient: `λ = (3·x² + a) / (2·y);  x' = λ² − 2·x;
+    y' = λ·(x − x') − y`. -/
+def doublePoint {p : Nat} [NeZero p] (c : Curve p) :
     Point (Fin p) → Point (Fin p)
   | .infinity => .infinity
   | .affine x y =>
     if y = 0 then .infinity
     else
-      let lam := (3 * x * x) * (2 * y)⁻¹
+      let lam := (3 * x * x + c.a) * (2 * y)⁻¹
       let x' := lam * lam - 2 * x
       let y' := lam * (x - x') - y
       .affine x' y'
@@ -115,7 +117,7 @@ def scalarMul2 {p : Nat} [NeZero p] (c : Curve p)
     quadratic residue. Requires `p ≡ 3 mod 4`. -/
 def decompress {p : Nat} [NeZero p] (c : Curve p) (x : Fin p) (yOdd : Bool) :
     Option (Point (Fin p)) :=
-  let α := x * x * x + c.b
+  let α := x * x * x + c.a * x + c.b
   let β := sqrt α
   if β * β ≠ α then none
   else
