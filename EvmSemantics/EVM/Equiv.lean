@@ -250,6 +250,10 @@ theorem compBit_sound (s : State) (op : Operation.CompareBitwiseOps)
     | sh :: v :: rest, h => cases h; exact .sar s sh v rest h_dec h_gas h_stack
     | [], h           => nomatch h
     | [_], h          => nomatch h
+  | CLZ =>
+    match h_stack : s.stack, h with
+    | a :: rest, h => cases h; exact .clz s a rest h_dec h_gas h_stack
+    | [], h       => nomatch h
 
 theorem keccak_sound (s : State) (op : Operation.KeccakOps)
     (h_dec : s.decodedOp = some (.Keccak op))

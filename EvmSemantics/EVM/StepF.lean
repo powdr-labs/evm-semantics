@@ -219,6 +219,9 @@ def compBit (s s' : State) : Operation.CompareBitwiseOps → Except ExecutionExc
   | .SAR => match s.stack with
     | sh :: v :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.sar v sh :: rest))
     | _ => underflow
+  | .CLZ => match s.stack with
+    | a :: rest => .ok (s'.replaceStackAndIncrPC (UInt256.clz a :: rest))
+    | _ => underflow
 
 ----------------------------------------------------------------------------
 -- 3. Keccak (1 op).

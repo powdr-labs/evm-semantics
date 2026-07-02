@@ -55,6 +55,7 @@ def Gas.baseCost (fork : Fork) : Operation → Nat
     | .MUL | .DIV | .SDIV | .MOD | .SMOD | .SIGNEXTEND       => 5
     | .ADDMOD | .MULMOD                                      => 8
     | .EXP                                                   => 10
+  | .CompBit .CLZ                                            => 5
   | .CompBit _                                               => 3
   | .Keccak _                                                => 30
   | .Env op => match op with

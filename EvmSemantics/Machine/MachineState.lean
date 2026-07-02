@@ -88,8 +88,12 @@ def readPadded (bs : ByteArray) (start n : Nat) : ByteArray :=
   prefix1 ++ ByteArray.mk (Array.replicate pad 0)
 
 /-- Write `bytes` into `bs` starting at `start`, growing `bs` with zeros if
-    needed. -/
+    needed. Writing zero bytes is a no-op — `bs` is returned unchanged
+    even if `start` is huge (otherwise `needed = start` would trigger a
+    monster zero-fill allocation on e.g. `MCOPY(dst = 2^256-1, sz = 0)`,
+    which is a valid EVM no-op). -/
 partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
+  if bytes.size = 0 then bs else
   let needed := start + bytes.size
   let padded :=
     if bs.size < needed then bs ++ ByteArray.mk (Array.replicate (needed - bs.size) 0) else bs
