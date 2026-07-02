@@ -30,6 +30,7 @@ inductive StopArithOps where
 inductive CompareBitwiseOps where
   | LT | GT | SLT | SGT | EQ | ISZERO
   | AND | OR | XOR | NOT | BYTE | SHL | SHR | SAR
+  | CLZ
   deriving DecidableEq, Repr, Inhabited
 
 /-- Keccak hashing. -/
@@ -194,6 +195,8 @@ namespace Operation
 @[match_pattern] abbrev XOR    : Operation := .CompBit .XOR
 /-- Opcode `NOT`. -/
 @[match_pattern] abbrev NOT    : Operation := .CompBit .NOT
+/-- Opcode `CLZ` (EIP-7939, Osaka). -/
+@[match_pattern] abbrev CLZ    : Operation := .CompBit .CLZ
 /-- Opcode `BYTE`. -/
 @[match_pattern] abbrev BYTE   : Operation := .CompBit .BYTE
 /-- Opcode `SHL`. -/
@@ -352,6 +355,7 @@ def Operation.availableInFork : Operation → Fork → Bool
   | .CompBit .SHL,            f => f ≥ .Constantinople
   | .CompBit .SHR,            f => f ≥ .Constantinople
   | .CompBit .SAR,            f => f ≥ .Constantinople
+  | .CompBit .CLZ,            f => f ≥ .Osaka
   | .Env .RETURNDATASIZE,     f => f ≥ .Byzantium
   | .Env .RETURNDATACOPY,     f => f ≥ .Byzantium
   | .Env .EXTCODEHASH,        f => f ≥ .Constantinople
@@ -394,7 +398,7 @@ def Operation.popArity : Operation → Nat
     | .ADDMOD | .MULMOD => 3
   | .CompBit op =>
     match op with
-    | .ISZERO | .NOT => 1
+    | .ISZERO | .NOT | .CLZ => 1
     | _ => 2
   | .Keccak _ => 2
   | .Env op =>
