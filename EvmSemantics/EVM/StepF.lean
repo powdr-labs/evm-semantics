@@ -909,8 +909,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
         match chargeMem s' offset.toNat size.toNat with
         | .error e => .error e
         | .ok s2 =>
+          -- EIP-2681 (Spurious Dragon+): reject if the creator's nonce
+          -- is already at `2^64 - 1`, since bumping would exceed the cap.
           if s2.executionEnv.depth ≥ 1024 ∨
-              (s2.accountMap s2.executionEnv.address).balance < value then
+              (s2.accountMap s2.executionEnv.address).balance < value ∨
+              (s2.accountMap s2.executionEnv.address).nonce.toNat ≥ 2^64 - 1 then
             .ok ({ s2 with returnData := .empty }.replaceStackAndIncrPC
                    (UInt256.ofNat 0 :: rest))
           else
@@ -956,8 +959,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           let hashCost := Gas.create2HashCost size.toNat
           if hh : hashCost ≤ s2.gasAvailable then
             let s2' := s2.consumeGas hashCost hh
+            -- EIP-2681 (Spurious Dragon+): reject if the creator's nonce
+            -- is already at `2^64 - 1`.
             if s2'.executionEnv.depth ≥ 1024 ∨
-                (s2'.accountMap s2'.executionEnv.address).balance < value then
+                (s2'.accountMap s2'.executionEnv.address).balance < value ∨
+                (s2'.accountMap s2'.executionEnv.address).nonce.toNat ≥ 2^64 - 1 then
               .ok ({ s2' with returnData := .empty }.replaceStackAndIncrPC
                      (UInt256.ofNat 0 :: rest))
             else
