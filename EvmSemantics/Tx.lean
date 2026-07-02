@@ -531,7 +531,8 @@ def failPostState (preMap : AccountMap) (sender coinbase : AccountAddress)
     bound was hit, which always indicates an evaluator bug. -/
 def execute (preMap : AccountMap) (header : BlockHeader)
     (tx : Transaction) (fork : Fork) (fuel : Nat)
-    (blobVersionedHashes : Array UInt256 := #[]) : ExecResult :=
+    (blobVersionedHashes : Array UInt256 := #[]) (applyReward : Bool := true) :
+    ExecResult :=
   let s0       := buildInitState preMap header tx fork blobVersionedHashes
   let coinbase := header.coinbase
   let newAddr  := s0.executionEnv.address
@@ -539,10 +540,14 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   let baseFee  := header.baseFeePerGas.toNat
   -- EIP-4844 blob fee (burned): `blob_gas_used · blob_base_fee`.
   let blobFee  := gasPerBlob * blobVersionedHashes.size * header.blobBaseFee.toNat
-  -- The block reward is paid to the coinbase regardless of tx
-  -- outcome; we layer it on top of every non-`fuelExhausted`
-  -- result-map below via `applyBlockReward`.
-  let withReward (m : AccountMap) : AccountMap := applyBlockReward m coinbase fork
+  -- The block reward is paid to the coinbase regardless of tx outcome; we
+  -- layer it on top of every non-`fuelExhausted` result-map below via
+  -- `applyBlockReward`. `applyReward := false` suppresses it so a
+  -- *multi-transaction* block driver can pay the fixed subsidy exactly once
+  -- per block (the per-tx coinbase *gas-fee* credit still accumulates); the
+  -- single-tx-per-block state-test runners keep the default `true`.
+  let withReward (m : AccountMap) : AccountMap :=
+    if applyReward then applyBlockReward m coinbase fork else m
   -- Tx-rollback post-state used by collision, exception, deploy-
   -- rejected, and (after we re-enter the inner loop) every other
   -- "no state changes, all gas to coinbase" arm.

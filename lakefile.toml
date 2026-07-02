@@ -44,6 +44,10 @@ name = "txtests"
 root = "tests.TransactionTestRunner"
 
 [[lean_exe]]
+name = "blockchaintests"
+root = "tests.BlockchainTestRunner"
+
+[[lean_exe]]
 name = "keccak_test"
 root = "tests.KeccakTest"
 
