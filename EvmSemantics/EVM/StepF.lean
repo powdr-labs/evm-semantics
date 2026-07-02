@@ -740,8 +740,13 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                 if valNZ then
                   { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
                 else s3
-              .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
-                     (UInt256.ofNat 0 :: rest))
+              -- EIP-2929: the target is warmed during gas-charging, *before*
+              -- the depth/balance check, so a later access pays the warm
+              -- price even though this call silently fails. (The taken path
+              -- warms it inside `enterCall`.)
+              .ok ({ s3' with returnData := .empty,
+                              substate := s3'.substate.addAccessedAccount tgt
+                   }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)
@@ -786,8 +791,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
                 if valNZ then
                   { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
                 else s3
-              .ok ({ s3' with returnData := .empty }.replaceStackAndIncrPC
-                     (UInt256.ofNat 0 :: rest))
+              -- EIP-2929: warm the code source even on the silent-fail path
+              -- (see CALL above).
+              .ok ({ s3' with returnData := .empty,
+                              substate := s3'.substate.addAccessedAccount codeAddr
+                   }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s4       := s3.consumeGas forwarded hfw
               let childGas := forwarded + (bif valNZ then Gas.callStipend else 0)

@@ -452,20 +452,19 @@ self-destructing account's balance, zero out the self's balance, mark the
 self in `substate.selfDestructSet`, add to the refund counter (first-time
 only, fork-dependent), and halt the current frame.
 
-The credit-then-debit order matters for the `self = beneficiary` case:
-the credit writes `beneficiary.balance + selfBalance`, the debit then
-writes `0` to the same slot, so the value is correctly *burned* (matching
-the Yellow Paper's "σ'[r].balance ← σ[r].balance + σ[Iₐ].balance ;
-σ'[Iₐ].balance ← 0" sequence). `AccountMap.transfer` would instead
-net-cancel the two updates and leave the balance *unchanged*, which is
-wrong for the self-beneficiary case. -/
+The balance move uses `AccountMap.transfer` (debit self, credit
+beneficiary), which is a **no-op when `self = beneficiary`** — matching
+EIP-6780 / execution-specs `move_ether`, where a self-transfer leaves the
+balance unchanged. Any actual *burn* of a self-destructing account's
+balance happens later, via `applySelfDestructDeletions` zeroing the
+deleted account (all self-destructed accounts pre-Cancun; only
+created-this-tx accounts from Cancun/EIP-6780 onward). A pre-existing
+account that self-destructs to itself on Cancun+ is not deleted, so it
+correctly keeps its balance. -/
 def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   let self    := sc.executionEnv.address
   let selfBal := (sc.accountMap self).balance
-  let benAcc  := sc.accountMap beneficiary
-  let map₁    := sc.accountMap.set beneficiary
-                   { benAcc with balance := benAcc.balance + selfBal }
-  let map₂    := map₁.set self { (map₁ self) with balance := ⟨0⟩ }
+  let map₂    := sc.accountMap.transfer self beneficiary selfBal
   -- Per YP §7 the `R_selfdestruct = 24000` refund (Frontier..Petersburg;
   -- 0 on London+ via EIP-3529) is address-keyed: each address contributes
   -- at most once to the refund set, so a second `SELFDESTRUCT` of the same
