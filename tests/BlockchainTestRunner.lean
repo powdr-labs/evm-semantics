@@ -330,6 +330,84 @@ def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork) :
   pure (Tx.applyBlockReward m header.coinbase fork)
 
 ----------------------------------------------------------------------------
+-- Independent invalid-block detection (header consensus rules from `rlp`).
+----------------------------------------------------------------------------
+
+/-- The consensus parent-header fields the transition rules need. -/
+structure ParentInfo where
+  gasLimit     : Nat
+  excessBlobGas : Nat
+  blobGasUsed  : Nat
+  deriving Inhabited
+
+/-- Read `(gasLimit, excessBlobGas, blobGasUsed)` from a decoded header JSON
+    object (`blockHeader` or `genesisBlockHeader`). -/
+def parentInfoOf (bh : Json) : ParentInfo :=
+  { gasLimit      := hexToNat (strField bh "gasLimit")
+    excessBlobGas := hexToNat (strField bh "excessBlobGas")
+    blobGasUsed   := hexToNat (strField bh "blobGasUsed") }
+
+/-- EIP-4844/7691 target blob gas per block: 3 blobs at Cancun, 6 from Prague.
+    (Osaka's BPO variants retune this; we only validate the excess transition
+    on Cancun/Prague, where the constants are fixed, to avoid ever flagging a
+    genuinely-valid block.) -/
+def targetBlobGas (fork : Fork) : Nat :=
+  if fork ≥ .Prague then 6 * Tx.gasPerBlob else 3 * Tx.gasPerBlob
+
+/-- Max blob gas per block: 6 blobs at Cancun, 9 from Prague (EIP-7691). -/
+def maxBlobGasPerBlock (fork : Fork) : Nat :=
+  if fork ≥ .Prague then 9 * Tx.gasPerBlob else 6 * Tx.gasPerBlob
+
+/-- EIP-4844 `calc_excess_blob_gas(parent)`: carry over the parent's excess
+    plus what it used, minus the per-block target (clamped at 0). -/
+def calcExcessBlobGas (p : ParentInfo) (fork : Fork) : Nat :=
+  let sum := p.excessBlobGas + p.blobGasUsed
+  let target := targetBlobGas fork
+  if sum < target then 0 else sum - target
+
+/-- Field indices in the RLP block header (post-Cancun layout). -/
+def hdrGasLimit : Nat := 9
+def hdrBlobGasUsed : Nat := 17
+def hdrExcessBlobGas : Nat := 18
+
+/-- Decode a block's `rlp` into its header field list. The block RLP is
+    `[header, transactions, uncles, …]`; the header is a list of scalar/‌byte
+    fields. Returns `none` if the bytes don't decode to that shape. -/
+def decodeBlockHeaderRlp (rlpHex : String) : Option (List Rlp.Item) := do
+  let (item, _) ← Rlp.decodeAt (hexToBytes rlpHex) 0
+  let top ← item.asList
+  (← top[0]?).asList
+
+/-- Independently decide whether a block is invalid *from its `rlp`* by the
+    header consensus rules we model, given the parent's header info. Catches:
+    RLP-undecodable, gas-limit below the `5000` floor or outside the
+    `±parent/1024` adjustment band, blob-gas-used above the per-block max, and
+    (Cancun/Prague) an `excessBlobGas` that doesn't match the transition
+    formula. Conservative: only returns `true` for genuine violations, so a
+    valid block is never flagged. `none` reasons we don't model return `false`
+    (the caller falls back to the fixture's `expectException`). -/
+def headerConsensusInvalid (fork : Fork) (p : ParentInfo) (rlpHex : String) :
+    Option String :=
+  match decodeBlockHeaderRlp rlpHex with
+  | none => some "undecodable block rlp"
+  | some fields =>
+    let get (i : Nat) : Nat := ((fields[i]?).bind Rlp.Item.asNat).getD 0
+    let gasLimit := get hdrGasLimit
+    -- Gas-limit consensus bounds (fork-independent).
+    if gasLimit < 5000 then some "gas limit below 5000"
+    else
+      let delta := p.gasLimit / 1024
+      if gasLimit ≥ p.gasLimit + delta ∨ gasLimit + delta ≤ p.gasLimit then
+        some "gas limit outside ±parent/1024"
+      else if fork ≥ .Cancun ∧ get hdrBlobGasUsed > maxBlobGasPerBlock fork then
+        some "blob gas used above per-block max"
+      -- Excess-blob-gas transition — only on Cancun/Prague (fixed constants).
+      else if (fork = .Cancun ∨ fork = .Prague)
+              ∧ get hdrExcessBlobGas ≠ calcExcessBlobGas p fork then
+        some "incorrect excessBlobGas"
+      else none
+
+----------------------------------------------------------------------------
 -- Post-state comparison (mirrors GeneralStateTestRunner).
 ----------------------------------------------------------------------------
 
@@ -384,38 +462,87 @@ def cmpPost (finalAccounts : AccountMap)
 -- Per-test runner.
 ----------------------------------------------------------------------------
 
+/-- Resolve the active fork for a block at `timestamp`. Handles the EEST
+    fork-*transition* networks `<A>To<B>AtTime<N>[k]` (fork `A` before the
+    transition timestamp, `B` at/after it) as well as a plain single-fork
+    `network`. Returns `none` for networks naming a fork we don't model —
+    including the blob-parameter-only (`BPO*`) transitions. -/
+def resolveForkAt (network : String) (timestamp : Nat) : Option Fork :=
+  match parseForkExact network with
+  | some f => some f
+  | none =>
+    match network.splitOn "AtTime" with
+    | [forks, timeStr] =>
+      let digits := timeStr.dropEndWhile (· == 'k')
+      match digits.toNat? with
+      | none   => none
+      | some n =>
+        let transTime := if timeStr.endsWith "k" then n * 1000 else n
+        match forks.splitOn "To" with
+        | [a, b] =>
+          match parseForkExact a, parseForkExact b with
+          | some fa, some fb => some (if timestamp ≥ transTime then fb else fa)
+          | _, _ => none
+        | _ => none
+    | _ => none
+
+/-- A block's `timestamp` — from the decoded `blockHeader` when present, else
+    from the RLP header (field index 11). `0` if neither decodes. -/
+def blockTimestamp (b : Json) : Nat :=
+  let bh := subObj b "blockHeader"
+  if hasField bh "timestamp" then hexToNat (strField bh "timestamp")
+  else match decodeBlockHeaderRlp (strField b "rlp") with
+    | some fields => ((fields[11]?).bind Rlp.Item.asNat).getD 0
+    | none        => 0
+
 /-- Run one blockchain test: build the genesis pre-state, process the chain,
     and compare the final world against `postState` (tiered) and the last
     applied block's `stateRoot` (root tier).
 
-    A block carrying `expectException` is an intentionally-*invalid* block that
-    a client must reject: it does not apply, and the chain state stays as it
-    was before it. We reject such blocks (identified by the fixture flag) and
-    execute the rest, so the final state reflects only the valid blocks — which
-    is exactly what `postState` encodes. (Independently *detecting* the
-    invalidity by decoding the block `rlp` and validating the header/consensus
-    rules — rather than trusting `expectException` — is a further stage.) -/
+    The active fork is resolved *per block* from its timestamp
+    (`resolveForkAt`), so the EEST fork-transition networks
+    (`CancunToPragueAtTime15k`, …) run with the right fork on each side of the
+    transition.
+
+    Each block is checked for validity: a block that fails our independent
+    header-consensus checks (`headerConsensusInvalid`, decoded from its `rlp`)
+    is *rejected* — it does not apply and the chain state stays as before it.
+    A block flagged `expectException` in the fixture but invalid for a reason
+    we don't model yet is also rejected (fallback), so the final state reflects
+    only the valid blocks — exactly what `postState` encodes. -/
 def runTest (testObj : Json) : Outcome :=
-  match parseForkExact (strField testObj "network") with
-  | none => .incon s!"unmodelled fork {strField testObj "network"}"
-  | some fork =>
+      let network := strField testObj "network"
       let blocks := (jsonArr (subObj testObj "blocks")).toList
-      -- The valid (applied) blocks, in order — invalid blocks are rejected.
-      let validBlocks := blocks.filter (fun b => ¬ hasField b "expectException")
       let preEntries := objEntries testObj "pre"
       let preMap : AccountMap :=
         preEntries.foldl
           (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
           AccountMap.empty
-      -- Fold the applied blocks, threading the world state block to block.
-      let rec go (m : AccountMap) : List Json → Except String AccountMap
-        | []      => .ok m
-        | b :: bs => match executeBlock m b fork with
-                     | .error r => .error r
-                     | .ok m'   => go m' bs
-      match go preMap validBlocks with
+      -- Fold every block, threading the world state, the parent-header info
+      -- (for the consensus transition rules), the last *applied* block's
+      -- `stateRoot`, and the last block's fork (for the final root compare). A
+      -- rejected block leaves the state / parent / stateRoot unchanged. The
+      -- fork is resolved per block from its timestamp.
+      let rec go (m : AccountMap) (p : ParentInfo) (lastRoot : String)
+          (lastFork : Fork) : List Json → Except String (AccountMap × String × Fork)
+        | []      => .ok (m, lastRoot, lastFork)
+        | b :: bs =>
+          match resolveForkAt network (blockTimestamp b) with
+          | none => .error s!"unmodelled fork {network}"
+          | some fork =>
+            let detected := headerConsensusInvalid fork p (strField b "rlp")
+            let flagged  := hasField b "expectException"
+            if detected.isSome ∨ flagged then go m p lastRoot fork bs   -- reject
+            else match executeBlock m b fork with
+              | .error r => .error r
+              | .ok m'   =>
+                let bh := subObj b "blockHeader"
+                go m' (parentInfoOf bh) (strField bh "stateRoot") fork bs
+      let genesisBh := subObj testObj "genesisBlockHeader"
+      let fork0 := (resolveForkAt network 0).getD .Frontier
+      match go preMap (parentInfoOf genesisBh) (strField genesisBh "stateRoot") fork0 blocks with
       | .error r => .incon r
-      | .ok finalAccounts =>
+      | .ok (finalAccounts, lastRootStr, fork) =>
         let isPrecompileAddr (a : AccountAddress) : Bool :=
           decide (1 ≤ a.val) && decide (a.val ≤ 9)
         let wasInPreState : AccountAddress → Bool :=
@@ -436,10 +563,6 @@ def runTest (testObj : Json) : Outcome :=
           | [] =>
             -- Root tier: compare our world MPT root to the last *applied*
             -- block's `stateRoot` (the genesis root if none applied).
-            let lastRootStr :=
-              match validBlocks.getLast? with
-              | some b => strField (subObj b "blockHeader") "stateRoot"
-              | none   => strField (subObj testObj "genesisBlockHeader") "stateRoot"
             let expRoot := hexToUInt256 lastRootStr
             match AccountMap.stateRoot finalAccounts fork wasInPreState with
             | some ourRoot =>
