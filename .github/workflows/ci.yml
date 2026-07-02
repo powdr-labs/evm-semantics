@@ -101,7 +101,7 @@ jobs:
   vmtests:
     name: VMTests
     needs: build
-    runs-on: warp-ubuntu-2404-x64-16x
+    runs-on: warp-ubuntu-2404-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -393,7 +393,7 @@ jobs:
   eest:
     name: EEST Osaka state_tests
     needs: build
-    runs-on: warp-ubuntu-2404-x64-16x
+    runs-on: warp-ubuntu-2404-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
