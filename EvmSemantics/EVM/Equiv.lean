@@ -1142,7 +1142,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
           set base := Gas.baseCost s.fork (.System .SELFDESTRUCT) with hbase
           set surch := Gas.selfDestructSurcharge s.fork
                         (s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty
-                        ((s.accountMap s.executionEnv.address).balance.toNat != 0) with hsurch
+                        ((s.accountMap s.executionEnv.address).balance.toNat != 0)
+                       + Gas.selfDestructColdSurcharge s
+                           (AccountAddress.ofUInt256 beneficiary) with hsurch
           have h_total : Gas.selfDestructTotal s beneficiary ≤ s.gasAvailable := by
             show base + surch ≤ s.gasAvailable
             simp [State.consumeGas, ← hbase] at h_sc
