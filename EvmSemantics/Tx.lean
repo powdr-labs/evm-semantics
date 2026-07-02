@@ -110,6 +110,34 @@ def intrinsicGas (fork : Fork) (isCreate : Bool) (data : ByteArray) : Nat := Id.
     if fork ≥ .Shanghai then g := g + 2 * ((data.size + 31) / 32)
   return g
 
+/-- EIP-7623 (Prague) calldata token count: `zero_bytes + 4 · nonzero_bytes`.
+    With `STANDARD_TOKEN_COST = 4` this reproduces the EIP-2028 per-byte prices
+    (`4 · tokens = 4·zero + 16·nonzero`), and it is the multiplier for the
+    `TOTAL_COST_FLOOR_PER_TOKEN = 10` data floor below. -/
+def calldataTokens (data : ByteArray) : Nat := Id.run do
+  let mut t := 0
+  for b in data do
+    t := t + (if b == 0 then 1 else 4)
+  return t
+
+/-- EIP-7623 (Prague) transaction data floor: `21000 +
+    TOTAL_COST_FLOOR_PER_TOKEN · tokens` with `TOTAL_COST_FLOOR_PER_TOKEN = 10`.
+    A valid tx must have `gasLimit ≥ max(intrinsicGas, dataFloorGas)`, and its
+    charged `gasUsed` is floored at this value (see `applyDataFloor`). Returns
+    `0` (no floor) before Prague. For a create-tx `data` is the init code, whose
+    bytes count as calldata tokens per the EIP. -/
+@[inline] def dataFloorGas (fork : Fork) (data : ByteArray) : Nat :=
+  if fork ≥ .Prague then 21000 + 10 * calldataTokens data else 0
+
+/-- Cap a computed sender refund so the tx's `gasUsed = gasLimit - refund` never
+    drops below the EIP-7623 `dataFloorGas` — i.e. `refund ≤ gasLimit - floor`.
+    The validity gate guarantees `gasLimit ≥ dataFloorGas`, so the `Nat`
+    subtraction is exact; a no-op before Prague (floor `0` ⇒ cap `= gasLimit ≥
+    refund`). -/
+@[inline] def applyDataFloor (fork : Fork) (gasLimit gasRefunded : Nat)
+    (data : ByteArray) : Nat :=
+  Nat.min gasRefunded (gasLimit - dataFloorGas fork data)
+
 /-- EIP-7825 (Osaka) per-transaction gas-limit cap: `2^24 =
     16_777_216`. A transaction whose `gasLimit` exceeds this is
     *invalid* from Osaka onwards (rejected at tx/block validation),
@@ -404,7 +432,13 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- credit). Without this gate `gasAvailable := gasLimit - g₀` underflows to
   -- `0` in `Nat` and the tx would otherwise run as though it had no gas,
   -- wrongly bumping the sender nonce (fixtures flag this `INTRINSIC_GAS_TOO_LOW`).
-  if tx.gasLimit < intrinsicGas fork tx.isCreate tx.data then
+  -- EIP-7623 (Prague) widens this gate: a valid tx must afford *both* the
+  -- standard intrinsic gas and the calldata data floor (`21000 + 10·tokens`);
+  -- below the max of the two it is invalid (`INTRINSIC_GAS_BELOW_FLOOR_GAS_COST`
+  -- / `INTRINSIC_GAS_TOO_LOW`). Pre-Prague `dataFloorGas = 0`, so this is exactly
+  -- the old `gasLimit < intrinsicGas` check.
+  if tx.gasLimit < Nat.max (intrinsicGas fork tx.isCreate tx.data)
+                           (dataFloorGas fork tx.data) then
     { finalAccounts := preMap, outcome := .exceptional }
   -- EIP-7825 (Osaka): a transaction may not request more than
   -- `2^24 = 16_777_216` gas. Like the intrinsic-gas gate this is a
@@ -487,8 +521,11 @@ def execute (preMap : AccountMap) (header : BlockHeader)
       match sf.halt with
       | .Exception _ => rollback
       | .Reverted =>
+        -- EIP-7623: a reverted tx still paid for its calldata, so its `gasUsed`
+        -- is floored too — cap the unspent-gas refund at `gasLimit - floor`.
+        let refunded := applyDataFloor fork tx.gasLimit sf.gasAvailable tx.data
         let map := failPostStateRefunded preMap tx.sender coinbase
-                     tx.gasLimit sf.gasAvailable gasPrice
+                     tx.gasLimit refunded gasPrice
         { finalAccounts := withReward map, outcome := .exceptional }
       | _ =>
         -- YP §6.1 end-of-tx cleanup: zero out every account that
@@ -520,8 +557,9 @@ def execute (preMap : AccountMap) (header : BlockHeader)
                 let newAcc := cleaned newAddr
                 cleaned.set newAddr { newAcc with code := hReturn }
             let gasRemaining := sf.gasAvailable - depositCost
-            let gasRefunded := refundedGasOnSuccess tx.gasLimit gasRemaining
-                                 sf.substate.refundBalance.toNat fork
+            let gasRefunded := applyDataFloor fork tx.gasLimit
+                                 (refundedGasOnSuccess tx.gasLimit gasRemaining
+                                   sf.substate.refundBalance.toNat fork) tx.data
             let map' := applyTxGasAccounting mapWithCode tx.sender coinbase
                           tx.gasLimit gasRefunded gasPrice
             { finalAccounts := withReward map', outcome := .success }
@@ -530,8 +568,9 @@ def execute (preMap : AccountMap) (header : BlockHeader)
             -- OOG: rollback the whole tx per YP.
             rollback
         else
-          let gasRefunded := refundedGasOnSuccess tx.gasLimit sf.gasAvailable
-                               sf.substate.refundBalance.toNat fork
+          let gasRefunded := applyDataFloor fork tx.gasLimit
+                               (refundedGasOnSuccess tx.gasLimit sf.gasAvailable
+                                 sf.substate.refundBalance.toNat fork) tx.data
           let map' := applyTxGasAccounting cleaned tx.sender coinbase
                         tx.gasLimit gasRefunded gasPrice
           { finalAccounts := withReward map', outcome := .success }
