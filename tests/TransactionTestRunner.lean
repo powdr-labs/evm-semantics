@@ -250,17 +250,34 @@ def decode1559 (items : List Rlp.Item) : Option DecodedTx := do
          data, toLen, accessAddrs := addrs, accessKeys := keys, yParity,
          vRaw := yParity, r, s }
 
-/-- Count the entries of an EIP-7702 `authorization_list`
-    (`[[chainId, address, nonce, yParity, r, s], …]`). Each entry must be a
-    6-element list whose `address` is exactly 20 bytes; a malformed entry
-    makes the whole tx undecodable (`RLP_WrongAuthEncoding`). -/
+/-- Validate an EIP-7702 `authorization_list`
+    (`[[chainId, address, nonce, yParity, r, s], …]`) and return its entry
+    count. Each entry must be a 6-element list; its scalar fields must be
+    canonical and within range (`chainId < 2²⁵⁶`, `nonce < 2⁶⁴`,
+    `yParity < 2⁸`, `r, s < 2²⁵⁶`) with a 20-byte `address` — a violation is
+    `TYPE_4_INVALID_AUTHORIZATION_FORMAT`. The authority signature also
+    obeys EIP-2 low-s: `s ≤ N/2` (`TYPE_4_INVALID_AUTHORITY_SIGNATURE_
+    S_TOO_HIGH`). Any failure yields `none`, i.e. an invalid transaction. -/
 def parseAuthList (it : Rlp.Item) : Option Nat := do
   let entries ← it.asList
   for e in entries do
     let tup ← e.asList
     guard (tup.length == 6)
-    let addr ← (← nth tup 1).asBytes
+    -- [chainId, address, nonce, yParity, r, s]. `scalarAt` also rejects a
+    -- non-scalar (e.g. `nonce` encoded as a list) or non-canonical field.
+    let chainId ← scalarAt tup 0
+    let addr    ← (← nth tup 1).asBytes
+    let nonce   ← scalarAt tup 2
+    let yParity ← scalarAt tup 3
+    let r       ← scalarAt tup 4
+    let s       ← scalarAt tup 5
     guard (addr.size == 20)
+    guard (chainId < 2^256)
+    guard (nonce < 2^64)
+    guard (yParity < 2^8)
+    guard (r < 2^256 ∧ s < 2^256)
+    -- EIP-2 low-s applies to the authority signature too.
+    guard (s ≤ Crypto.Secp256k1.N / 2)
   some entries.length
 
 /-- Decode an EIP-7702 (type `0x04`) set-code body `[chainId, nonce,

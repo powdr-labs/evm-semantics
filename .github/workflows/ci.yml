@@ -319,16 +319,23 @@ jobs:
           url="https://github.com/ethereum/execution-spec-tests/releases/download/$EEST_REV/fixtures_develop.tar.gz"
           curl -sSL --retry 3 -o fixtures_develop.tar.gz "$url"
           mkdir -p eest
-          # Extract only the Osaka state_tests subtree (the tarball also carries
+          # Extract the Osaka state_tests subtree (the tarball also carries
           # blockchain_tests and every other fork; we only run Osaka state_tests
-          # here — Cancun/Prague are already covered by the ethereum/tests job).
-          tar xzf fixtures_develop.tar.gz -C eest fixtures/state_tests/osaka
+          # here — Cancun/Prague are already covered by the ethereum/tests job)
+          # plus the modern transaction_tests subtree (EIP-7702 set-code tx
+          # decode/validate vectors, absent from the frozen ethereum/tests
+          # TransactionTests). Both come from the one download.
+          tar xzf fixtures_develop.tar.gz -C eest \
+            fixtures/state_tests/osaka fixtures/transaction_tests
           rm -f fixtures_develop.tar.gz
           # Guard: a wrong asset/path silently extracts nothing → `total 0` →
           # skipped comparison read as a false green. Fail loud instead.
-          count=$(find eest -name '*.json' | wc -l)
+          count=$(find eest/fixtures/state_tests/osaka -name '*.json' | wc -l)
           echo "Extracted $count Osaka state_test json files."
           [ "$count" -gt 0 ] || { echo "::error::no Osaka state_tests extracted — check EEST_REV / asset name"; exit 1; }
+          ttcount=$(find eest/fixtures/transaction_tests -name '*.json' | wc -l)
+          echo "Extracted $ttcount EEST transaction_test json files."
+          [ "$ttcount" -gt 0 ] || { echo "::error::no EEST transaction_tests extracted — check EEST_REV / asset name"; exit 1; }
 
       # Non-gating: reports the modern Osaka conformance picture and flags
       # regressions against .github/eest-osaka-expected-failures.txt (sorted
@@ -430,3 +437,40 @@ jobs:
           path: |
             txtests-output.txt
             txtests-summary.txt
+
+      # Non-gating: the modern EEST transaction_tests (EIP-7702 set-code tx
+      # decode/validate vectors, extracted above from the same EEST tarball as
+      # the Osaka state_tests). Reuses the txtests runner + scripts against a
+      # separate baseline .github/eest-txtests-expected-failures.txt.
+      - name: Run EEST transaction_tests
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/scripts/txtests_run.sh \
+            eest/fixtures/transaction_tests 30 | tee eest-txtests-output.txt
+
+      - name: Summarize and compare EEST transaction_tests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/txtests_summary.sh eest-txtests-output.txt > eest-txtests-summary.txt; then
+            .github/scripts/txtests_check.sh \
+              .github/eest-txtests-expected-failures.txt eest-txtests-summary.txt \
+              eest-txtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=EEST transaction_tests::txtests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## EEST transaction_tests regression report"
+              echo
+              echo "⚠️ The EEST transaction_tests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`eest-txtests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload EEST transaction_tests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eest-txtests-report
+          path: |
+            eest-txtests-output.txt
+            eest-txtests-summary.txt
