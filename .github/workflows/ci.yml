@@ -241,6 +241,7 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stTransitionTest \
             Constantinople/BlockchainTests/GeneralStateTests/stZeroCallsRevert \
             Constantinople/BlockchainTests/GeneralStateTests/stCreateTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stCreate2 \
             Constantinople/BlockchainTests/GeneralStateTests/stEIP158Specific \
             Constantinople/BlockchainTests/GeneralStateTests/stNonZeroCallsTest \
             Constantinople/BlockchainTests/GeneralStateTests/stQuadraticComplexityTest \
@@ -389,23 +390,30 @@ jobs:
             gstatetests-output.txt
             gstatetests-summary.txt
 
-  # ── EEST Osaka shard (light: execution-spec-tests release tarball) ──
+  # ── EEST shard: Osaka state_tests + transaction_tests (one tarball) ──
   eest:
-    name: EEST Osaka state_tests
+    name: EEST Osaka (state + transaction tests)
     needs: build
     runs-on: warp-ubuntu-2404-x64-8x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      # Reuses the same gstatetests binary as the modern-GST shard — the EEST
-      # Osaka state_tests run through the identical evaluator entry point.
+      # This shard runs BOTH EEST suites off the single tarball fetched below,
+      # so it needs two binaries: gstatetests for the Osaka state_tests (same
+      # evaluator entry point as the modern-GST shard) and txtests for the
+      # transaction_tests (decode/validate only).
       - name: Download gstatetests binary
         uses: actions/download-artifact@v7
         with:
           name: bin-gstatetests
           path: .lake/build/bin
-      - name: Make binary executable
-        run: chmod +x .lake/build/bin/gstatetests
+      - name: Download txtests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-txtests
+          path: .lake/build/bin
+      - name: Make binaries executable
+        run: chmod +x .lake/build/bin/gstatetests .lake/build/bin/txtests
 
       # Fetch the EEST (execution-spec-tests) Osaka `state_tests`. ethereum/tests
       # is frozen at Prague, so modern-fork fixtures (EIP-7825/7823/7883/7939/
@@ -420,16 +428,23 @@ jobs:
           url="https://github.com/ethereum/execution-spec-tests/releases/download/$EEST_REV/fixtures_develop.tar.gz"
           curl -sSL --retry 3 -o fixtures_develop.tar.gz "$url"
           mkdir -p eest
-          # Extract only the Osaka state_tests subtree (the tarball also carries
+          # Extract the Osaka state_tests subtree (the tarball also carries
           # blockchain_tests and every other fork; we only run Osaka state_tests
-          # here — Cancun/Prague are already covered by the ethereum/tests job).
-          tar xzf fixtures_develop.tar.gz -C eest fixtures/state_tests/osaka
+          # here — Cancun/Prague are already covered by the ethereum/tests job)
+          # plus the modern transaction_tests subtree (EIP-7702 set-code tx
+          # decode/validate vectors, absent from the frozen ethereum/tests
+          # TransactionTests). Both come from the one download.
+          tar xzf fixtures_develop.tar.gz -C eest \
+            fixtures/state_tests/osaka fixtures/transaction_tests
           rm -f fixtures_develop.tar.gz
           # Guard: a wrong asset/path silently extracts nothing → `total 0` →
           # skipped comparison read as a false green. Fail loud instead.
-          count=$(find eest -name '*.json' | wc -l)
+          count=$(find eest/fixtures/state_tests/osaka -name '*.json' | wc -l)
           echo "Extracted $count Osaka state_test json files."
           [ "$count" -gt 0 ] || { echo "::error::no Osaka state_tests extracted — check EEST_REV / asset name"; exit 1; }
+          ttcount=$(find eest/fixtures/transaction_tests -name '*.json' | wc -l)
+          echo "Extracted $ttcount EEST transaction_test json files."
+          [ "$ttcount" -gt 0 ] || { echo "::error::no EEST transaction_tests extracted — check EEST_REV / asset name"; exit 1; }
 
       # Non-gating: reports the modern Osaka conformance picture and flags
       # regressions against .github/eest-osaka-expected-failures.txt. Reuses the
@@ -467,6 +482,45 @@ jobs:
           path: |
             eest-osaka-output.txt
             eest-osaka-summary.txt
+
+      # Non-gating: the modern EEST transaction_tests (EIP-7702 set-code tx
+      # decode/validate vectors, extracted above from the same EEST tarball as
+      # the Osaka state_tests). Reuses the txtests runner + scripts against a
+      # separate baseline .github/eest-txtests-expected-failures.txt. Parallelism
+      # 8 to match this shard's runner (txtests is a single decode-only process,
+      # so this is just Lean-task scheduling — cheap regardless).
+      - name: Run EEST transaction_tests
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/scripts/txtests_run.sh \
+            eest/fixtures/transaction_tests 8 | tee eest-txtests-output.txt
+
+      - name: Summarize and compare EEST transaction_tests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/txtests_summary.sh eest-txtests-output.txt > eest-txtests-summary.txt; then
+            .github/scripts/txtests_check.sh \
+              .github/eest-txtests-expected-failures.txt eest-txtests-summary.txt \
+              eest-txtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=EEST transaction_tests::txtests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## EEST transaction_tests regression report"
+              echo
+              echo "⚠️ The EEST transaction_tests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`eest-txtests-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload EEST transaction_tests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eest-txtests-report
+          path: |
+            eest-txtests-output.txt
+            eest-txtests-summary.txt
 
   # ── TransactionTests shard (ethereum/tests sparse checkout; decode+validate) ──
   txtests:

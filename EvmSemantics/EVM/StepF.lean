@@ -909,6 +909,10 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
   | .CREATE => match s.stack with
     | value :: offset :: size :: rest =>
       if ¬ s.executionEnv.permitStateMutation then static
+      -- EIP-3860 (Shanghai+): init code larger than MAX_INITCODE_SIZE makes
+      -- the opcode exceptionally abort (consumes all gas), before any gas or
+      -- memory charge. `initCodeTooLarge` is `false` pre-Shanghai.
+      else if Gas.initCodeTooLarge s.fork size.toNat then .error .OutOfGas
       else
         match chargeMem s' offset.toNat size.toNat with
         | .error e => .error e
@@ -961,6 +965,9 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
   | .CREATE2 => match s.stack with
     | value :: offset :: size :: salt :: rest =>
       if ¬ s.executionEnv.permitStateMutation then static
+      -- EIP-3860 (Shanghai+): oversized init code exceptionally aborts before
+      -- any gas or memory charge (`initCodeTooLarge` is `false` pre-Shanghai).
+      else if Gas.initCodeTooLarge s.fork size.toNat then .error .OutOfGas
       else
         match chargeMem s' offset.toNat size.toNat with
         | .error e => .error e
