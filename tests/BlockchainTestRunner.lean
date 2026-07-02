@@ -462,9 +462,47 @@ def cmpPost (finalAccounts : AccountMap)
 -- Per-test runner.
 ----------------------------------------------------------------------------
 
+/-- Resolve the active fork for a block at `timestamp`. Handles the EEST
+    fork-*transition* networks `<A>To<B>AtTime<N>[k]` (fork `A` before the
+    transition timestamp, `B` at/after it) as well as a plain single-fork
+    `network`. Returns `none` for networks naming a fork we don't model —
+    including the blob-parameter-only (`BPO*`) transitions. -/
+def resolveForkAt (network : String) (timestamp : Nat) : Option Fork :=
+  match parseForkExact network with
+  | some f => some f
+  | none =>
+    match network.splitOn "AtTime" with
+    | [forks, timeStr] =>
+      let digits := timeStr.dropEndWhile (· == 'k')
+      match digits.toNat? with
+      | none   => none
+      | some n =>
+        let transTime := if timeStr.endsWith "k" then n * 1000 else n
+        match forks.splitOn "To" with
+        | [a, b] =>
+          match parseForkExact a, parseForkExact b with
+          | some fa, some fb => some (if timestamp ≥ transTime then fb else fa)
+          | _, _ => none
+        | _ => none
+    | _ => none
+
+/-- A block's `timestamp` — from the decoded `blockHeader` when present, else
+    from the RLP header (field index 11). `0` if neither decodes. -/
+def blockTimestamp (b : Json) : Nat :=
+  let bh := subObj b "blockHeader"
+  if hasField bh "timestamp" then hexToNat (strField bh "timestamp")
+  else match decodeBlockHeaderRlp (strField b "rlp") with
+    | some fields => ((fields[11]?).bind Rlp.Item.asNat).getD 0
+    | none        => 0
+
 /-- Run one blockchain test: build the genesis pre-state, process the chain,
     and compare the final world against `postState` (tiered) and the last
     applied block's `stateRoot` (root tier).
+
+    The active fork is resolved *per block* from its timestamp
+    (`resolveForkAt`), so the EEST fork-transition networks
+    (`CancunToPragueAtTime15k`, …) run with the right fork on each side of the
+    transition.
 
     Each block is checked for validity: a block that fails our independent
     header-consensus checks (`headerConsensusInvalid`, decoded from its `rlp`)
@@ -473,34 +511,38 @@ def cmpPost (finalAccounts : AccountMap)
     we don't model yet is also rejected (fallback), so the final state reflects
     only the valid blocks — exactly what `postState` encodes. -/
 def runTest (testObj : Json) : Outcome :=
-  match parseForkExact (strField testObj "network") with
-  | none => .incon s!"unmodelled fork {strField testObj "network"}"
-  | some fork =>
+      let network := strField testObj "network"
       let blocks := (jsonArr (subObj testObj "blocks")).toList
       let preEntries := objEntries testObj "pre"
       let preMap : AccountMap :=
         preEntries.foldl
           (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
           AccountMap.empty
-      -- Fold every block, threading the world state and the parent-header info
-      -- (for the consensus transition rules) plus the last *applied* block's
-      -- `stateRoot`. A rejected block leaves all three unchanged.
-      let rec go (m : AccountMap) (p : ParentInfo) (lastRoot : String) :
-          List Json → Except String (AccountMap × String)
-        | []      => .ok (m, lastRoot)
+      -- Fold every block, threading the world state, the parent-header info
+      -- (for the consensus transition rules), the last *applied* block's
+      -- `stateRoot`, and the last block's fork (for the final root compare). A
+      -- rejected block leaves the state / parent / stateRoot unchanged. The
+      -- fork is resolved per block from its timestamp.
+      let rec go (m : AccountMap) (p : ParentInfo) (lastRoot : String)
+          (lastFork : Fork) : List Json → Except String (AccountMap × String × Fork)
+        | []      => .ok (m, lastRoot, lastFork)
         | b :: bs =>
-          let detected := headerConsensusInvalid fork p (strField b "rlp")
-          let flagged  := hasField b "expectException"
-          if detected.isSome ∨ flagged then go m p lastRoot bs   -- reject
-          else match executeBlock m b fork with
-            | .error r => .error r
-            | .ok m'   =>
-              let bh := subObj b "blockHeader"
-              go m' (parentInfoOf bh) (strField bh "stateRoot") bs
+          match resolveForkAt network (blockTimestamp b) with
+          | none => .error s!"unmodelled fork {network}"
+          | some fork =>
+            let detected := headerConsensusInvalid fork p (strField b "rlp")
+            let flagged  := hasField b "expectException"
+            if detected.isSome ∨ flagged then go m p lastRoot fork bs   -- reject
+            else match executeBlock m b fork with
+              | .error r => .error r
+              | .ok m'   =>
+                let bh := subObj b "blockHeader"
+                go m' (parentInfoOf bh) (strField bh "stateRoot") fork bs
       let genesisBh := subObj testObj "genesisBlockHeader"
-      match go preMap (parentInfoOf genesisBh) (strField genesisBh "stateRoot") blocks with
+      let fork0 := (resolveForkAt network 0).getD .Frontier
+      match go preMap (parentInfoOf genesisBh) (strField genesisBh "stateRoot") fork0 blocks with
       | .error r => .incon r
-      | .ok (finalAccounts, lastRootStr) =>
+      | .ok (finalAccounts, lastRootStr, fork) =>
         let isPrecompileAddr (a : AccountAddress) : Bool :=
           decide (1 ≤ a.val) && decide (a.val ≤ 9)
         let wasInPreState : AccountAddress → Bool :=
