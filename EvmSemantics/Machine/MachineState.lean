@@ -91,18 +91,22 @@ def readPadded (bs : ByteArray) (start n : Nat) : ByteArray :=
     needed. Writing zero bytes is a no-op — `bs` is returned unchanged
     even if `start` is huge (otherwise `needed = start` would trigger a
     monster zero-fill allocation on e.g. `MCOPY(dst = 2^256-1, sz = 0)`,
-    which is a valid EVM no-op). -/
-partial def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
+    which is a valid EVM no-op).
+
+    Non-`partial`: the copy loop is a plain `Id.run do` `for`-in over
+    the fixed range `[0, bytes.size)`, whose termination Lean discharges
+    structurally. Kernel-transparent, so downstream proofs can reduce
+    calls to `writeBytes` on concrete arguments. -/
+def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
   if bytes.size = 0 then bs else
   let needed := start + bytes.size
   let padded :=
     if bs.size < needed then bs ++ ByteArray.mk (Array.replicate (needed - bs.size) 0) else bs
-  -- Inner loop: copy `bytes[i..]` into `acc` starting at `start + i`.
-  let rec go (i : Nat) (acc : ByteArray) : ByteArray :=
-    if i < bytes.size then
-      go (i+1) (acc.set! (start + i) bytes[i]!)
-    else acc
-  go 0 padded
+  Id.run do
+    let mut acc := padded
+    for i in [0:bytes.size] do
+      acc := acc.set! (start + i) bytes[i]!
+    return acc
 
 /-- Read a 32-byte big-endian word from `bs` at `offset`, zero-padding
     past the end. Used by both `MLOAD` (over memory) and `CALLDATALOAD`
@@ -142,11 +146,6 @@ def mcopy (μ : MachineState) (dst src sz : UInt256) : MachineState :=
 
 /-- MSIZE: number of *bytes* currently considered active (= 32·activeWords). -/
 def msize (μ : MachineState) : UInt256 := UInt256.ofNat (32 * μ.activeWords.toNat)
-
--- The `let rec`-generated worker inside `writeBytes` is a private
--- inner loop, not user-facing API; silence `docBlame`.
-attribute [nolint docBlame]
-  MachineState.writeBytes.go
 
 end MachineState
 
