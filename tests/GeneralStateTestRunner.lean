@@ -23,11 +23,10 @@ enough that a separate, self-contained runner is clearer than a shared module:
   carrying an expanded `state` (per-account post-state, compared directly) plus
   a state-root `hash` (compared via the world MPT root for the strongest tier).
 
-**Scope (minimal framework).** Legacy (`gasPrice`) and EIP-1559
-(`maxFeePerGas`) transactions are executed; the variants whose semantics
-aren't modelled here — EIP-2930 access lists, EIP-4844 blobs, EIP-7702
-set-code — are reported `INCON` and skipped. Two corpora feed this runner: the
-frozen `ethereum/tests` set (filled for Cancun/Prague) and the
+**Scope (minimal framework).** Legacy (`gasPrice`), EIP-1559 (`maxFeePerGas`)
+and EIP-7702 (set-code) transactions are executed; EIP-2930 access-list and
+EIP-4844 blob txs are still reported `INCON` and skipped. Two corpora feed this
+runner: the frozen `ethereum/tests` set (filled for Cancun/Prague) and the
 EEST/`execution-specs` Osaka `state_tests` (EIP-7825/7823/7883/7939/7951).
 `Tx.execute` applies the EIP-1559 fee split (London+ burns the base-fee slice,
 crediting the coinbase only the priority tip), so post-London txs reach the
@@ -167,12 +166,10 @@ def parseForkExact (s : String) : Option Fork :=
   | _                   => none
 
 /-- Reason a transaction variant can't be executed by this runner, or `none`
-    if it can. We execute legacy (`gasPrice`) and EIP-1559 (`maxFeePerGas`)
-    transactions; we still skip the variants whose *semantics* aren't modelled
-    here — EIP-2930 access lists (gas + warm set), EIP-4844 blobs, and EIP-7702
-    set-code authorizations. Keyed on positive signals per the selected `data`
-    index (a bare `maxFeePerGas` with an empty access list is a plain type-2 tx
-    and runs; its fee is handled by `effectiveGasPrice`). -/
+    if it can. Legacy, EIP-1559 and EIP-7702 (set-code) txs run; only EIP-2930
+    access-list and EIP-4844 blob txs are still skipped (their gas/warm-set and
+    fee semantics aren't modelled here yet). Keyed on positive signals per the
+    selected `data` index. -/
 def txUnsupportedReason (txJson : Json) (dataIdx : Nat) : Option String :=
   if (jsonArr (subObj txJson "blobVersionedHashes")).size > 0 then
     some "blob tx (EIP-4844) unsupported"
