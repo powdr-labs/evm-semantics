@@ -20,17 +20,16 @@ needs.
 
 namespace EvmSemantics.Crypto.Secp256r1
 
-/-- The P-256 field prime.
-    `0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff`
-    (`= 2²⁵⁶ − 2²²⁴ + 2¹⁹² + 2⁹⁶ − 1`). -/
-def p : Nat := 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
+/-- The P-256 field prime `p = 2²⁵⁶ − 2²²⁴ + 2¹⁹² + 2⁹⁶ − 1`. Hex:
+    `0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff`. -/
+def p : Nat := 2^256 - 2^224 + 2^192 + 2^96 - 1
 
-/-- The P-256 group order `N`.
+/-- The P-256 group order `N` (no short closed form). Hex:
     `0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551`. -/
 def N : Nat := 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
 
 /-- `p` is nonzero — required for `Fin p`'s numeric-tower instances. -/
-instance : NeZero p := ⟨by unfold p; decide⟩
+instance : NeZero p := ⟨by unfold p; omega⟩
 
 /-- `N` is nonzero — for scalar-field (`Fin N`) modular arithmetic. -/
 instance : NeZero N := ⟨by unfold N; decide⟩

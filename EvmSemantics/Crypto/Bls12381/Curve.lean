@@ -82,7 +82,7 @@ def Gy : Nat :=
   0x08b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1
 
 /-- The BLS12-381 G₁ curve packaged for the generic point operations
-    (`y² = x³ + 4`, `b = 4`). -/
+    (`y² = x³ + 4`, i.e. `a = 0`, `b = 4`). -/
 def curve : EvmSemantics.Crypto.Weierstrass.Curve p := { a := 0, b := Fin.ofNat _ 4 }
 
 /-- The BLS12-381 G₁ generator. -/
