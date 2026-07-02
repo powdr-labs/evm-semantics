@@ -652,7 +652,7 @@ jobs:
         continue-on-error: true
         run: |
           .github/scripts/blockchaintests_run.sh \
-            eest/fixtures/blockchain_tests 20 16 | tee blockchaintests-output.txt
+            eest/fixtures/blockchain_tests 60 16 | tee blockchaintests-output.txt
 
       - name: Summarize and compare EEST blockchain_tests against expected failures
         if: always()

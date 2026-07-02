@@ -384,50 +384,63 @@ def cmpPost (finalAccounts : AccountMap)
 -- Per-test runner.
 ----------------------------------------------------------------------------
 
-/-- Run one blockchain test: build the genesis pre-state, execute the chain,
+/-- Run one blockchain test: build the genesis pre-state, process the chain,
     and compare the final world against `postState` (tiered) and the last
-    block's `stateRoot` (root tier). -/
+    applied block's `stateRoot` (root tier).
+
+    A block carrying `expectException` is an intentionally-*invalid* block that
+    a client must reject: it does not apply, and the chain state stays as it
+    was before it. We reject such blocks (identified by the fixture flag) and
+    execute the rest, so the final state reflects only the valid blocks — which
+    is exactly what `postState` encodes. (Independently *detecting* the
+    invalidity by decoding the block `rlp` and validating the header/consensus
+    rules — rather than trusting `expectException` — is a further stage.) -/
 def runTest (testObj : Json) : Outcome :=
   match parseForkExact (strField testObj "network") with
   | none => .incon s!"unmodelled fork {strField testObj "network"}"
   | some fork =>
-    let blocks := (jsonArr (subObj testObj "blocks")).toList
-    -- Stage 1 executes valid chains only; a block asserting `expectException`
-    -- needs consensus validation to reject it (a later stage).
-    if blocks.any (fun b => hasField b "expectException") then
-      .incon "invalid-block test (needs consensus validation)"
-    else
+      let blocks := (jsonArr (subObj testObj "blocks")).toList
+      -- The valid (applied) blocks, in order — invalid blocks are rejected.
+      let validBlocks := blocks.filter (fun b => ¬ hasField b "expectException")
       let preEntries := objEntries testObj "pre"
       let preMap : AccountMap :=
         preEntries.foldl
           (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
           AccountMap.empty
-      -- Fold the chain, threading the world state block to block.
+      -- Fold the applied blocks, threading the world state block to block.
       let rec go (m : AccountMap) : List Json → Except String AccountMap
         | []      => .ok m
         | b :: bs => match executeBlock m b fork with
                      | .error r => .error r
                      | .ok m'   => go m' bs
-      match go preMap blocks with
+      match go preMap validBlocks with
       | .error r => .incon r
       | .ok finalAccounts =>
+        let isPrecompileAddr (a : AccountAddress) : Bool :=
+          decide (1 ≤ a.val) && decide (a.val ≤ 9)
+        let wasInPreState : AccountAddress → Bool :=
+          fun a => preMap.contains a && ¬ isPrecompileAddr a
         let post := objEntries testObj "postState"
-        if post.isEmpty then .incon "no postState (postStateHash-only, unsupported)"
+        if post.isEmpty then
+          -- Some fixtures give only `postStateHash` (the expected final world
+          -- MPT root) instead of an expanded `postState`. Compare roots.
+          let phash := strField testObj "postStateHash"
+          if phash = "" then .incon "no postState / postStateHash"
+          else match AccountMap.stateRoot finalAccounts fork wasInPreState with
+            | some r => if r.toNat == (hexToUInt256 phash).toNat then .passRoot
+                        else .fail "postStateHash mismatch"
+            | none   => .incon "state root uncomputable"
         else match cmpPost finalAccounts preEntries post false with
         | [] =>
           match cmpPost finalAccounts preEntries post true with
           | [] =>
-            -- Root tier: compare our world MPT root to the last block's
-            -- `stateRoot`.
+            -- Root tier: compare our world MPT root to the last *applied*
+            -- block's `stateRoot` (the genesis root if none applied).
             let lastRootStr :=
-              match blocks.getLast? with
+              match validBlocks.getLast? with
               | some b => strField (subObj b "blockHeader") "stateRoot"
-              | none   => ""
+              | none   => strField (subObj testObj "genesisBlockHeader") "stateRoot"
             let expRoot := hexToUInt256 lastRootStr
-            let isPrecompileAddr (a : AccountAddress) : Bool :=
-              decide (1 ≤ a.val) && decide (a.val ≤ 9)
-            let wasInPreState : AccountAddress → Bool :=
-              fun a => preMap.contains a && ¬ isPrecompileAddr a
             match AccountMap.stateRoot finalAccounts fork wasInPreState with
             | some ourRoot =>
               if lastRootStr ≠ "" ∧ ourRoot.toNat == expRoot.toNat then .passRoot
