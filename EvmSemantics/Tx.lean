@@ -427,6 +427,16 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- coinbase credit — matching the intrinsic-gas and EIP-3607 rejections.
   else if Account.maxNonce ≤ (preMap tx.sender).nonce.toNat then
     { finalAccounts := preMap, outcome := .exceptional }
+  -- YP §6.2 validity: the sender must be able to afford both the upfront
+  -- gas charge `T_g · T_p` and the transferred value `T_v` — i.e.
+  -- `T_g · T_p + T_v ≤ σ[T_s]_b`. Otherwise the tx is invalid: no state
+  -- change (matches fixtures flagging INSUFFICIENT_ACCOUNT_FUNDS /
+  -- GASLIMIT_PRICE_PRODUCT_OVERFLOW — the overflow case is subsumed
+  -- because `T_g · T_p` in `Nat` cannot overflow, and any value exceeding
+  -- 2²⁵⁶ is trivially greater than the balance).
+  else if tx.gasLimit * tx.gasPrice.toNat + tx.value.toNat >
+           (preMap tx.sender).balance.toNat then
+    { finalAccounts := preMap, outcome := .exceptional }
   else if collide then rollback
   else
     -- Tx-level precompile dispatch is *not* a special case here: a tx
