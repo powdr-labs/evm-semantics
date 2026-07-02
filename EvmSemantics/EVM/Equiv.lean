@@ -1190,7 +1190,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
           · rename_i h_fail
             cases h
             have h_fail' : s.executionEnv.depth ≥ 1024 ∨
-                (s.accountMap s.executionEnv.address).balance < value := by
+                (s.accountMap s.executionEnv.address).balance < value ∨
+                Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat := by
               simpa [State.consumeGas, State.consumeMemExp] using h_fail
             have post_eq :
                 ({ (s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
@@ -1214,7 +1215,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             split at h
             · rename_i h_fw
               have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                  (s.accountMap s.executionEnv.address).balance < value) := by
+                  (s.accountMap s.executionEnv.address).balance < value ∨
+                  Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat) := by
                 simpa [State.consumeGas, State.consumeMemExp] using h_take
               -- `createAddress` is total now. Set `newAddr` to the
               -- stepF-style expression (over the consumed state) so the
@@ -1338,7 +1340,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
             · rename_i h_fail
               cases h
               have h_fail' : s.executionEnv.depth ≥ 1024 ∨
-                  (s.accountMap s.executionEnv.address).balance < value := by
+                  (s.accountMap s.executionEnv.address).balance < value ∨
+                  Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat := by
                 simpa [State.consumeGas, State.consumeMemExp] using h_fail
               have post_eq :
                   ({ ((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
@@ -1363,7 +1366,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               split at h
               · rename_i h_fw
                 have h_take' : ¬ (s.executionEnv.depth ≥ 1024 ∨
-                    (s.accountMap s.executionEnv.address).balance < value) := by
+                    (s.accountMap s.executionEnv.address).balance < value ∨
+                    Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat) := by
                   simpa [State.consumeGas, State.consumeMemExp] using h_take
                 set s3 := (((s.consumeGas base h_gas).consumeMemExp offset.toNat size.toNat
                             h_mem).consumeGas (Gas.create2HashCost size.toNat) h_hash

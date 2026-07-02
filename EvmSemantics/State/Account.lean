@@ -137,6 +137,13 @@ def isEmpty (a : Account) : Bool :=
 def isContract (a : Account) : Bool :=
   a.code.size != 0 || a.nonce.toNat != 0 || !a.storage.isEmpty
 
+/-- EIP-2681 nonce ceiling: `2^64 - 1`. The account nonce is a `u64`, so a
+    sender that has reached this value can originate no further transactions
+    or CREATE/CREATE2s — the required nonce increment would leave the range.
+    Both are rejected before any nonce bump (a transaction is invalid; a
+    CREATE/CREATE2 pushes `0` like the depth/balance failure). -/
+def maxNonce : Nat := 2 ^ 64 - 1
+
 end Account
 
 instance : Inhabited Account := ⟨Account.empty⟩
