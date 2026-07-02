@@ -17,18 +17,21 @@ applies the block's withdrawals and the (pre-Merge) block reward, and
 finally compares the resulting world against the test's expanded
 `postState` (and the last block's `stateRoot`).
 
-This is **Stage 1**: it executes *valid* chains and compares the post-state
-in the same three tiers as the state-test runners
-(`passCore` ⊂ `passFull` ⊂ `passRoot`). Two things are deferred to a later
-stage and reported `INCON` so they land in the baseline rather than
-counting as failures:
+It executes *valid* chains and compares the post-state in the same three
+tiers as the state-test runners (`passCore` ⊂ `passFull` ⊂ `passRoot`). All
+transaction types execute through `Tx.execute` — legacy, EIP-2930 access
+lists, EIP-1559 fee-market, EIP-4844 blobs and EIP-7702 set-code (the access
+list / blob versioned hashes / authorization list are parsed from the block
+tx and passed through, as in the `gstatetests` runner).
+
+Still deferred and reported `INCON` (so they land in the baseline rather
+than counting as failures):
 
 * **Invalid-block tests** — a block carrying `expectException` must be
-  *rejected* by header/consensus validation, which this stage does not yet
-  perform.
-* **Unmodelled transaction types** — EIP-2930 access lists, EIP-4844 blobs
-  and EIP-7702 set-code txs (as in the `gstatetests` runner); legacy and
-  EIP-1559 transactions execute.
+  *rejected* by header/consensus validation, which needs a block-`rlp`
+  decoder and the header transition checks (a later stage).
+* **Fork-transition networks** (e.g. `CancunToPragueAtTime15k`) — the
+  timestamp-triggered mid-chain fork switch is not modelled.
 -/
 
 @[expose] public section
@@ -143,17 +146,29 @@ def decodeBlockHeader (bh : Json) : BlockHeader :=
 -- Transaction build (block-tx JSON: scalar fields, `sender` given).
 ----------------------------------------------------------------------------
 
-/-- Reason a block transaction can't be executed by this runner, or `none`.
-    Legacy and EIP-1559 (empty access list) execute; access-list / blob /
-    set-code txs are unmodelled (mirrors `GeneralStateTestRunner`). -/
-def txUnsupportedReason (tx : Json) : Option String :=
-  if (jsonArr (subObj tx "blobVersionedHashes")).size > 0 then
-    some "blob tx (EIP-4844) unsupported"
-  else if hasField tx "authorizationList" then
-    some "set-code tx (EIP-7702) unsupported"
-  else if (jsonArr (subObj tx "accessList")).size > 0 then
-    some "access-list tx (EIP-2930) unsupported"
-  else none
+/-- Parse a block tx's EIP-2930 `accessList` (`[{address, storageKeys:[…]}]`)
+    into `(address, storageKeys)` pairs. Empty when absent. -/
+def parseAccessList (tx : Json) : List (AccountAddress × List UInt256) :=
+  (jsonArr (subObj tx "accessList")).toList.map (fun e =>
+    let addr := hexToAddress (strField e "address")
+    let keys := (jsonArr (subObj e "storageKeys")).toList.filterMap
+      (fun k => match k with | .str s => some (hexToUInt256 s) | _ => none)
+    (addr, keys))
+
+/-- Parse the EIP-4844 `blobVersionedHashes` array. Empty for non-blob txs. -/
+def parseBlobHashes (tx : Json) : Array UInt256 :=
+  (jsonArr (subObj tx "blobVersionedHashes")).filterMap
+    (fun h => match h with | .str s => some (hexToUInt256 s) | _ => none)
+
+/-- Parse the EIP-7702 `authorizationList` into `Tx.Authorization`s, using the
+    fixture's recovered `signer` as the authority (the runner takes the tx
+    `sender` directly rather than recovering it). -/
+def parseAuthList (tx : Json) : List Tx.Authorization :=
+  (jsonArr (subObj tx "authorizationList")).toList.map (fun e =>
+    { chainId   := hexToNat     (strField e "chainId")
+      address   := hexToAddress (strField e "address")
+      nonce     := hexToNat     (strField e "nonce")
+      authority := hexToAddress (strField e "signer") })
 
 /-- Effective gas price: `min(maxFeePerGas, baseFee + maxPriorityFeePerGas)`
     for EIP-1559, else the legacy `gasPrice`. -/
@@ -174,7 +189,10 @@ def buildTx (tx : Json) (baseFee : Nat) : Tx.Transaction :=
     data      := hexToBytes   (strField tx "data")
     gasLimit  := hexToNat     (strField tx "gasLimit")
     gasPrice  := effectiveGasPrice tx baseFee
-    nonce     := hexToUInt256 (strField tx "nonce") }
+    nonce     := hexToUInt256 (strField tx "nonce")
+    accessList := parseAccessList tx
+    maxFeePerBlobGas := hexToUInt256 (strField tx "maxFeePerBlobGas")
+    authList  := parseAuthList tx }
 
 ----------------------------------------------------------------------------
 -- Block-level system calls (EIP-4788 beacon roots).
@@ -284,9 +302,9 @@ def applyWithdrawals (m : AccountMap) (block : Json) : AccountMap := Id.run do
   return m
 
 /-- Execute one block against `preMap`: run every transaction in order
-    (threading the post-state), then apply withdrawals and — once for the
-    whole block — the pre-Merge block reward. Returns `.error reason` for an
-    unmodelled tx type or a fuel-exhausted run (⇒ `INCON`). -/
+    (threading the post-state), then apply the end-of-block request system
+    calls, withdrawals and — once for the whole block — the pre-Merge block
+    reward. Returns `.error reason` for a fuel-exhausted run (⇒ `INCON`). -/
 def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork) :
     Except String AccountMap := do
   let header := decodeBlockHeader (subObj block "blockHeader")
@@ -295,17 +313,16 @@ def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork) :
   -- block-hash history (Prague+).
   let mut m := applyBlockHashHistory (applyBeaconRoot preMap block header fork) block header fork
   for tx in jsonArr (subObj block "transactions") do
-    match txUnsupportedReason tx with
-    | some r => throw r
-    | none =>
-      let t := buildTx tx baseFee
-      let fuel := 2 * t.gasLimit + 100_000
-      -- `applyReward := false`: the fixed block subsidy is paid once per
-      -- block below, not per transaction.
-      let result := EvmSemantics.Tx.execute m header t fork fuel #[] (applyReward := false)
-      match result.outcome with
-      | .fuelExhausted => throw "fuel exhausted"
-      | _ => m := result.finalAccounts
+    let t := buildTx tx baseFee
+    let blobHashes := parseBlobHashes tx
+    let fuel := 2 * t.gasLimit + 100_000
+    -- `applyReward := false`: the fixed block subsidy is paid once per
+    -- block below, not per transaction. Legacy / EIP-2930 / EIP-1559 /
+    -- EIP-4844 / EIP-7702 all execute through `Tx.execute`.
+    let result := EvmSemantics.Tx.execute m header t fork fuel blobHashes (applyReward := false)
+    match result.outcome with
+    | .fuelExhausted => throw "fuel exhausted"
+    | _ => m := result.finalAccounts
   -- End-of-block: EIP-7002/7251 request system calls, withdrawals, then the
   -- (pre-Merge) block reward on the block's own coinbase.
   m := applyBlockEndRequests m header fork
@@ -367,50 +384,63 @@ def cmpPost (finalAccounts : AccountMap)
 -- Per-test runner.
 ----------------------------------------------------------------------------
 
-/-- Run one blockchain test: build the genesis pre-state, execute the chain,
+/-- Run one blockchain test: build the genesis pre-state, process the chain,
     and compare the final world against `postState` (tiered) and the last
-    block's `stateRoot` (root tier). -/
+    applied block's `stateRoot` (root tier).
+
+    A block carrying `expectException` is an intentionally-*invalid* block that
+    a client must reject: it does not apply, and the chain state stays as it
+    was before it. We reject such blocks (identified by the fixture flag) and
+    execute the rest, so the final state reflects only the valid blocks — which
+    is exactly what `postState` encodes. (Independently *detecting* the
+    invalidity by decoding the block `rlp` and validating the header/consensus
+    rules — rather than trusting `expectException` — is a further stage.) -/
 def runTest (testObj : Json) : Outcome :=
   match parseForkExact (strField testObj "network") with
   | none => .incon s!"unmodelled fork {strField testObj "network"}"
   | some fork =>
-    let blocks := (jsonArr (subObj testObj "blocks")).toList
-    -- Stage 1 executes valid chains only; a block asserting `expectException`
-    -- needs consensus validation to reject it (a later stage).
-    if blocks.any (fun b => hasField b "expectException") then
-      .incon "invalid-block test (needs consensus validation)"
-    else
+      let blocks := (jsonArr (subObj testObj "blocks")).toList
+      -- The valid (applied) blocks, in order — invalid blocks are rejected.
+      let validBlocks := blocks.filter (fun b => ¬ hasField b "expectException")
       let preEntries := objEntries testObj "pre"
       let preMap : AccountMap :=
         preEntries.foldl
           (fun σ (addrStr, accJson) => σ.set (hexToAddress addrStr) (mkAccount accJson))
           AccountMap.empty
-      -- Fold the chain, threading the world state block to block.
+      -- Fold the applied blocks, threading the world state block to block.
       let rec go (m : AccountMap) : List Json → Except String AccountMap
         | []      => .ok m
         | b :: bs => match executeBlock m b fork with
                      | .error r => .error r
                      | .ok m'   => go m' bs
-      match go preMap blocks with
+      match go preMap validBlocks with
       | .error r => .incon r
       | .ok finalAccounts =>
+        let isPrecompileAddr (a : AccountAddress) : Bool :=
+          decide (1 ≤ a.val) && decide (a.val ≤ 9)
+        let wasInPreState : AccountAddress → Bool :=
+          fun a => preMap.contains a && ¬ isPrecompileAddr a
         let post := objEntries testObj "postState"
-        if post.isEmpty then .incon "no postState (postStateHash-only, unsupported)"
+        if post.isEmpty then
+          -- Some fixtures give only `postStateHash` (the expected final world
+          -- MPT root) instead of an expanded `postState`. Compare roots.
+          let phash := strField testObj "postStateHash"
+          if phash = "" then .incon "no postState / postStateHash"
+          else match AccountMap.stateRoot finalAccounts fork wasInPreState with
+            | some r => if r.toNat == (hexToUInt256 phash).toNat then .passRoot
+                        else .fail "postStateHash mismatch"
+            | none   => .incon "state root uncomputable"
         else match cmpPost finalAccounts preEntries post false with
         | [] =>
           match cmpPost finalAccounts preEntries post true with
           | [] =>
-            -- Root tier: compare our world MPT root to the last block's
-            -- `stateRoot`.
+            -- Root tier: compare our world MPT root to the last *applied*
+            -- block's `stateRoot` (the genesis root if none applied).
             let lastRootStr :=
-              match blocks.getLast? with
+              match validBlocks.getLast? with
               | some b => strField (subObj b "blockHeader") "stateRoot"
-              | none   => ""
+              | none   => strField (subObj testObj "genesisBlockHeader") "stateRoot"
             let expRoot := hexToUInt256 lastRootStr
-            let isPrecompileAddr (a : AccountAddress) : Bool :=
-              decide (1 ≤ a.val) && decide (a.val ≤ 9)
-            let wasInPreState : AccountAddress → Bool :=
-              fun a => preMap.contains a && ¬ isPrecompileAddr a
             match AccountMap.stateRoot finalAccounts fork wasInPreState with
             | some ourRoot =>
               if lastRootStr ≠ "" ∧ ourRoot.toNat == expRoot.toNat then .passRoot
