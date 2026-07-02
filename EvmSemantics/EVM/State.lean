@@ -482,7 +482,11 @@ def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
         selfDestructSet := sc.substate.selfDestructSet.insert self
         selfDestructList := sc.substate.selfDestructList.push self
         refundBalance   := sc.substate.refundBalance +
-                             UInt256.ofNat refundDelta }
+                             UInt256.ofNat refundDelta
+        -- EIP-2929: mark the beneficiary as warm (recipient becomes
+        -- accessed for the remainder of the tx even if `[N]Q = ∞`
+        -- semantics were skipped by EIP-6780 gating).
+        accessedAccounts := beneficiary :: sc.substate.accessedAccounts }
   { sc with
       accountMap := map₂
       substate   := substate'
