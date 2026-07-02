@@ -75,4 +75,28 @@ def addPoint {p : Nat} [NeZero p] : Point p → Point p → Point p
   | .infinity => .infinity
   | .affine x y => .affine x (-y)
 
+/-- Scalar multiplication `k · P` via right-to-left double-and-add.
+    Mirrors `Weierstrass.scalarMul` for the twist. Used for the
+    prime-order-subgroup membership check `[N]Q = ∞` that EIP-197 /
+    EIP-2537 require on every G₂ input (the twist curve has non-
+    trivial cofactor, so on-curve does not imply in-subgroup). -/
+def scalarMul {p : Nat} [NeZero p] (k : Nat) (P : Point p) : Point p :=
+  Id.run do
+  let mut R : Point p := .infinity
+  let mut base : Point p := P
+  let mut e := k
+  while e ≠ 0 do
+    if e % 2 = 1 then R := addPoint R base
+    base := doublePoint base
+    e := e / 2
+  return R
+
+/-- `Q` lies in the prime-order subgroup of order `n` iff `[n]Q = ∞`.
+    Naive `O(log n)` scalar-mul; a Frobenius shortcut exists for
+    specific curves but is not worth the code complexity here. -/
+def inSubgroup {p : Nat} [NeZero p] (n : Nat) (P : Point p) : Bool :=
+  match scalarMul n P with
+  | .infinity => true
+  | .affine _ _ => false
+
 end EvmSemantics.Crypto.G2
