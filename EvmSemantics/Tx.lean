@@ -400,6 +400,13 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- wrongly bumping the sender nonce (fixtures flag this `INTRINSIC_GAS_TOO_LOW`).
   if tx.gasLimit < intrinsicGas fork tx.isCreate tx.data then
     { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-3607 (London+): reject any transaction whose sender has non-empty
+  -- code. In principle only reachable via a private-key collision, but
+  -- fixtures do exercise it directly. Like the intrinsic-gas failure, this
+  -- is an *invalid* tx: no state change at all — sender nonce is not
+  -- bumped and the coinbase gets no upfront gas.
+  else if fork ≥ .London ∧ (preMap tx.sender).code.size > 0 then
+    { finalAccounts := preMap, outcome := .exceptional }
   else if collide then rollback
   else
     -- Tx-level precompile dispatch is *not* a special case here: a tx
