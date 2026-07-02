@@ -490,6 +490,15 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   if s.executionEnv.fork ≥ .Berlin && !s.substate.isWarmAccount a
   then 2500 else 0
 
+/-- EIP-2929 cold-access surcharge for `SELFDESTRUCT`'s beneficiary: `2600`
+    when Berlin+ and the beneficiary is not yet warm, else `0`. Unlike CALL
+    (whose base was retuned to the warm price `100`), `SELFDESTRUCT`'s base
+    stays `5000`, so the full `COLD_ACCOUNT_ACCESS_COST = 2600` is added on
+    top when the recipient is cold. -/
+@[inline] def Gas.selfDestructColdSurcharge (s : State) (a : AccountAddress) : Nat :=
+  if s.executionEnv.fork ≥ .Berlin && !s.substate.isWarmAccount a
+  then 2600 else 0
+
 /-- Total gas cost of `EXTCODECOPY` at `s` for stack args
     `_addr, destOff, _srcOff, sz`: static base (which already absorbs the
     `Constantinople`-era flat 700 access fee — see `Gas.baseCost`) +
@@ -671,12 +680,14 @@ def Gas.refundDenom (fork : Fork) : Nat :=
 /-- Total gas cost of `SELFDESTRUCT` at `s` with `beneficiary`: static base
     (`G_selfdestruct = 5000`) + the EIP-150/EIP-161 `25000` new-account
     surcharge when the beneficiary is empty *and* self has a non-zero
-    balance. -/
+    balance + EIP-2929 `2600` cold-access surcharge on the beneficiary
+    (Berlin+). -/
 @[inline] def Gas.selfDestructTotal (s : State) (beneficiary : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .SELFDESTRUCT
-  + Gas.selfDestructSurcharge s.executionEnv.fork
-      ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
-      ((s.accountMap s.executionEnv.address).balance.toNat != 0)
+  + (Gas.selfDestructSurcharge s.executionEnv.fork
+        ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
+        ((s.accountMap s.executionEnv.address).balance.toNat != 0)
+     + Gas.selfDestructColdSurcharge s (AccountAddress.ofUInt256 beneficiary))
 
 /-- Total gas cost of `LOG n` at `s` for stack args `offset, size`:
     static base (`375 + 375·n`) + memory-expansion delta for the read range

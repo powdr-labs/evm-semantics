@@ -890,14 +890,15 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       if ¬ s.executionEnv.permitStateMutation then static
       else
         -- `s'` already paid the base fee (`G_selfdestruct = 5000`). Charge
-        -- the new-account surcharge: 25000 iff the beneficiary is empty
-        -- AND self carries balance (= the transfer brings a fresh account
-        -- into existence). Then commit the transfer + halt via
-        -- `State.selfDestructTo`.
+        -- the new-account surcharge (25000 iff the beneficiary is empty AND
+        -- self carries balance) plus the EIP-2929 cold-access surcharge
+        -- (2600 if Berlin+ and beneficiary not yet warm). Then commit the
+        -- transfer + halt via `State.selfDestructTo`.
         let benAddr := AccountAddress.ofUInt256 beneficiary
         let ben     := s.accountMap benAddr
         let selfBal : Bool := (s.accountMap s.executionEnv.address).balance.toNat != 0
         let surcharge := Gas.selfDestructSurcharge s.fork ben.isEmpty selfBal
+                         + Gas.selfDestructColdSurcharge s benAddr
         if hsc : surcharge ≤ s'.gasAvailable then
           .ok ((s'.consumeGas surcharge hsc).selfDestructTo benAddr)
         else .error .OutOfGas
