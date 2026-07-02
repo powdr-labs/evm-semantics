@@ -60,6 +60,7 @@ def opcodeOf (b : UInt8) : Option Operation :=
   | 0x1b => some .SHL
   | 0x1c => some .SHR
   | 0x1d => some .SAR
+  | 0x1e => some .CLZ
   -- 0x20 : Keccak
   | 0x20 => some .KECCAK256
   -- 0x30 - 0x3f : environment

@@ -148,6 +148,12 @@ def xor (a b : UInt256) : UInt256  := ⟨Fin.xor a.val b.val⟩
 /-- NOT: bitwise complement (256-bit). -/
 def lnot (a : UInt256) : UInt256 := ofNat (UInt256.size - 1 - a.toNat)
 
+/-- CLZ (EIP-7939): count of leading zero bits in the 256-bit word.
+    `clz 0 = 256`; otherwise `255 - ⌊log₂ a⌋` (= `256 - bit_length a`), so a
+    value with the high bit set gives `0` and `1` gives `255`. -/
+def clz (a : UInt256) : UInt256 :=
+  if a.toNat = 0 then ofNat 256 else ofNat (255 - Nat.log2 a.toNat)
+
 /-- SHL: left-shift by `shift` bits; result is `0` if `shift ≥ 256`. -/
 def shiftLeft (a shift : UInt256) : UInt256 :=
   if shift.toNat ≥ 256 then ⟨0⟩ else ofNat ((a.toNat <<< shift.toNat) % UInt256.size)
