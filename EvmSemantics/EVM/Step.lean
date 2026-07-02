@@ -1398,6 +1398,8 @@ inductive StepRunning : State → State → Prop
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
+              -- EIP-2929: target warmed even on the depth silent-fail path.
+              substate     := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 
@@ -1461,6 +1463,8 @@ inductive StepRunning : State → State → Prop
               activeWords  := s.activeWordsAfterUInt256_2
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
+              -- EIP-2929: target warmed even on the depth silent-fail path.
+              substate     := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 

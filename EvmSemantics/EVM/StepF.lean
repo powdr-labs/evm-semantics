@@ -840,8 +840,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           let forwarded := Gas.forwardGas s.fork s2c.gasAvailable gasArg.toNat
           if hfw : forwarded ≤ s2c.gasAvailable then
             if s2c.executionEnv.depth ≥ 1024 then
-              .ok ({ s2c with returnData := .empty }.replaceStackAndIncrPC
-                     (UInt256.ofNat 0 :: rest))
+              -- EIP-2929: warm the target even on the depth silent-fail path
+              -- (mirrors CALL/CALLCODE; the taken path warms via enterCallFor).
+              .ok ({ s2c with returnData := .empty,
+                              substate := s2c.substate.addAccessedAccount tgt
+                   }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s3       := s2c.consumeGas forwarded hfw
               let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat
@@ -879,8 +882,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
           let forwarded := Gas.forwardGas s.fork s2c.gasAvailable gasArg.toNat
           if hfw : forwarded ≤ s2c.gasAvailable then
             if s2c.executionEnv.depth ≥ 1024 then
-              .ok ({ s2c with returnData := .empty }.replaceStackAndIncrPC
-                     (UInt256.ofNat 0 :: rest))
+              -- EIP-2929: warm the target even on the depth silent-fail path
+              -- (mirrors CALL/CALLCODE; the taken path warms via enterCallFor).
+              .ok ({ s2c with returnData := .empty,
+                              substate := s2c.substate.addAccessedAccount tgt
+                   }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s3       := s2c.consumeGas forwarded hfw
               let calldata := MachineState.readPadded s3.memory argsOff.toNat argsLen.toNat

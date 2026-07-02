@@ -872,18 +872,24 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               have post_eq :
                   ({ (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs) with
-                      returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                      returnData := .empty,
+                      substate := (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
+                        argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas cold
+                        h_cs).substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                   = ({ s with
                         gasAvailable := s.gasAvailable
                           - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                         returnData := .empty
+                        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
                         stack := UInt256.ofNat 0 :: rest
                         pc := s.pc.succ } : State) := by
                 simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
                       State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
                       UInt256.succ, MachineState.memExpansionDelta2,
+                      Substate.addAccessedAccount,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
@@ -1024,18 +1030,24 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               have post_eq :
                   ({ (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs) with
-                      returnData := .empty }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
+                      returnData := .empty,
+                      substate := (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
+                        argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas cold
+                        h_cs).substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                   = ({ s with
                         gasAvailable := s.gasAvailable
                           - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                         returnData := .empty
+                        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
                         stack := UInt256.ofNat 0 :: rest
                         pc := s.pc.succ } : State) := by
                 simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
                       State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
                       UInt256.succ, MachineState.memExpansionDelta2,
+                      Substate.addAccessedAccount,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
