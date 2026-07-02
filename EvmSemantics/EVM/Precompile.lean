@@ -21,6 +21,7 @@ public import EvmSemantics.Crypto.Bls12381.PairingCheck
 public import EvmSemantics.Crypto.Bls12381.MapFpToG1
 public import EvmSemantics.Crypto.Bls12381.MapFp2ToG2
 public import EvmSemantics.Crypto.Bls12381.Kzg
+public import EvmSemantics.Crypto.P256Verify
 
 /-!
 `EvmSemantics.EVM.Precompile` — the YP §9 precompiled contracts at
@@ -640,6 +641,27 @@ def runBlsMapFp2ToG2 (input : ByteArray) (childGas : Nat) : Result :=
   else .outOfGas
 
 ----------------------------------------------------------------------------
+-- 0x100 P256VERIFY — secp256r1 ECDSA verify (Osaka+, EIP-7951).
+----------------------------------------------------------------------------
+
+/-- The P256VERIFY precompile's address `0x100`. -/
+def p256VerifyAddress : AccountAddress :=
+  AccountAddress.ofUInt256 (UInt256.ofNat 0x100)
+
+/-- Gas: flat 6900 (EIP-7951). -/
+@[inline] def p256VerifyGas : Nat := 6900
+
+/-- Run `P256VERIFY`. Unlike the curve precompiles above, an invalid
+    signature or malformed input is *not* a failure: the precompile
+    succeeds, consuming the flat gas and returning the empty byte
+    string (`Crypto.P256Verify.run` yields `1` only on a valid
+    signature). Insufficient gas is `.outOfGas`. -/
+def runP256Verify (input : ByteArray) (childGas : Nat) : Result :=
+  if p256VerifyGas ≤ childGas then
+    .success (Crypto.P256Verify.run input) p256VerifyGas
+  else .outOfGas
+
+----------------------------------------------------------------------------
 -- Membership predicate + dispatch.
 ----------------------------------------------------------------------------
 
@@ -667,7 +689,8 @@ def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
       (addr = blsG1AddAddress || addr = blsG1MsmAddress ||
        addr = blsG2AddAddress || addr = blsG2MsmAddress ||
        addr = blsPairingAddress ||
-       addr = blsMapFpToG1Address || addr = blsMapFp2ToG2Address))
+       addr = blsMapFpToG1Address || addr = blsMapFp2ToG2Address)) ||
+    (fork ≥ .Osaka && addr = p256VerifyAddress)
 
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
@@ -713,6 +736,8 @@ def run (fork : Fork) (addr : AccountAddress)
     runBlsMapFpToG1 input childGas
   else if h_mf2 : addr = blsMapFp2ToG2Address then
     runBlsMapFp2ToG2 input childGas
+  else if h_p256 : fork ≥ .Osaka ∧ addr = p256VerifyAddress then
+    runP256Verify input childGas
   -- Add new precompiles here as further branches.
   else
     -- Unreachable: every `addr` for which `isPrecompile fork addr =
@@ -721,7 +746,7 @@ def run (fork : Fork) (addr : AccountAddress)
     absurd h (by simp [isPrecompile, h_ec, h_sha, h_rmd, h_id, h_mx,
                                      h_add, h_mul, h_pair, h_bl, h_kzg,
                                      h_bg1, h_bm1, h_bg2, h_bm2, h_bp,
-                                     h_mf1, h_mf2])
+                                     h_mf1, h_mf2, h_p256])
 
 end Precompile
 end EVM
