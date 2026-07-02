@@ -116,6 +116,7 @@ jobs:
             Constantinople/BlockchainTests/GeneralStateTests/stTransitionTest \
             Constantinople/BlockchainTests/GeneralStateTests/stZeroCallsRevert \
             Constantinople/BlockchainTests/GeneralStateTests/stCreateTest \
+            Constantinople/BlockchainTests/GeneralStateTests/stCreate2 \
             Constantinople/BlockchainTests/GeneralStateTests/stEIP158Specific \
             Constantinople/BlockchainTests/GeneralStateTests/stNonZeroCallsTest \
             Constantinople/BlockchainTests/GeneralStateTests/stQuadraticComplexityTest \
