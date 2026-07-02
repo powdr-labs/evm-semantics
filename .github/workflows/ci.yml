@@ -13,7 +13,12 @@ concurrency:
 jobs:
   ci:
     name: Build, lint, VMTests, StateTests, and modern GeneralStateTests
-    runs-on: ubuntu-latest
+    # 32-core WarpBuild runner (same provider powdr uses). The build (`lake
+    # build`) and the per-file test runners below are CPU-bound and scale with
+    # cores, so a wide machine cuts wall time substantially versus the 2-core
+    # `ubuntu-latest`. Start with one machine; revisit sharding across runners
+    # if a single 32x box is still too slow.
+    runs-on: warp-ubuntu-2404-x64-32x
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -215,11 +220,12 @@ jobs:
           # `statetests_run.sh` walks the dir tree via `find … -name '*.json'`,
           # so pointing it at the parent `GeneralStateTests` picks up every
           # subdir the sparse-checkout has materialised. Per-file wall-cap
-          # (45s) + parallelism (4): bounds CI time despite the evaluator's
-          # slow functional world-state maps. Deep-recursion tests that
-          # exceed the cap are recorded as INCON (wall-timeout), never hang.
+          # (45s) + parallelism (30, sized for the 32-core runner): bounds CI
+          # time despite the evaluator's slow functional world-state maps.
+          # Deep-recursion tests that exceed the cap are recorded as INCON
+          # (wall-timeout), never hang.
           .github/scripts/statetests_run.sh \
-            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 4 \
+            corpus/Constantinople/BlockchainTests/GeneralStateTests 45 30 \
             | tee statetests-output.txt
 
       # GATING: this step fails the job if any test regresses to a worse tier
@@ -257,15 +263,15 @@ jobs:
       # (sorted "<id>: <tier>" lines; no aggregate counts, so branches that fix
       # or add failing tests do not produce merge conflicts on adjacent lines).
       # Run via the per-file subprocess-isolation wrapper (45s cap, parallelism
-      # 4): a panic/OOM in one pathological test (the evaluator's unbounded
-      # huge-offset memory alloc) is contained as a `crash` for that file
-      # instead of aborting the whole run.
+      # 30 sized for the 32-core runner): a panic/OOM in one pathological test
+      # (the evaluator's unbounded huge-offset memory alloc) is contained as a
+      # `crash` for that file instead of aborting the whole run.
       - name: Run modern GeneralStateTests
         if: always()
         continue-on-error: true
         run: |
           .github/scripts/gstatetests_run.sh \
-            gstcorpus/GeneralStateTests 45 4 | tee gstatetests-output.txt
+            gstcorpus/GeneralStateTests 45 30 | tee gstatetests-output.txt
 
       - name: Summarize and compare modern GeneralStateTests against expected failures
         if: always()
