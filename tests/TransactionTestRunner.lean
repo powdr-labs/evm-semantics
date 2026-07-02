@@ -88,6 +88,7 @@ inductive TxKind where
   | legacy
   | eip2930   -- type 0x01
   | eip1559   -- type 0x02
+  | eip7702   -- type 0x04
   deriving Repr, DecidableEq, Inhabited
 
 /-- A decoded transaction, in the shape the validity / sender / gas
@@ -115,6 +116,10 @@ structure DecodedTx where
       list; drives EIP-2930 intrinsic-gas cost. `(0, 0)` for legacy. -/
   accessAddrs : Nat
   accessKeys  : Nat
+  /-- Number of entries in the EIP-7702 `authorization_list` (`0` for other
+      kinds); drives the per-authorization intrinsic-gas cost and the
+      non-empty-list validity check. -/
+  authCount   : Nat := 0
   /-- Signature components. `yParity` is the normalised recovery id (0/1);
       `vRaw` is the raw legacy `v` (for EIP-155 chain-id extraction). -/
   yParity     : Nat
@@ -245,13 +250,67 @@ def decode1559 (items : List Rlp.Item) : Option DecodedTx := do
          data, toLen, accessAddrs := addrs, accessKeys := keys, yParity,
          vRaw := yParity, r, s }
 
-/-- Decode result: a typed transaction, or a signal to skip (`INCON`) for
-    envelope types outside this runner's scope. -/
+/-- Count the entries of an EIP-7702 `authorization_list`
+    (`[[chainId, address, nonce, yParity, r, s], …]`). Each entry must be a
+    6-element list whose `address` is exactly 20 bytes; a malformed entry
+    makes the whole tx undecodable (`RLP_WrongAuthEncoding`). -/
+def parseAuthList (it : Rlp.Item) : Option Nat := do
+  let entries ← it.asList
+  for e in entries do
+    let tup ← e.asList
+    guard (tup.length == 6)
+    let addr ← (← nth tup 1).asBytes
+    guard (addr.size == 20)
+  some entries.length
+
+/-- Decode an EIP-7702 (type `0x04`) set-code body `[chainId, nonce,
+    maxPriorityFeePerGas, maxFeePerGas, gasLimit, destination, value, data,
+    accessList, authorizationList, yParity, r, s]`. The extra
+    `authorizationList` (index 9) is what distinguishes it from a `0x02`
+    body — a 12-field 1559 body behind a `0x04` prefix fails the length
+    guard and decodes to `none` (i.e. an invalid transaction). -/
+def decode7702 (items : List Rlp.Item) : Option DecodedTx := do
+  guard (items.length == 13)
+  let chainId   ← scalarAt items 0
+  let nonce     ← scalarAt items 1
+  let maxPrio   ← scalarAt items 2
+  let maxFee    ← scalarAt items 3
+  let gasLimit  ← scalarAt items 4
+  let (recip, toLen) ← parseTo (← nth items 5)
+  let value     ← scalarAt items 6
+  let data      ← bytesAt items 7
+  let (addrs, keys) ← parseAccessList (← nth items 8)
+  let auths     ← parseAuthList (← nth items 9)
+  let yParity   ← scalarAt items 10
+  let r         ← scalarAt items 11
+  let s         ← scalarAt items 12
+  pure { kind := .eip7702, chainId := some chainId, nonce, gasLimit,
+         gasPrice := maxFee, maxPriority := maxPrio, recipient := recip, value,
+         data, toLen, accessAddrs := addrs, accessKeys := keys, authCount := auths,
+         yParity, vRaw := yParity, r, s }
+
+/-- Decode result: a typed transaction, an out-of-scope typed envelope
+    (carrying its EIP-2718 type byte — its verdict is fork-dependent), or a
+    malformed encoding (invalid on every fork). -/
 inductive DecodeResult where
-  | ok    : DecodedTx → DecodeResult
-  | skip  : String → DecodeResult    -- out-of-scope typed envelope
-  | bad   : DecodeResult              -- malformed / undecodable ⇒ invalid tx
+  | ok          : DecodedTx → DecodeResult
+  | unsupported : Nat → DecodeResult  -- typed envelope this runner can't decode
+  | bad         : DecodeResult         -- malformed / undecodable ⇒ invalid tx
   deriving Inhabited
+
+/-- Whether the EIP-2718 transaction `type` byte is *activated* at `fork`.
+    An envelope whose type is not activated is `TYPE_NOT_SUPPORTED` — invalid
+    on that fork regardless of its body. `0x01`/`0x02` are handled directly
+    by the decoder; this covers the out-of-scope defined types (`0x03`
+    EIP-4844 blob, `0x04` EIP-7702 set-code) and the undefined/reserved range
+    (`0x05`–`0x7f`, never activated). -/
+def typedTypeActivated (typeByte : Nat) (fork : Fork) : Bool :=
+  match typeByte with
+  | 0x01 => fork ≥ .Berlin
+  | 0x02 => fork ≥ .London
+  | 0x03 => fork ≥ .Cancun
+  | 0x04 => fork ≥ .Prague
+  | _    => false
 
 /-- Decode raw `txbytes` (already hex-decoded) into a `DecodedTx`. A
     leading byte `< 0x80` (in the EIP-2718 envelope range `0x00..0x7f`)
@@ -267,19 +326,24 @@ def decodeTxBytes (raw : ByteArray) : DecodeResult :=
                               | some tx => .ok tx
                               | none    => .bad
       | _                  => .bad
-    else if first == 0x01 ∨ first == 0x02 then
-      -- EIP-2930 / EIP-1559: strip the type byte, decode the RLP list.
+    else if first == 0x01 ∨ first == 0x02 ∨ first == 0x04 then
+      -- EIP-2930 / EIP-1559 / EIP-7702: strip the type byte, decode the list.
       let body := raw.extract 1 raw.size
       match Rlp.decode body with
       | some (.list items) =>
-        let decoded := if first == 0x01 then decode2930 items else decode1559 items
+        let decoded :=
+          if first == 0x01 then decode2930 items
+          else if first == 0x02 then decode1559 items
+          else decode7702 items
         match decoded with
         | some tx => .ok tx
         | none    => .bad
       | _                  => .bad
     else if first ≥ 0x03 ∧ first ≤ 0x7f then
-      -- EIP-4844 (0x03), EIP-7702 (0x04), or a reserved type: out of scope.
-      .skip s!"typed-envelope-0x{first}"
+      -- EIP-4844 (0x03) or a reserved type (0x05–0x7f): out of scope.
+      -- Its per-fork verdict is decided in `runFileResults` via
+      -- `typedTypeActivated` (invalid where the type isn't activated).
+      .unsupported first
     else
       -- Leading byte in 0x80..0xbf: a bare RLP string, not a valid tx.
       .bad
@@ -299,7 +363,8 @@ def toItemOf (tx : DecodedTx) : Rlp.Item :=
     We only tracked counts, not the entries themselves, so we cannot
     reconstruct the exact preimage — instead the caller passes the raw
     decoded access-list item through. -/
-def signingHash (tx : DecodedTx) (accessListItem : Rlp.Item) : Option UInt256 := do
+def signingHash (tx : DecodedTx) (accessListItem : Rlp.Item)
+    (authListItem : Rlp.Item := .list []) : Option UInt256 := do
   match tx.kind with
   | .legacy =>
     -- Post-EIP-155 preimage appends [chainId, 0, 0]; pre-155 omits them.
@@ -324,12 +389,18 @@ def signingHash (tx : DecodedTx) (accessListItem : Rlp.Item) : Option UInt256 :=
        .ofNat tx.gasPrice, .ofNat tx.gasLimit, toItemOf tx, .ofNat tx.value,
        .ofByteArray tx.data, accessListItem]
     pure (EvmSemantics.keccak256 ((ByteArray.mk #[0x02]) ++ enc))
+  | .eip7702 =>
+    let enc ← Rlp.encodeList
+      [.ofNat (tx.chainId.getD 0), .ofNat tx.nonce, .ofNat tx.maxPriority,
+       .ofNat tx.gasPrice, .ofNat tx.gasLimit, toItemOf tx, .ofNat tx.value,
+       .ofByteArray tx.data, accessListItem, authListItem]
+    pure (EvmSemantics.keccak256 ((ByteArray.mk #[0x04]) ++ enc))
 
 /-- Recover the sender from `(yParity, r, s)` and the signing hash.
     `recoverAddress` wants `v ∈ {27, 28}`, so we pass `27 + yParity`. -/
-def recoverSender (tx : DecodedTx) (accessListItem : Rlp.Item) :
-    Option AccountAddress := do
-  let hash ← signingHash tx accessListItem
+def recoverSender (tx : DecodedTx) (accessListItem : Rlp.Item)
+    (authListItem : Rlp.Item := .list []) : Option AccountAddress := do
+  let hash ← signingHash tx accessListItem authListItem
   let padded32 ← Crypto.Ecrecover.recoverAddress hash.toNat (27 + tx.yParity) tx.r tx.s
   pure (AccountAddress.ofNat
     (Data.Bytes.bytesToBigEndianNat (padded32.extract 12 32)))
@@ -343,12 +414,13 @@ def txHash (raw : ByteArray) : UInt256 := EvmSemantics.keccak256 raw
 ----------------------------------------------------------------------------
 
 /-- Intrinsic gas `g₀`, extending `Tx.intrinsicGas` with the EIP-2930
-    access-list surcharge (2400 per address + 1900 per storage key), which
-    applies to type-`0x01`/`0x02` transactions from Berlin onwards. -/
+    access-list surcharge (2400 per address + 1900 per storage key, on
+    `0x01`/`0x02`/`0x04` from Berlin onwards) and the EIP-7702
+    `PER_EMPTY_ACCOUNT_COST = 25000` per authorization-list entry. -/
 def intrinsicGasOf (fork : Fork) (tx : DecodedTx) : Nat :=
   let isCreate := tx.recipient.isNone
   let base := Tx.intrinsicGas fork isCreate tx.data
-  base + 2400 * tx.accessAddrs + 1900 * tx.accessKeys
+  base + 2400 * tx.accessAddrs + 1900 * tx.accessKeys + 25000 * tx.authCount
 
 ----------------------------------------------------------------------------
 -- Validity.
@@ -405,6 +477,16 @@ def isValid (fork : Fork) (tx : DecodedTx) : Bool := Id.run do
     if tx.chainId ≠ some 1 then return false
     -- maxFeePerGas must be ≥ maxPriorityFeePerGas.
     if tx.gasPrice < tx.maxPriority then return false
+  | .eip7702 =>
+    -- EIP-7702 set-code transactions are activated at Prague.
+    if fork < .Prague then return false
+    if tx.yParity > 1 then return false
+    if tx.chainId ≠ some 1 then return false
+    if tx.gasPrice < tx.maxPriority then return false
+    -- A set-code tx cannot be a contract-creation (`to` must be present),
+    -- and its authorization list must be non-empty.
+    if tx.recipient.isNone then return false
+    if tx.authCount == 0 then return false
   -- EIP-3860 (Shanghai+): init-code (create-tx data) size cap.
   if fork ≥ .Shanghai ∧ tx.recipient.isNone ∧ tx.data.size > maxInitCodeSize then
     return false
@@ -438,13 +520,13 @@ def hexOfBytes (bs : ByteArray) : String := "0x" ++ bytesToHex bs
     `accessListItem` is the decoded access-list RLP item (empty list for
     legacy) needed to rebuild the typed signing preimage. -/
 def checkFork (fork : Fork) (raw : ByteArray) (tx : DecodedTx)
-    (accessListItem : Rlp.Item) (expected : Json) : Outcome := Id.run do
+    (accessListItem authListItem : Rlp.Item) (expected : Json) : Outcome := Id.run do
   let expectValid := hasField expected "sender" && hasField expected "hash"
   -- A transaction is valid iff it passes the static checks *and* its
   -- signature recovers to a sender (a signature that yields the point at
   -- infinity or otherwise fails ECDSA recovery is `EC_RECOVERY_FAIL`).
   let staticValid := isValid fork tx
-  let recovered := if staticValid then recoverSender tx accessListItem else none
+  let recovered := if staticValid then recoverSender tx accessListItem authListItem else none
   let valid := staticValid && recovered.isSome
   if expectValid ≠ valid then
     return .fail s!"validity mismatch: expected {expectValid}, got {valid}"
@@ -501,10 +583,20 @@ def accessListItemOf (raw : ByteArray) (tx : DecodedTx) : Rlp.Item :=
   | _ =>
     match Rlp.decode (raw.extract 1 raw.size) with
     | some (.list items) =>
-      -- access list is at index 7 (2930) or 8 (1559).
+      -- access list is at index 7 (2930) or 8 (1559 / 7702).
       let idx := if tx.kind == .eip2930 then 7 else 8
       (items[idx]?).getD (.list [])
     | _ => .list []
+
+/-- EIP-7702 `authorization_list` RLP item (index 9), recovered from the raw
+    bytes for the typed signing preimage; empty list for every other kind. -/
+def authListItemOf (raw : ByteArray) (tx : DecodedTx) : Rlp.Item :=
+  match tx.kind with
+  | .eip7702 =>
+    match Rlp.decode (raw.extract 1 raw.size) with
+    | some (.list items) => (items[9]?).getD (.list [])
+    | _ => .list []
+  | _ => .list []
 
 /-- Run every fork in one TransactionTests file; one `(tag, id, msg)` per
     (test, fork). -/
@@ -529,7 +621,16 @@ def runFileResults (path : System.FilePath) :
           let id := s!"{fileTag}_{sanitize testName}_{forkName}"
           let r : String × String × String :=
             match decoded with
-            | .skip why => ("INCON", id, why)
+            | .unsupported tb =>
+              -- A typed envelope we don't decode. If its type isn't activated
+              -- on this fork it is `TYPE_NOT_SUPPORTED` (invalid), which we can
+              -- check; if it *is* activated we can't validate its body ⇒ INCON.
+              if typedTypeActivated tb fork then
+                ("INCON", id, s!"unsupported typed envelope 0x{tb} (active at fork)")
+              else
+                let expectValid := hasField expected "sender" && hasField expected "hash"
+                if expectValid then ("FAIL", id, s!"type 0x{tb} unexpectedly valid")
+                else ("PASS", id, "")
             | .bad =>
               -- Undecodable ⇒ we treat the tx as invalid; that is correct
               -- iff the fixture also marks it invalid for this fork.
@@ -538,7 +639,8 @@ def runFileResults (path : System.FilePath) :
               else ("PASS", id, "")
             | .ok tx =>
               let ali := accessListItemOf raw tx
-              match checkFork fork raw tx ali expected with
+              let auth := authListItemOf raw tx
+              match checkFork fork raw tx ali auth expected with
               | .pass    => ("PASS", id, "")
               | .fail m  => ("FAIL", id, m)
               | .incon m => ("INCON", id, m)

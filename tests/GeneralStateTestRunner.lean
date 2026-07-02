@@ -188,7 +188,8 @@ def buildTx (txJson : Json) (dataIdx gasIdx valIdx : Nat) : Tx.Transaction :=
     value     := hexToUInt256 (arrStr txJson "value" valIdx)
     data      := hexToBytes   (arrStr txJson "data" dataIdx)
     gasLimit  := hexToNat     (arrStr txJson "gasLimit" gasIdx)
-    gasPrice  := hexToUInt256 (strField txJson "gasPrice") }
+    gasPrice  := hexToUInt256 (strField txJson "gasPrice")
+    nonce     := hexToUInt256 (strField txJson "nonce") }
 
 ----------------------------------------------------------------------------
 -- Post-state comparison (mirrors tests/StateTestRunner.lean).
