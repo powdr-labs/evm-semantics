@@ -427,6 +427,15 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- coinbase credit — matching the intrinsic-gas and EIP-3607 rejections.
   else if Account.maxNonce ≤ (preMap tx.sender).nonce.toNat then
     { finalAccounts := preMap, outcome := .exceptional }
+  -- EIP-1559 (London+): the transaction's fee cap must cover the block base
+  -- fee. For a legacy / type-1 tx `gasPrice` *is* the fee cap, so the check
+  -- is `gasPrice ≥ baseFee`; a lower price is an invalid tx (fixtures flag
+  -- INSUFFICIENT_MAX_FEE_PER_GAS) and leaves the world state unchanged — no
+  -- nonce bump, no upfront charge, no coinbase credit. (The modern GST
+  -- runner only executes legacy `gasPrice` txs; typed txs are skipped, so
+  -- `gasPrice` is always the effective fee cap here.)
+  else if fork ≥ .London ∧ tx.gasPrice < header.baseFeePerGas then
+    { finalAccounts := preMap, outcome := .exceptional }
   -- YP §6.2 validity: the sender must be able to afford both the upfront
   -- gas charge `T_g · T_p` and the transferred value `T_v` — i.e.
   -- `T_g · T_p + T_v ≤ σ[T_s]_b`. Otherwise the tx is invalid: no state
