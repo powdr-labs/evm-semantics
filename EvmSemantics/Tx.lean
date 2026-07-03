@@ -131,7 +131,10 @@ def applyAuthorization (blockChainId : Nat) (m : AccountMap) (a : Authorization)
     AccountMap :=
   let acc := m a.authority
   let chainOk := a.chainId = 0 ∨ a.chainId = blockChainId
-  let nonceOk := acc.nonce.toNat = a.nonce
+  -- Nonce must match AND leave room to increment: EIP-7702 skips an
+  -- authorization whose nonce is `2^64 - 1` (the bump would overflow the
+  -- 64-bit account nonce), leaving the authority untouched.
+  let nonceOk := acc.nonce.toNat = a.nonce ∧ a.nonce < 2 ^ 64 - 1
   -- The authority must be an EOA or already delegated (code empty or a
   -- designator) — a genuine contract can't be re-pointed.
   let codeOk := acc.code.size = 0 ∨ (delegationTarget acc.code).isSome
@@ -329,12 +332,17 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
                     ++ (if fork ≥ .Osaka then [AccountAddress.ofNat 0x100] else [])
                     ++ tx.accessList.map (·.1)
                     -- EIP-7702: authorization processing warms each `authority`
-                    -- (added to the accessed set before the validity checks, so
-                    -- even invalid authorizations warm it). The delegation
-                    -- *target* is NOT pre-warmed here — it is accessed (and
-                    -- warmed, cold-priced on first touch) lazily when a call
+                    -- — but only once past the chain-id check (step 1), which
+                    -- precedes signature recovery. An authorization whose
+                    -- `chainId` is neither 0 nor the block's is skipped before
+                    -- the authority is ever recovered, so it stays cold; a
+                    -- nonce-/code-invalid authorization still warms (the
+                    -- authority is recovered and added before those checks).
+                    -- The delegation *target* is NOT pre-warmed here — it is
+                    -- accessed (cold-priced on first touch) lazily when a call
                     -- resolves the designator; see `Gas.delegationAccessCost`.
-                    ++ tx.authList.map (·.authority))
+                    ++ (tx.authList.filter (fun a =>
+                          a.chainId = 0 ∨ a.chainId = header.chainId.toNat)).map (·.authority))
           -- …and the access list's `(address, slot)` pairs join the
           -- warm-storage-key set.
           accessedStorageKeys :=

@@ -171,10 +171,13 @@ def isoMapG1 (x' y' : Fp) : Point :=
   let y := y' * yn * yd⁻¹
   .affine x y
 
-/-- Full MAP_FP_TO_G1 (SSWU + isogeny, no cofactor clearing). -/
+/-- Full MAP_FP_TO_G1: SSWU + 11-isogeny, then cofactor clearing `[h_eff]·P`
+    with `h_eff = 0xd201000000010001` (RFC 9380 §8.8.1). Without this the map
+    result need not lie in the prime-order subgroup; EIP-2537's
+    `BLS12_MAP_FP_TO_G1` requires a subgroup element. -/
 def mapFpToG1 (u : Fp) : Point :=
   let (x', y') := sswuG1 u
-  isoMapG1 x' y'
+  EvmSemantics.Crypto.Bls12381.scalarMul 0xd201000000010001 (isoMapG1 x' y')
 
 /-- Run `0x10 BLS12_MAP_FP_TO_G1`: parse 64-byte input, apply the
     map, encode the 128-byte output. -/

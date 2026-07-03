@@ -626,7 +626,11 @@ def Gas.refundDenom (fork : Fork) : Nat :=
     depth/balance silent-fail paths, so it is folded into every `*Committed`. -/
 @[inline] def Gas.delegationAccessCost (s : State) (tgt : AccountAddress) : Nat :=
   match s.delegateOf tgt with
-  | some a => if s.substate.isWarmAccount a then 100 else 2600
+    -- The target `tgt` is added to the accessed set *before* the delegation is
+    -- resolved, so a self-delegation (`a = tgt`) finds its delegate already
+    -- warm — charge the warm price, not cold. (EIP-7702 `access_delegation`
+    -- runs after the target's own access surcharge.)
+  | some a => if s.substate.isWarmAccount a ∨ a == tgt then 100 else 2600
   | none   => 0
 
 /-- Gas charged to the parent frame before forwarding for a `CALL`:

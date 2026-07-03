@@ -101,29 +101,41 @@ def parseForkExact (s : String) : Option Fork :=
   | "Cancun"            => some .Cancun
   | "Prague"            => some .Prague
   | "Osaka"             => some .Osaka
+  -- EIP-7892 blob-parameter-only forks change only the blob-gas schedule
+  -- (target/max blobs, base-fee update fraction), not EVM opcodes, so they
+  -- are semantically Osaka for `Tx.execute`/`stepF`. The differing blob
+  -- update fraction is read from the fixture's `config.blobSchedule` (see
+  -- `blobUpdateFractionAt`), not from the `Fork`.
+  | "BPO1" | "BPO2" | "BPO3" | "BPO4" | "BPO5" => some .Osaka
   | _                   => none
 
 ----------------------------------------------------------------------------
 -- Block header decode (the EVM-env subset) + EIP-4844 blob base fee.
 ----------------------------------------------------------------------------
 
-/-- EIP-4844 fake-exponential (see `GeneralStateTestRunner`). -/
+/-- EIP-4844 `fake_exponential(factor, numerator, denominator)` —
+    `⌊factor · e^(numerator/denominator)⌋` approximated by the Taylor series
+    with *factorial* denominators (`Σ factor·num^i / (denom^i · i!)`). The
+    running term is `numerator_accum`, seeded at `factor·denominator` and
+    updated `numerator_accum := numerator_accum · numerator / (denominator · i)`
+    each step (so the `i!` accumulates), summed until it underflows to `0`; the
+    total is then divided by `denominator`. A plain `num^i` polynomial (without
+    the `/i!`) overshoots astronomically for large `numerator`, which would push
+    the blob base fee above `maxFeePerBlobGas` and spuriously reject blob txs. -/
 partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
-  let rec go (i accum numAcc : Nat) (fuel : Nat) : Nat :=
-    if fuel = 0 then accum
-    else
-      let term := numAcc / (denominator * i)
-      if term = 0 then accum
-      else go (i + 1) (accum + term) (numAcc * numerator) (fuel - 1)
-  go 1 factor (factor * numerator) 64
-
-def blobBaseFeeOf (excessBlobGas : Nat) : Nat := fakeExponential 1 excessBlobGas 3338477
+  let rec go (i output numAccum : Nat) (fuel : Nat) : Nat :=
+    if fuel = 0 ∨ numAccum = 0 then output
+    else go (i + 1) (output + numAccum) (numAccum * numerator / (denominator * i)) (fuel - 1)
+  (go 1 0 (factor * denominator) 100000) / denominator
 
 /-- Decode a `blockHeader` object into the EVM-env `BlockHeader`. Post-Merge
     `prevRandao` reads `mixHash`, falling back to `difficulty` pre-Merge.
-    `blobBaseFee` derives from `excessBlobGas` (EIP-4844). `blockHash` is
-    stubbed to `0` (BLOCKHASH support is a later stage). -/
-def decodeBlockHeader (bh : Json) : BlockHeader :=
+    `blobBaseFee = fake_exponential(1, excessBlobGas, blobFrac)` (EIP-4844),
+    where `blobFrac` is the block's fork-specific update fraction supplied by
+    the caller (see `blobUpdateFractionAt`). `blockHash` is the caller's
+    number→hash closure (EIP-2935 / BLOCKHASH). -/
+def decodeBlockHeader (bh : Json) (blobFrac : Nat)
+    (blockHashFn : UInt256 → UInt256 := fun _ => ⟨0⟩) : BlockHeader :=
   let mixHash := strField bh "mixHash"
   let prevRandao : UInt256 :=
     if mixHash ≠ "" ∧ mixHash ≠ "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -131,7 +143,8 @@ def decodeBlockHeader (bh : Json) : BlockHeader :=
     else hexToUInt256 (strField bh "difficulty")
   let excessStr := strField bh "excessBlobGas"
   let blobBaseFee : UInt256 :=
-    if excessStr ≠ "" then UInt256.ofNat (blobBaseFeeOf (hexToUInt256 excessStr).toNat) else ⟨0⟩
+    if excessStr ≠ "" then UInt256.ofNat (fakeExponential 1 (hexToUInt256 excessStr).toNat blobFrac)
+    else ⟨0⟩
   { coinbase      := hexToAddress (strField bh "coinbase")
     timestamp     := hexToUInt256 (strField bh "timestamp")
     number        := hexToUInt256 (strField bh "number")
@@ -140,7 +153,7 @@ def decodeBlockHeader (bh : Json) : BlockHeader :=
     baseFeePerGas := hexToUInt256 (strField bh "baseFeePerGas")
     chainId       := ⟨1⟩
     blobBaseFee   := blobBaseFee
-    blockHash     := fun _ => ⟨0⟩ }
+    blockHash     := blockHashFn }
 
 ----------------------------------------------------------------------------
 -- Transaction build (block-tx JSON: scalar fields, `sender` given).
@@ -305,9 +318,11 @@ def applyWithdrawals (m : AccountMap) (block : Json) : AccountMap := Id.run do
     (threading the post-state), then apply the end-of-block request system
     calls, withdrawals and — once for the whole block — the pre-Merge block
     reward. Returns `.error reason` for a fuel-exhausted run (⇒ `INCON`). -/
-def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork) :
+def executeBlock (preMap : AccountMap) (block : Json) (fork : Fork)
+    (blobFrac : Nat := 5007716)
+    (blockHashFn : UInt256 → UInt256 := fun _ => ⟨0⟩) :
     Except String AccountMap := do
-  let header := decodeBlockHeader (subObj block "blockHeader")
+  let header := decodeBlockHeader (subObj block "blockHeader") blobFrac blockHashFn
   let baseFee := header.baseFeePerGas.toNat
   -- Block-start system calls: EIP-4788 beacon roots (Cancun+) and EIP-2935
   -- block-hash history (Prague+).
@@ -386,8 +401,8 @@ def decodeBlockHeaderRlp (rlpHex : String) : Option (List Rlp.Item) := do
     formula. Conservative: only returns `true` for genuine violations, so a
     valid block is never flagged. `none` reasons we don't model return `false`
     (the caller falls back to the fixture's `expectException`). -/
-def headerConsensusInvalid (fork : Fork) (p : ParentInfo) (rlpHex : String) :
-    Option String :=
+def headerConsensusInvalid (fork : Fork) (p : ParentInfo) (rlpHex : String)
+    (maxBlobGas : Nat) : Option String :=
   match decodeBlockHeaderRlp rlpHex with
   | none => some "undecodable block rlp"
   | some fields =>
@@ -399,7 +414,9 @@ def headerConsensusInvalid (fork : Fork) (p : ParentInfo) (rlpHex : String) :
       let delta := p.gasLimit / 1024
       if gasLimit ≥ p.gasLimit + delta ∨ gasLimit + delta ≤ p.gasLimit then
         some "gas limit outside ±parent/1024"
-      else if fork ≥ .Cancun ∧ get hdrBlobGasUsed > maxBlobGasPerBlock fork then
+      -- `maxBlobGas` is the block's fork-specific per-block blob-gas cap
+      -- (EIP-7691/7892 BPO schedules retune it; supplied by the caller).
+      else if fork ≥ .Cancun ∧ get hdrBlobGasUsed > maxBlobGas then
         some "blob gas used above per-block max"
       -- Excess-blob-gas transition — only on Cancun/Prague (fixed constants).
       else if (fork = .Cancun ∨ fork = .Prague)
@@ -486,6 +503,50 @@ def resolveForkAt (network : String) (timestamp : Nat) : Option Fork :=
         | _ => none
     | _ => none
 
+/-- The *name* of the fork active at `timestamp` for `network` (the sub-fork of
+    an `AToBAtTimeN` transition, else `network` itself). Unlike `resolveForkAt`
+    this keeps the EEST fork name — including `BPO*` — so the blob schedule can
+    be indexed by it even though `BPO*` maps to `Osaka` semantically. -/
+def activeForkName (network : String) (timestamp : Nat) : String :=
+  match network.splitOn "AtTime" with
+  | [forks, timeStr] =>
+    let digits := timeStr.dropEndWhile (· == 'k')
+    match digits.toNat? with
+    | none   => network
+    | some n =>
+      let transTime := if timeStr.endsWith "k" then n * 1000 else n
+      match forks.splitOn "To" with
+      | [a, b] => if timestamp ≥ transTime then b else a
+      | _      => network
+  | _ => network
+
+/-- EIP-4844/7691/7892 blob-base-fee update fraction for the block at
+    `timestamp`. Prefer the fixture's `config.blobSchedule[<forkName>]
+    .baseFeeUpdateFraction` (the authoritative per-fork value, and the only
+    source for `BPO*` schedules); fall back to the hardcoded protocol defaults
+    (`3338477` Cancun, `5007716` Prague+) when the fixture omits it. -/
+def blobUpdateFractionAt (config : Json) (network : String) (timestamp : Nat) : Nat :=
+  let name    := activeForkName network timestamp
+  let sched   := subObj (subObj config "blobSchedule") name
+  let fracStr := strField sched "baseFeeUpdateFraction"
+  if fracStr ≠ "" then (hexToUInt256 fracStr).toNat
+  else match parseForkExact name with
+    | some f => if f ≥ .Prague then 5007716 else 3338477
+    | none   => 5007716
+
+/-- Per-block max blob gas for the block at `timestamp`, from the fixture's
+    `config.blobSchedule[<forkName>].max` (× `GAS_PER_BLOB`); falls back to the
+    protocol default (`maxBlobGasPerBlock`) when the fixture omits it. The
+    `BPO*` schedules raise this above Osaka's 9-blob cap. -/
+def blobMaxGasAt (config : Json) (network : String) (timestamp : Nat) : Nat :=
+  let name   := activeForkName network timestamp
+  let sched  := subObj (subObj config "blobSchedule") name
+  let maxStr := strField sched "max"
+  if maxStr ≠ "" then (hexToUInt256 maxStr).toNat * Tx.gasPerBlob
+  else match parseForkExact name with
+    | some f => maxBlobGasPerBlock f
+    | none   => 9 * Tx.gasPerBlob
+
 /-- A block's `timestamp` — from the decoded `blockHeader` when present, else
     from the RLP header (field index 11). `0` if neither decodes. -/
 def blockTimestamp (b : Json) : Nat :=
@@ -523,24 +584,43 @@ def runTest (testObj : Json) : Outcome :=
       -- `stateRoot`, and the last block's fork (for the final root compare). A
       -- rejected block leaves the state / parent / stateRoot unchanged. The
       -- fork is resolved per block from its timestamp.
+      -- EIP-2935 / BLOCKHASH: accumulate a number→hash map of processed blocks
+      -- (seeded with the genesis header's hash) so the `BLOCKHASH` opcode can
+      -- read the real hash of a recent block instead of the old `0` stub.
+      let genesisBh := subObj testObj "genesisBlockHeader"
+      let genesisHashes : Std.HashMap Nat UInt256 :=
+        (∅ : Std.HashMap Nat UInt256).insert
+          (hexToNat (strField genesisBh "number")) (hexToUInt256 (strField genesisBh "hash"))
       let rec go (m : AccountMap) (p : ParentInfo) (lastRoot : String)
-          (lastFork : Fork) : List Json → Except String (AccountMap × String × Fork)
+          (lastFork : Fork) (hashes : Std.HashMap Nat UInt256)
+          : List Json → Except String (AccountMap × String × Fork)
         | []      => .ok (m, lastRoot, lastFork)
         | b :: bs =>
           match resolveForkAt network (blockTimestamp b) with
           | none => .error s!"unmodelled fork {network}"
           | some fork =>
             let detected := headerConsensusInvalid fork p (strField b "rlp")
+                              (blobMaxGasAt (subObj testObj "config") network (blockTimestamp b))
             let flagged  := hasField b "expectException"
-            if detected.isSome ∨ flagged then go m p lastRoot fork bs   -- reject
-            else match executeBlock m b fork with
+            if detected.isSome ∨ flagged then go m p lastRoot fork hashes bs   -- reject
+            else
+              let bh := subObj b "blockHeader"
+              let curNum := hexToNat (strField bh "number")
+              -- BLOCKHASH exposes hashes of the 256 most-recent prior blocks;
+              -- 0 for the current/future block or anything older than 256.
+              let blockHashFn : UInt256 → UInt256 := fun n =>
+                let k := n.toNat
+                if k < curNum ∧ k + 256 ≥ curNum then hashes.getD k ⟨0⟩ else ⟨0⟩
+              let blobFrac := blobUpdateFractionAt (subObj testObj "config") network
+                                (blockTimestamp b)
+              match executeBlock m b fork blobFrac blockHashFn with
               | .error r => .error r
               | .ok m'   =>
-                let bh := subObj b "blockHeader"
-                go m' (parentInfoOf bh) (strField bh "stateRoot") fork bs
-      let genesisBh := subObj testObj "genesisBlockHeader"
+                let hashes' := hashes.insert curNum (hexToUInt256 (strField bh "hash"))
+                go m' (parentInfoOf bh) (strField bh "stateRoot") fork hashes' bs
       let fork0 := (resolveForkAt network 0).getD .Frontier
-      match go preMap (parentInfoOf genesisBh) (strField genesisBh "stateRoot") fork0 blocks with
+      match go preMap (parentInfoOf genesisBh) (strField genesisBh "stateRoot")
+              fork0 genesisHashes blocks with
       | .error r => .incon r
       | .ok (finalAccounts, lastRootStr, fork) =>
         let isPrecompileAddr (a : AccountAddress) : Bool :=
@@ -550,11 +630,19 @@ def runTest (testObj : Json) : Outcome :=
         let post := objEntries testObj "postState"
         if post.isEmpty then
           -- Some fixtures give only `postStateHash` (the expected final world
-          -- MPT root) instead of an expanded `postState`. Compare roots.
+          -- MPT root) instead of an expanded `postState`. Invalid-block
+          -- fixtures (`gas_limit_below_minimum`, `invalid_header`, …) instead
+          -- carry an empty `postState` *and* no `postStateHash`, encoding
+          -- success as `lastblockhash == genesis`: every block is rejected, so
+          -- the final world is the genesis world whose root equals the
+          -- threaded `lastRootStr` (the last *applied* block's stateRoot, =
+          -- genesis when all were rejected). Compare against `postStateHash`
+          -- when present, else fall back to `lastRootStr` rather than INCON.
           let phash := strField testObj "postStateHash"
-          if phash = "" then .incon "no postState / postStateHash"
+          let expectedRoot := if phash ≠ "" then phash else lastRootStr
+          if expectedRoot = "" then .incon "no postState / postStateHash"
           else match AccountMap.stateRoot finalAccounts fork wasInPreState with
-            | some r => if r.toNat == (hexToUInt256 phash).toNat then .passRoot
+            | some r => if r.toNat == (hexToUInt256 expectedRoot).toNat then .passRoot
                         else .fail "postStateHash mismatch"
             | none   => .incon "state root uncomputable"
         else match cmpPost finalAccounts preEntries post false with
