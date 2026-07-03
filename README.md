@@ -38,11 +38,11 @@ trivial program.
 
 ## Conformance status
 
-Seven CI conformance jobs run against committed baselines
+Eight CI conformance jobs run against committed baselines
 (`.github/*-expected-failures.txt`, kept in lockstep with real runner output).
 **Every suite is clean — zero correctness failures and zero crashes.** The only
-non-passing entries are report-only VMTests incons and two performance
-walltimeout incons:
+non-passing entries are report-only VMTests incons and the same two performance
+walltimeout incons in both blockchain suites:
 
 | Suite | Runner | fail | incon | crash |
 | --- | --- | --- | --- | --- |
@@ -53,6 +53,7 @@ walltimeout incons:
 | EEST transaction_tests | `txtests` | 0 | 0 | 0 |
 | TransactionTests (`ethereum/tests`) | `txtests` | 0 | 0 | 0 |
 | EEST blockchain_tests | `blockchaintests` | 0 | 2² | 0 |
+| EEST blockchain_tests (Engine API) | `blockchaintests_engine` | 0 | 2² | 0 |
 
 ¹ Long-standing report-only single-frame evaluator gaps (OOG/fuel-exhausted
 tests plus a few arithmetic/jumpdest edge cases) — documented, not regressions.
@@ -144,12 +145,14 @@ baseline-refresh procedure.
   / `precompileOog`); the rules mutate the frame's `halt` so the
   existing `resumeByHalt` machinery (success copy, exception
   snapshot-rollback) handles the rest.
-- **Not yet implemented:** full RLP (only `[address, nonce]` is
-  encodable), and ECDSA-recovered tx senders (the runner uses a
-  hard-coded sender for the corpus). Block validation and the full
-  precompile set are now implemented — the EEST `blockchain_tests` job
-  exercises chain execution + consensus and passes with zero
-  correctness failures (see the Conformance status table above).
+- Block validation and the full precompile set are implemented — the
+  EEST `blockchain_tests` job exercises chain execution + consensus and
+  passes with zero correctness failures (see the Conformance status
+  table above). The EEST `blockchain_tests_engine` job additionally
+  drives the same chains as Engine-API `newPayload` envelopes, decoding
+  each transaction from raw EIP-2718 RLP and **ECDSA-recovering the
+  sender** (and each EIP-7702 authorization's authority) rather than
+  reading a pre-decoded sender from the fixture.
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
   the static Yellow-Paper fee per fork (`Constantinople` matches the
