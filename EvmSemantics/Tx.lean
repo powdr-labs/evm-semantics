@@ -538,12 +538,25 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- single-tx-per-block state-test runners keep the default `true`.
   let withReward (m : AccountMap) : AccountMap :=
     if applyReward then applyBlockReward m coinbase fork else m
+  -- EIP-7702: authorizations are applied during tx processing, *before* the
+  -- top-level call, and their effect (delegation designator + authority nonce
+  -- bump) persists even when that call exceptionally halts or reverts — like
+  -- the sender's nonce bump and the gas charge. `failPostState`/
+  -- `failPostStateRefunded` rebuild from `preMap` (dropping the designation),
+  -- so we re-apply the authorization list on top. `applyAuthorization` only
+  -- reads/writes code+nonce (never balance) and the sender's nonce is already
+  -- bumped in the fail post-state, so the self-sponsored nonce check matches
+  -- `buildInitState`'s ordering. A rejected-before-processing tx (the
+  -- intrinsic-validity gates below) returns bare `preMap` and is *not* run
+  -- through this — an unincluded tx applies no authorizations.
+  let withAuths (m : AccountMap) : AccountMap :=
+    applyAuthorizations header.chainId.toNat m tx.authList
   -- Tx-rollback post-state used by collision, exception, deploy-
   -- rejected, and (after we re-enter the inner loop) every other
   -- "no state changes, all gas to coinbase" arm.
   let rollback : ExecResult :=
-    { finalAccounts := withReward (failPostState preMap tx.sender coinbase
-                                     tx.gasLimit gasPrice baseFee fork),
+    { finalAccounts := withReward (withAuths (failPostState preMap tx.sender coinbase
+                                     tx.gasLimit gasPrice baseFee fork)),
       outcome := .exceptional }
   -- Address-collision check for create tx: per YP, a target with code
   -- or non-zero nonce makes the create fail before any code runs.
@@ -668,7 +681,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
         let refunded := applyDataFloor fork tx.gasLimit sf.gasAvailable tx.data
         let map := failPostStateRefunded preMap tx.sender coinbase
                      tx.gasLimit refunded gasPrice baseFee fork
-        { finalAccounts := withReward map, outcome := .exceptional }
+        { finalAccounts := withReward (withAuths map), outcome := .exceptional }
       | _ =>
         -- YP §6.1 end-of-tx cleanup: zero out every account that
         -- `SELFDESTRUCT`ed in this tx. The post-EIP-161 empty-account
