@@ -516,19 +516,24 @@ self-destructing account's balance, zero out the self's balance, mark the
 self in `substate.selfDestructSet`, add to the refund counter (first-time
 only, fork-dependent), and halt the current frame.
 
-The balance move uses `AccountMap.transfer` (debit self, credit
-beneficiary), which is a **no-op when `self = beneficiary`** — matching
-EIP-6780 / execution-specs `move_ether`, where a self-transfer leaves the
-balance unchanged. Any actual *burn* of a self-destructing account's
-balance happens later, via `applySelfDestructDeletions` zeroing the
-deleted account (all self-destructed accounts pre-Cancun; only
-created-this-tx accounts from Cancun/EIP-6780 onward). A pre-existing
-account that self-destructs to itself on Cancun+ is not deleted, so it
-correctly keeps its balance. -/
+For `beneficiary ≠ self` this is the ordinary debit-self/credit-beneficiary
+transfer. When `beneficiary = self` the reference EVM's observable mid-tx
+balance depends on whether the account is one that will be *deleted* (EIP-6780:
+created in this transaction): a created-this-tx account's self-send **burns**
+the balance to 0 (it is credited then zeroed on the same account), whereas a
+*pre-existing* account's self-send is a no-op that **keeps** its balance (it is
+not deleted, so the funds stay). We reuse the same "created this tx" proxy as
+`applySelfDestructDeletions` — *not a contract in the pre-tx `originalAccountMap`*
+— since `originalAccountMap` is the tx-initial world snapshot. -/
 def selfDestructTo (sc : State) (beneficiary : AccountAddress) : State :=
   let self    := sc.executionEnv.address
   let selfBal := (sc.accountMap self).balance
-  let map₂    := sc.accountMap.transfer self beneficiary selfBal
+  let createdThisTx := ! (sc.substate.originalAccountMap self).isContract
+  let map₂    := if beneficiary == self then
+                   (if createdThisTx then
+                      sc.accountMap.set self { (sc.accountMap self) with balance := 0 }
+                    else sc.accountMap)
+                 else sc.accountMap.transfer self beneficiary selfBal
   -- Per YP §7 the `R_selfdestruct = 24000` refund (Frontier..Petersburg;
   -- 0 on London+ via EIP-3529) is address-keyed: each address contributes
   -- at most once to the refund set, so a second `SELFDESTRUCT` of the same
