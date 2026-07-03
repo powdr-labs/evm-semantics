@@ -217,10 +217,14 @@ def isoMapG2 (x' y' : Fp2) : G2Point :=
   let y := y' * yn * yd⁻¹
   .affine x y
 
-/-- Full MAP_FP2_TO_G2. -/
+/-- Full MAP_FP2_TO_G2: SSWU + 3-isogeny, then cofactor clearing `[h_eff]·P`
+    (RFC 9380 §8.8.2) so the result lands in the prime-order subgroup, as
+    EIP-2537's `BLS12_MAP_FP2_TO_G2` requires. -/
 def mapFp2ToG2 (u : Fp2) : G2Point :=
   let (x', y') := sswuG2 u
-  isoMapG2 x' y'
+  EvmSemantics.Crypto.G2.scalarMul
+    0xbc69f08f2ee75b3584c6a0ea91b352888e2a8e9145ad7689986ff031508ffe1329c2f178731db956d82bf015d1212b02ec0ec69d7477c1ae954cbc06689f6a359894c0adebbf6b4e8020005aaa95551
+    (isoMapG2 x' y')
 
 /-- Run `0x11 BLS12_MAP_FP2_TO_G2`. -/
 def run? (input : ByteArray) : Option ByteArray := do

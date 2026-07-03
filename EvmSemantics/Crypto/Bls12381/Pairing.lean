@@ -68,17 +68,19 @@ def ateLoopCount : Nat := EvmSemantics.Crypto.Bls12381.absU
 def w : Fp12 := { c0 := 0, c1 := 1 }
 
 /-- Untwist a `G₂` point `(x', y') ∈ E'(F_p²)` into the isomorphic
-    point on `E(F_p¹²)`. Uses `(x', y') ↦ (x'·w², y'·w³)` — the same
-    embedding as BN254 (both use the same `Fp12 = Fp6[w]/(w²−v)`
-    tower structure). The M-type twist for BLS12-381 vs D-type for
-    BN254 affects the choice of twist coefficient `b'` (in
-    `G2.Curve`) but not the untwist map itself. -/
+    point on `E(F_p¹²)`. BLS12-381 uses an **M-type** twist (`b' = 4·(1+u)`),
+    so with the tower `w⁶ = ξ` the untwist is `(x', y') ↦ (x'·w⁻², y'·w⁻³)` —
+    the *inverse* powers of `w`. (BN254 is D-type and untwists with `w²`/`w³`;
+    the twist type changes the untwist map, not only the coefficient `b'`.)
+    Using the D-type map here made the Miller loop non-bilinear, so a genuine
+    cross-term pairing check — KZG point-evaluation (0x0A) or a `BLS12_PAIRING`
+    with independent operands — failed. -/
 def untwist : G2Point → Option (Fp12 × Fp12)
   | .infinity => none
   | .affine x' y' =>
     let w2 := w^2
     let w3 := w2 * w
-    some (fp12OfFp2 x' * w2, fp12OfFp2 y' * w3)
+    some (fp12OfFp2 x' * w2⁻¹, fp12OfFp2 y' * w3⁻¹)
 
 /-- Line function value at `P ∈ G₁` for a Miller step. Same formula
     as BN254 — the algebra doesn't know which curve it's on. -/
