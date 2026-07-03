@@ -428,9 +428,16 @@ def applySelfDestructDeletions (fork : Fork) (preMap : AccountMap) (map : Accoun
     let eip6780 := fork ≥ .Cancun
     map.toList.foldl (fun m (a, acct) =>
       if sdSet.contains a then
-        -- On Cancun+, only actually delete accounts that weren't
-        -- already contracts before this tx (i.e., created THIS tx).
-        if eip6780 ∧ (preMap a).isContract then m.insert a acct
+        -- On Cancun+, only actually delete accounts created THIS tx.
+        -- Exempt (keep) an account that was already a contract before this
+        -- tx, OR whose current code is an EIP-7702 delegation designator: a
+        -- designator can only arise from a 7702 authorization on a
+        -- pre-existing EOA (CREATE/CREATE2 can never deploy `0xef`-prefixed
+        -- code, EIP-3541), so it was not created this tx and SELFDESTRUCT
+        -- must leave its code/nonce/storage intact (only the balance transfer
+        -- from `selfDestructTo` persists).
+        if eip6780 ∧ ((preMap a).isContract ∨ (delegationTarget acct.code).isSome)
+          then m.insert a acct
         else m
       else m.insert a acct)
       AccountMap.empty
