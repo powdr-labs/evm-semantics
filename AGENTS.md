@@ -13,13 +13,15 @@ conformance harness). This file stays terse and operational.
 
 ```sh
 lake build                          # build the default target only (evm_semantics exe + lib)
-lake build evm_semantics vmtests statetests gstatetests  # all runner binaries — what CI builds
+lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests  # all runner binaries — what CI builds
 lake exe cache get                  # fetch Mathlib prebuilt oleans (after `lake update`)
 lake lint                           # Batteries runLinter over the EvmSemantics namespace
 .lake/build/bin/evm_semantics       # run the demo (PUSH1 5; PUSH1 3; ADD; STOP -> [8])
 .lake/build/bin/vmtests <corpus>    # legacy VMTests conformance suite
 .lake/build/bin/statetests <dir>    # legacy BlockchainTests/GeneralStateTests
-.lake/build/bin/gstatetests <dir>   # MODERN ethereum/tests GeneralStateTests (state_test fixtures)
+.lake/build/bin/gstatetests <dir>   # MODERN ethereum/tests GeneralStateTests (state_test fixtures; also EEST Osaka)
+.lake/build/bin/txtests <dir>       # TransactionTests + EEST transaction_tests (decode/validate only)
+.lake/build/bin/blockchaintests <dir> # EEST blockchain_tests (full chain execution + consensus)
 ```
 
 - Cold build is ~10 min (compiles Mathlib); cached, ~30 s. Always `lake exe
@@ -154,10 +156,11 @@ exclusivity gate on `Step.running` (`isPrecompile fork codeAddr =
 false`) so the bytecode rules and precompile rules are mutually
 exclusive at the relation level. `Precompile.run` takes the
 `isPrecompile` proof as a precondition, so its `Result` only has
-`.success` / `.outOfGas` — no `.notAPrecompile` arm. **Not yet
-implemented:** block validation, the eight unimplemented precompiles
-(`0x01 ecrecover` / `0x02 sha256` / `0x03 ripemd160` / `0x05 modexp` /
-`0x06–0x09` BN254 + BLAKE2F), full RLP.
+`.success` / `.outOfGas` — no `.notAPrecompile` arm. The full precompile
+set is implemented (`0x01`–`0x09`, plus `0x0A` KZG point evaluation and
+the `0x0B`+ BLS12-381 set). **Not yet implemented:** full RLP (only
+`[address, nonce]`) and ECDSA-recovered tx senders. Block validation is
+covered by the EEST `blockchain_tests` job (chain execution + consensus).
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
@@ -220,7 +223,8 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 ## CI gates (`.github/workflows/ci.yml`)
 
-1. Build `evm_semantics vmtests statetests gstatetests`, fail on any `warning:`.
+1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests`,
+   fail on any `warning:`.
 2. `lake lint`.
 3. VMTests on the full corpus — **non-gating**: compares against
    `.github/vmtests-expected-failures.txt` (pinned to `CORPUS_REV`) and surfaces
@@ -237,6 +241,21 @@ Touch these in order, then rebuild + lint + run vmtests:
    an OOM/panic in one file is a contained `crash`, not a batch abort) and
    compared against `.github/gstatetests-expected-failures.txt`. Only legacy
    `gasPrice` txs run; typed txs are `INCON`. See `VMTESTS.md`.
+6. EEST Osaka `state_tests` (`gstatetests` binary) + EEST `transaction_tests`
+   (`txtests` binary), extracted from the `fixtures_develop.tar.gz` release
+   pinned by `EEST_REV` — **non-gating**; baselines
+   `.github/eest-osaka-expected-failures.txt` and
+   `.github/eest-txtests-expected-failures.txt`.
+7. TransactionTests (`txtests`, `ethereum/tests` sparse checkout, decode+validate
+   only) — **non-gating**; `.github/txtests-expected-failures.txt`.
+8. EEST `blockchain_tests` (`blockchaintests`, full chain execution + consensus,
+   pinned by `EEST_REV`) — **non-gating**;
+   `.github/blockchaintests-expected-failures.txt`.
+
+Current state of all baselines: **zero correctness fails and zero crashes**
+across every suite. The only committed non-passing entries are 7 report-only
+VMTests incons (single-frame evaluator gaps) and 2 blockchain `*_walltimeout`
+perf incons. See `VMTESTS.md` for the status table.
 
 The expected-failures files list one entry per non-passing test in the form
 `<test_id>: <FAIL|INCON|CRASH>` sorted alphabetically, with no aggregate counts.
