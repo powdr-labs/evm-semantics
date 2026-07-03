@@ -1,6 +1,36 @@
 # Conformance harnesses
 
-Three harnesses exercise the verified evaluator (`stepF` / `run`):
+## Current status (all suites clean)
+
+As of the committed CI baselines (`.github/*-expected-failures.txt`, kept in
+lockstep with real runner output), **every suite has zero correctness failures
+and zero crashes**. The only non-passing entries are long-standing report-only
+VMTests incons and two performance walltimeout incons:
+
+| Suite | Runner / CI job | fail | incon | crash | notes |
+| --- | --- | --- | --- | --- | --- |
+| Legacy **VMTests** | `vmtests` | 0 | **7** | 0 | report-only; single-frame evaluator gaps (see "Known evaluator limitations") |
+| Legacy **GeneralStateTests** (curated 47-dir) | `statetests` | 0 | 0 | 0 | **gating**; 19 875 per-fork cases |
+| Modern **GeneralStateTests** (`ethereum/tests` @ Prague) | `modgst` | 0 | 0 | 0 | non-gating (PR #120 took it to fail=0) |
+| **EEST Osaka** state_tests | `eest` | 0 | 0 | 0 | non-gating |
+| **EEST** transaction_tests | `eest` | 0 | 0 | 0 | non-gating; decode+validate |
+| **TransactionTests** (`ethereum/tests`) | `txtests` | 0 | 0 | 0 | non-gating; decode+validate |
+| **EEST blockchain_tests** | `blockchaintests` | 0 | **2** | 0 | both `*_walltimeout` — perf, not correctness (see below) |
+
+- The **7 VMTests incons** are report-only single-frame evaluator gaps
+  (OOG/fuel-exhausted tests the interpreter can't reproduce under its fuel cap,
+  plus a handful of arithmetic/jumpdest edge cases). They are documented, not
+  regressions.
+- The **2 blockchain incons** are `test_run_until_out_of_gas_walltimeout` and
+  `test_valid_walltimeout`: the evaluator's ~5K steps/sec throughput trips the
+  per-test wall-clock cap under CI load. `test_valid` passes standalone; these
+  are baselined as expected. No correctness issue.
+- Modern GST / EEST can show *transient* walltimeout incons under heavy CPU
+  load on non-CI hardware; those are never baselined.
+
+## Harnesses
+
+Five harnesses exercise the verified evaluator (`stepF` / `run`):
 
 - **`tests/VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
   **VMTests** suite, the *single-frame* corpus (no inter-contract calls,
@@ -29,6 +59,23 @@ Three harnesses exercise the verified evaluator (`stepF` / `run`):
   the frozen `ethereum/legacytests` snapshot. See the dedicated section
   ["Modern GeneralStateTests"](#modern-generalstatetests-gstatetests) below.
   Non-gating; expected failures in `.github/gstatetests-expected-failures.txt`.
+- **`tests/TransactionTestRunner.lean`** (executable `txtests`) — decodes and
+  validates transactions from `ethereum/tests` **TransactionTests** (and, in
+  the `eest` CI job, the modern EEST `transaction_tests`, including EIP-7702
+  set-code txs). No execution: it checks RLP decoding + validity against the
+  expected verdict. Baselines: `.github/txtests-expected-failures.txt` and
+  `.github/eest-txtests-expected-failures.txt`. Non-gating.
+- **`tests/BlockchainTestRunner.lean`** (executable `blockchaintests`) — runs
+  the EEST **blockchain_tests**: full chain execution (block-by-block tx
+  application + consensus/header checks) against the expected post-state and
+  block-validity verdict. Exercises the Prague/Osaka EIP set (4844, 2537,
+  2935, 7918/BPO, 7702, 6780, …). Baseline:
+  `.github/blockchaintests-expected-failures.txt`.
+
+The `eest` CI job additionally runs the **maintained EEST (execution-spec-tests)
+Osaka `state_tests`** through the `gstatetests` binary — modern-fork fixtures
+(EIP-7825/7823/7883/7939/…) that the Prague-frozen `ethereum/tests` corpus
+doesn't carry — against `.github/eest-osaka-expected-failures.txt`.
 
 ## How to run
 The **legacy** VMTests + curated GeneralStateTests share one corpus repo
@@ -151,17 +198,27 @@ otherwise stay in the trie).
   and are allowed).
 
 ## CI regression checks
-CI runs all three suites on every PR; each is a separate step with its own
-expected-failures list, gating discipline, and script pair
-(`<suite>_summary.sh`, `<suite>_check.sh`):
+CI runs every suite on each PR as a separate job with its own expected-failures
+list, gating discipline, and script pair (`<suite>_summary.sh`,
+`<suite>_check.sh`):
 
-| suite | corpus | expected failures | gating? |
+| CI job | suite / corpus | expected failures | gating? |
 | --- | --- | --- | --- |
-| VMTests (`vmtests`) | `ethereum/legacytests` @ `CORPUS_REV` | `.github/vmtests-expected-failures.txt` | report-only |
-| Legacy StateTests (`statetests`) | same corpus, curated subset | `.github/statetests-expected-failures.txt` | **gating** (`--strict`) — any tier regression fails the build |
-| Modern GeneralStateTests (`gstatetests`) | `ethereum/tests` @ `TESTS_REV` | `.github/gstatetests-expected-failures.txt` | report-only |
+| `vmtests` | legacy VMTests — `ethereum/legacytests` @ `CORPUS_REV` | `.github/vmtests-expected-failures.txt` | report-only |
+| `statetests` | legacy StateTests (curated subset), same corpus | `.github/statetests-expected-failures.txt` | **gating** (`--strict`) — any tier regression fails the build |
+| `modgst` | modern GeneralStateTests — `ethereum/tests` @ `TESTS_REV` | `.github/gstatetests-expected-failures.txt` | report-only |
+| `eest` | EEST Osaka `state_tests` (`gstatetests` binary) | `.github/eest-osaka-expected-failures.txt` | report-only |
+| `eest` | EEST `transaction_tests` (`txtests` binary) | `.github/eest-txtests-expected-failures.txt` | report-only |
+| `txtests` | `ethereum/tests` TransactionTests | `.github/txtests-expected-failures.txt` | report-only |
+| `blockchaintests` | EEST `blockchain_tests` @ `EEST_REV` | `.github/blockchaintests-expected-failures.txt` | report-only |
 
-All three files use the same format: sorted `<test_id>: <FAIL|INCON|CRASH>`
+The EEST corpora (Osaka `state_tests`, `transaction_tests`, `blockchain_tests`)
+are extracted from the `fixtures_develop.tar.gz` release asset pinned by
+`EEST_REV`; the legacy corpora are pinned by `CORPUS_REV` and the modern
+`ethereum/tests` GeneralStateTests/TransactionTests by `TESTS_REV`. A baseline
+file and the corpus revision it was generated against must always move together.
+
+All files use the same format: sorted `<test_id>: <FAIL|INCON|CRASH>`
 lines, one per non-passing test, with no aggregate counts and no header. The
 check is tier-aware (severity `pass < INCON < FAIL < CRASH`), so
 `pass → INCON`, `INCON → FAIL`, and `FAIL → CRASH` all surface as regressions;
@@ -191,6 +248,22 @@ new floor:
 .github/scripts/gstatetests_run.sh <path>/gstcorpus/GeneralStateTests 45 4 > raw.txt
 .github/scripts/gstatetests_summary.sh raw.txt \
   > .github/gstatetests-expected-failures.txt
+
+# EEST Osaka state_tests (reuses the gstatetests runner + summary script):
+.github/scripts/gstatetests_run.sh eest/fixtures/state_tests/osaka 45 8 > raw.txt
+.github/scripts/gstatetests_summary.sh raw.txt \
+  > .github/eest-osaka-expected-failures.txt
+
+# TransactionTests (ethereum/tests) and EEST transaction_tests:
+.github/scripts/txtests_run.sh <path>/TransactionTests 8 > raw.txt
+.github/scripts/txtests_summary.sh raw.txt > .github/txtests-expected-failures.txt
+.github/scripts/txtests_run.sh eest/fixtures/transaction_tests 8 > raw.txt
+.github/scripts/txtests_summary.sh raw.txt > .github/eest-txtests-expected-failures.txt
+
+# EEST blockchain_tests:
+.github/scripts/blockchaintests_run.sh eest/fixtures/blockchain_tests 45 8 > raw.txt
+.github/scripts/blockchaintests_summary.sh raw.txt \
+  > .github/blockchaintests-expected-failures.txt
 ```
 If you regenerate against a newer corpus, bump `CORPUS_REV` or `TESTS_REV`
 in `.github/workflows/ci.yml` in the same commit — the expected-failures
@@ -265,16 +338,13 @@ Already modelled: memory expansion (Yellow-Paper quadratic), `Gas.sstoreCost`
 London+ price table), `Gas.sstoreRefund` (all four fork-eras, capped by
 `gasUsed / refundDenom` in `Tx.execute`), `Gas.copyWordCost`,
 `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost` (Frontier 10 /
-Spurious-Dragon+ 50). Remaining gap:
-
-- [ ] **EIP-2929 cold/warm split** for `BALANCE` / `EXTCODESIZE` /
-      `EXTCODECOPY` / `EXTCODEHASH` / `SLOAD` / `SSTORE` / CALL-family
-      (cold 2600, warm 100). Needs `accessedAccounts` /
-      `accessedStorageKeys` sets in `Substate` (the fields exist, but
-      queries aren't wired). Our Berlin+ forks currently pretend every
-      access is warm; pre-Berlin uses the fixed 400 / 700 flat prices.
-      This is the largest remaining `fail` cluster on the modern
-      GeneralStateTests corpus.
+Spurious-Dragon+ 50), and the **EIP-2929 cold/warm split** for `BALANCE` /
+`EXTCODESIZE` / `EXTCODECOPY` / `EXTCODEHASH` / `SLOAD` / `SSTORE` / CALL-family
+(cold 2600, warm 100), wired through the `accessedAccounts` /
+`accessedStorageKeys` sets in `Substate` and warm-seeded per tx in `Tx.execute`
+(EIP-2929 implemented in PR #86; it was the largest `fail` cluster on the modern
+GeneralStateTests corpus, now closed). No dynamic-gas gaps remain that produce
+correctness failures on the current corpora.
 
 ### Harness improvements
 - [ ] **Log-hash comparison** — the corpus stores `logsHash` (a keccak over

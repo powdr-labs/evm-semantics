@@ -585,7 +585,18 @@ flowchart LR
   halt/decode/gas/operation and dispatches to them. Also exports
   `Eval.halted_inv`.
 
-## The conformance harness (`tests/VMRunner.lean`)
+## The conformance harnesses
+
+Five runner executables exercise `stepF` / `run` against external corpora, each
+gated in CI by a committed `.github/<suite>-expected-failures.txt` baseline:
+`vmtests` (legacy VMTests), `statetests` (legacy curated GeneralStateTests,
+**gating**), `gstatetests` (modern `ethereum/tests` GeneralStateTests + EEST
+Osaka `state_tests`), `txtests` (TransactionTests + EEST `transaction_tests`,
+decode/validate only), and `blockchaintests` (EEST `blockchain_tests`, full
+chain execution). As of the committed baselines all suites are **clean** — zero
+correctness fails, zero crashes; the only non-passing entries are 7 report-only
+VMTests incons and 2 blockchain `*_walltimeout` perf incons. See `VMTESTS.md`
+for the full status table and per-suite details.
 
 The `vmtests` executable runs the legacy ethereum/tests **VMTests** corpus
 against `stepF` via its `run` fuel loop (cap `2_000_000`):
@@ -597,7 +608,7 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    call-family opcodes (`CALL` / `CALLCODE` / `DELEGATECALL` /
    `STATICCALL`) are implemented in the evaluator; the separate
    `statetests` exe (`tests/StateTestRunner.lean`) exercises them
-   against a curated 30-dir subset of the BlockchainTests
+   against a curated 47-dir subset of the BlockchainTests
    GeneralStateTests (see `VMTESTS.md` for the list).
 3. **Run** to a halt, then **compare** (`cmpAccounts`) storage, return-data,
    balance, and nonce against the expected post-state, producing an `Outcome`
@@ -608,6 +619,6 @@ against `stepF` via its `run` fuel loop (cap `2_000_000`):
    panic aborts the whole run; `--file` mode runs a single test in its own
    process for manual isolation.
 
-CI runs the full suite non-gating against `.github/vmtests-baseline.txt`. See
-`VMTESTS.md` for results, gas-mode details, and the known evaluator gaps the
-suite surfaces.
+CI runs the full suite non-gating against
+`.github/vmtests-expected-failures.txt`. See `VMTESTS.md` for results, gas-mode
+details, and the known evaluator gaps the suite surfaces.

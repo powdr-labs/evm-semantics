@@ -36,6 +36,33 @@ executable shadow, producing stack `[8]` and `halt = Success`. Confirms
 the relation/executable pair is at least internally consistent on a
 trivial program.
 
+## Conformance status
+
+Seven CI conformance jobs run against committed baselines
+(`.github/*-expected-failures.txt`, kept in lockstep with real runner output).
+**Every suite is clean — zero correctness failures and zero crashes.** The only
+non-passing entries are report-only VMTests incons and two performance
+walltimeout incons:
+
+| Suite | Runner | fail | incon | crash |
+| --- | --- | --- | --- | --- |
+| Legacy VMTests | `vmtests` | 0 | 7¹ | 0 |
+| Legacy GeneralStateTests (curated) | `statetests` | 0 | 0 | 0 |
+| Modern GeneralStateTests (`ethereum/tests`) | `gstatetests` | 0 | 0 | 0 |
+| EEST Osaka state_tests | `gstatetests` | 0 | 0 | 0 |
+| EEST transaction_tests | `txtests` | 0 | 0 | 0 |
+| TransactionTests (`ethereum/tests`) | `txtests` | 0 | 0 | 0 |
+| EEST blockchain_tests | `blockchaintests` | 0 | 2² | 0 |
+
+¹ Long-standing report-only single-frame evaluator gaps (OOG/fuel-exhausted
+tests plus a few arithmetic/jumpdest edge cases) — documented, not regressions.
+² `test_run_until_out_of_gas_walltimeout` / `test_valid_walltimeout`: the
+evaluator's throughput trips the per-test wall-clock cap under CI load;
+`test_valid` passes standalone. Perf, not correctness.
+
+See `VMTESTS.md` for the full breakdown, per-suite corpus/gating details, and
+baseline-refresh procedure.
+
 ## Scope (locked-in decisions)
 
 - **Multi-frame EVM:** all arithmetic, comparison/bitwise, KECCAK256,
@@ -102,26 +129,27 @@ trivial program.
   (where `codeAddr = tgt = address`), `CALLCODE` / `DELEGATECALL`
   (where `codeAddr = tgt ≠ address`), and a transaction whose `to`
   is itself a precompile address (where `Tx.buildInitState` sets
-  `codeAddr := tx.recipient`). Currently implemented: **0x02 `sha256`**
-  (gas `60 + 12·⌈|input|/32⌉`, Frontier+), **0x04 `identity`** (gas
-  `15 + 3·⌈|input|/32⌉`, Frontier+), and **0x05 `modexp`** (EIP-198
-  Byzantium pricing: `mult_complexity(max Bsize Msize) ·
-  max(adj_exp_len, 1) / 20`); the YP precompile set beyond that
-  (`0x01 ecrecover`, `0x03 ripemd160`, `0x06–0x09` BN254 +
-  BLAKE2F, plus the Cancun KZG and Prague BLS12-381 set) is not
-  yet in `isPrecompile`'s `true` case, so a call into those
-  addresses falls through to their
-  (empty) bytecode and STOPs — adding a new precompile is a
-  synchronized edit to `isPrecompile` and `run` (the totality proof
-  enforces they stay aligned). The spec side in `Step.lean` exposes
+  `codeAddr := tx.recipient`). The **full YP + modern precompile set is
+  implemented**: **0x01 `ecrecover`**, **0x02 `sha256`**, **0x03
+  `ripemd160`**, **0x04 `identity`** (Frontier+); the Byzantium+ set
+  **0x05 `modexp`** (EIP-198), **0x06 `ecadd`** / **0x07 `ecmul`**
+  (EIP-196) / **0x08 `ecpairing`** (EIP-197) alt_bn128 (re-priced by
+  EIP-1108 at Istanbul); **0x09 `blake2f`** (EIP-152, Istanbul+);
+  **0x0A** KZG point evaluation (EIP-4844, Cancun); and the Prague
+  **BLS12-381** set (EIP-2537: G1/G2 add + MSM, pairing check, and the
+  Fp→G1 / Fp2→G2 maps). Adding a new precompile is a synchronized edit
+  to `isPrecompile` and `run` (the totality proof enforces they stay
+  aligned). The spec side in `Step.lean` exposes
   the same dispatch via two generic rules (`Step.precompileSuccess`
   / `precompileOog`); the rules mutate the frame's `halt` so the
   existing `resumeByHalt` machinery (success copy, exception
   snapshot-rollback) handles the rest.
-- **Not yet implemented:** block validation, the eight unimplemented
-  precompiles listed above, full RLP (only `[address, nonce]` is
+- **Not yet implemented:** full RLP (only `[address, nonce]` is
   encodable), and ECDSA-recovered tx senders (the runner uses a
-  hard-coded sender for the corpus).
+  hard-coded sender for the corpus). Block validation and the full
+  precompile set are now implemented — the EEST `blockchain_tests` job
+  exercises chain execution + consensus and passes with zero
+  correctness failures (see the Conformance status table above).
 - **Gas:** parameterised by EVM hard fork (`EvmSemantics.Fork`,
   threaded through `ExecutionEnv.fork`). `Gas.baseCost fork op` returns
   the static Yellow-Paper fee per fork (`Constantinople` matches the
@@ -134,11 +162,13 @@ trivial program.
   `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`. The relational
   `StepRunning.outOfGas` is generalised to accept a `cost : Nat` witness with
   `Gas.baseCost ≤ cost`, so dynamic-cost OOG (memory expansion, sstoreCost,
-  per-word/byte/topic charges) is expressible. The only remaining unmodelled
-  costs are the EIP-2929 cold/warm split for `BALANCE` / `EXTCODESIZE` /
-  `EXTCODECOPY` / `EXTCODEHASH` (stubbed pending an `accessedAccounts` set
-  in `Substate`) and the dynamic CALL-family surcharge interactions
-  across nested frames (kept non-gas-comparable pending an audit).
+  per-word/byte/topic charges) is expressible. **EIP-2929** cold/warm
+  access pricing is now fully modelled (`accessedAccounts` /
+  `accessedStorageKeys` sets in `Substate`, warm-seeded per tx in
+  `Tx.execute`), covering `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
+  `EXTCODEHASH` / `SLOAD` / `SSTORE` / the CALL family. The one area
+  kept non-gas-comparable is the dynamic CALL-family surcharge
+  interactions across nested frames (pending an audit).
   `SELFDESTRUCT`, `CREATE`, and `CREATE2` are now gas-comparable:
   SELFDESTRUCT uses Frontier rules on the `Constantinople` fork (cost 0,
   no `G_newaccount` surcharge — same convention as our Frontier-rate
