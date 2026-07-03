@@ -85,6 +85,24 @@ structure State extends EvmSemantics.SharedState where
   callStack  : List Frame := []
   deriving Inhabited
 
+/-- EIP-7702 delegation designator: if `code` is a 23-byte `0xef0100`-prefixed
+    designator, the 20-byte target it points to; else `none`. Shared by the
+    tx layer (authorization application, EIP-3607 carve-out) and the EVM
+    interpreter (CALL-family code resolution), so it lives here — low enough
+    for `Gas`/`StepF`/`Step` to import — rather than in `Tx.lean`. -/
+def delegationTarget (code : ByteArray) : Option AccountAddress :=
+  if code.size = 23 ∧ code[0]! = 0xef ∧ code[1]! = 0x01 ∧ code[2]! = 0x00 then
+    some (AccountAddress.ofNat (Data.Bytes.bytesToBigEndianNat (code.extract 3 23)))
+  else none
+
+/-- EIP-7702 code resolution (one hop): if `code` is a delegation designator,
+    the target account's code in `m`; otherwise `code` unchanged. A designator
+    pointing at another designator is *not* followed a second time. -/
+def resolveDelegatedCode (m : AccountMap) (code : ByteArray) : ByteArray :=
+  match delegationTarget code with
+  | some target => (m target).code
+  | none        => code
+
 namespace State
 
 /-- True iff the frame has not yet halted. -/
@@ -268,6 +286,33 @@ def calleeEnvForCall (sc : State) (tgt : AccountAddress) (codeAddr : AccountAddr
     blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
     fork                 := sc.executionEnv.fork }
 
+/-- EIP-7702 (Prague+) delegate address for a CALL-family target `tgt`: the
+    address `tgt`'s delegation designator points to, if any; `none` otherwise
+    (and always pre-Prague, where designators cannot exist). Used both to price
+    the extra delegate access (`Gas.delegationAccessCost`) and to warm it. -/
+@[inline] def delegateOf (s : State) (tgt : AccountAddress) : Option AccountAddress :=
+  if s.executionEnv.fork ≥ .Prague then delegationTarget (s.accountMap tgt).code
+  else none
+
+/-- Code a CALL-family opcode executes when targeting `tgt`: the delegate's
+    code if `tgt` carries an EIP-7702 delegation designator (Prague+, one hop),
+    else `tgt`'s own code. Kept in sync with `delegateOf` so the executable
+    interpreter and the `Step` relation agree symbolically. -/
+@[inline] def callTargetCode (s : State) (tgt : AccountAddress) : ByteArray :=
+  match s.delegateOf tgt with
+  | some a => (s.accountMap a).code
+  | none   => (s.accountMap tgt).code
+
+/-- `base` extended by warming a CALL-family target `tgt` (EIP-2929) and, when
+    `tgt` carries an EIP-7702 delegation designator, its delegate (`delegateOf`).
+    Used on the depth/balance silent-fail paths, where no child frame is entered
+    but the access gas was still charged. `base` is the caller's substate
+    (unchanged by the preceding gas deductions), passed explicitly so the
+    executable interpreter and `Step` share one definition. -/
+@[inline] def warmCallTarget (s : State) (base : Substate) (tgt : AccountAddress) :
+    Substate :=
+  (base.addAccessedAccount tgt).addAccessedAccountOpt (s.delegateOf tgt)
+
 /-- Enter a sub-call. `sc` is the caller state with all of the call's gas
     (base + memory + value/new-account surcharge + forwarded) **already
     deducted** and its memory high-water mark updated; `rest` is the caller
@@ -286,7 +331,14 @@ def enterCall (sc : State) (rest : List UInt256)
   -- address for CREATE. The mark lands in both the child's substate (it
   -- inherits `sc.substate`) and `snapSubstate`, so it survives a revert, as
   -- EIP-2929 requires (accessed sets are never rolled back).
-  let sc := { sc with substate := sc.substate.addAccessedAccount codeAddr }
+  -- EIP-7702: resolving a delegation designator at the code source also
+  -- accesses the delegate address, warming it (its access was priced into the
+  -- committed gas via `Gas.delegationAccessCost`). No-op when `codeAddr` is not
+  -- delegated (or pre-Prague), so this is transparent to CALL/CREATE targets
+  -- that carry no designator.
+  let warmed := (sc.substate.addAccessedAccount codeAddr).addAccessedAccountOpt
+                  (sc.delegateOf codeAddr)
+  let sc := { sc with substate := warmed }
   let frame : Frame :=
     { pc           := sc.pc + UInt256.ofNat 1
       stack        := rest
@@ -414,7 +466,11 @@ def enterCallFor (sc : State) (kind : CallKind) (rest : List UInt256)
   -- EIP-2929: warm the target `tgt` (the DELEGATECALL/STATICCALL callee).
   -- Marking before the snapshot puts it in both the child's inherited
   -- substate and `snapSubstate`, so it survives a revert.
-  let sc := { sc with substate := sc.substate.addAccessedAccount tgt }
+  -- EIP-7702: warm the delegate too when `tgt` carries a designator (see
+  -- `enterCall`); no-op otherwise.
+  let warmed := (sc.substate.addAccessedAccount tgt).addAccessedAccountOpt
+                  (sc.delegateOf tgt)
+  let sc := { sc with substate := warmed }
   let frame : Frame :=
     { pc           := sc.pc + UInt256.ofNat 1
       stack        := rest

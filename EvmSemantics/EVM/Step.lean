@@ -1205,7 +1205,7 @@ inductive StepRunning : State → State → Prop
            ).enterCall rest (AccountAddress.ofUInt256 toArg)
              (AccountAddress.ofUInt256 toArg) value
              (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-             (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
              retOff.toNat retLen.toNat)
 
@@ -1247,7 +1247,7 @@ inductive StepRunning : State → State → Prop
               returnData   := .empty
               -- EIP-2929: target warmed during gas-charging, before the
               -- depth/balance check (matches the taken `call` via enterCall).
-              substate     := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+              substate     := State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 
@@ -1287,7 +1287,7 @@ inductive StepRunning : State → State → Prop
            ).enterCall rest s.executionEnv.address
              (AccountAddress.ofUInt256 toArg) value
              (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-             (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
              retOff.toNat retLen.toNat)
 
@@ -1322,7 +1322,7 @@ inductive StepRunning : State → State → Prop
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
               -- EIP-2929: warm the code source even on the silent-fail path.
-              substate     := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+              substate     := State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 
@@ -1367,7 +1367,7 @@ inductive StepRunning : State → State → Prop
            ).enterCallFor .DelegateCall rest (AccountAddress.ofUInt256 toArg)
              ⟨0⟩  -- value is irrelevant: weiValue is inherited
              (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-             (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
              forwarded retOff.toNat retLen.toNat)
 
   /-- DELEGATECALL (not taken): depth limit hit. Base + memory gas is still
@@ -1399,7 +1399,7 @@ inductive StepRunning : State → State → Prop
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
               -- EIP-2929: target warmed even on the depth silent-fail path.
-              substate     := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+              substate     := State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 
@@ -1433,7 +1433,7 @@ inductive StepRunning : State → State → Prop
            ).enterCallFor .StaticCall rest (AccountAddress.ofUInt256 toArg)
              ⟨0⟩
              (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-             (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+             (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
              forwarded retOff.toNat retLen.toNat)
 
   /-- STATICCALL (not taken): depth limit hit. -/
@@ -1464,7 +1464,7 @@ inductive StepRunning : State → State → Prop
                                 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
               returnData   := .empty
               -- EIP-2929: target warmed even on the depth silent-fail path.
-              substate     := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+              substate     := State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
 

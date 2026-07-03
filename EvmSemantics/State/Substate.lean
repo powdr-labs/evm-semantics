@@ -124,6 +124,13 @@ def isWarmStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Bool :=
 def addAccessedAccount (A : Substate) (a : AccountAddress) : Substate :=
   { A with accessedAccounts := a :: A.accessedAccounts }
 
+/-- Mark an *optional* account warm: warm `a` when `some a`, no-op on `none`.
+    Used to warm an EIP-7702 delegate address (present only when the call
+    target carries a delegation designator). -/
+def addAccessedAccountOpt (A : Substate) : Option AccountAddress → Substate
+  | some a => A.addAccessedAccount a
+  | none   => A
+
 /-- Mark `(addr, key)` as a warm storage slot in `A.accessedStorageKeys`. -/
 def addAccessedStorageKey (A : Substate) (sk : AccountAddress × UInt256) : Substate :=
   { A with accessedStorageKeys := sk :: A.accessedStorageKeys }

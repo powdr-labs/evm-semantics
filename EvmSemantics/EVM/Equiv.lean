@@ -468,11 +468,13 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                     ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).accountMap
                     (AccountAddress.ofUInt256 toArg))
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) with hsurch
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg) with hsurch
             have h_surch_eq : surch = Gas.callSurcharge s.fork (value.toNat != 0)
                 (Gas.callTargetIsNew s.fork s.accountMap
                   (AccountAddress.ofUInt256 toArg))
-                + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) := by
+                + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg) := by
               simp [hsurch, State.consumeGas, State.consumeMemExp2]
             have h_committed :
                 Gas.callCommitted s value argsOff argsLen retOff retLen toArg
@@ -480,7 +482,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               show base + md + (Gas.callSurcharge s.fork (value.toNat != 0)
                     (Gas.callTargetIsNew s.fork s.accountMap
                       (AccountAddress.ofUInt256 toArg))
-                    + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
+                    + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                    + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))
                   ≤ s.gasAvailable
               rw [← h_surch_eq]
               simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
@@ -503,9 +506,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
                         else s3) with
                         returnData := .empty,
-                        substate := (if (value.toNat != 0) then
+                        substate := State.warmCallTarget s (if (value.toNat != 0) then
                                        { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
-                                     else s3).substate.addAccessedAccount
+                                     else s3).substate
                                        (AccountAddress.ofUInt256 toArg) }.replaceStackAndIncrPC
                       (UInt256.ofNat 0 :: rest))
                     = ({ s with
@@ -515,7 +518,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                         returnData := .empty
-                        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                        substate :=
+                          State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
                         stack := UInt256.ofNat 0 :: rest
                         pc := s.pc.succ } : State) := by
                   by_cases h_vnz : value.toNat != 0 <;>
@@ -523,7 +527,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           State.replaceStackAndIncrPC,
                           State.activeWordsAfterUInt256_2, Gas.callCommitted,
                           UInt256.succ, MachineState.memExpansionDelta2, h_vnz,
-                          Substate.addAccessedAccount,
+                          Substate.addAccessedAccount, State.warmCallTarget,
+                          Substate.addAccessedAccountOpt,
                           show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl] <;>
                     grind
                 rw [post_eq]
@@ -571,9 +576,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas surch
                             h_sc).consumeGas _ h_fw).memory
                         argsOff.toNat argsLen.toNat)
-                      (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                          retOff.toNat retLen.toNat h_mem).accountMap
-                        (AccountAddress.ofUInt256 toArg)).code
+                      (State.callTargetCode ((s.consumeGas base h_gas).consumeMemExp2
+                          argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat h_mem)
+                        (AccountAddress.ofUInt256 toArg))
                       (Gas.forwardGas s.fork
                         (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
@@ -592,7 +597,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         } : State).enterCall rest (AccountAddress.ofUInt256 toArg)
                           (AccountAddress.ofUInt256 toArg) value
                           (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-                          (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+                          (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
                           (Gas.forwardGas s.fork
                               (s.gasAvailable
                                - Gas.callCommitted s value argsOff argsLen retOff retLen
@@ -601,7 +606,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                           retOff.toNat retLen.toNat) := by
                   simp [State.enterCall, State.consumeGas, State.consumeMemExp2,
                         State.activeWordsAfterUInt256_2, Gas.callCommitted,
-                        MachineState.memExpansionDelta2,
+                        MachineState.memExpansionDelta2, State.callTargetCode,
+                        State.delegateOf, Substate.addAccessedAccountOpt,
                         show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                   grind
                 rw [post_eq]
@@ -659,7 +665,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                 ≤ s.gasAvailable := by
             show base + md + (Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))
                 ≤ s.gasAvailable
             simp [State.canExpandMemory2, State.consumeGas, State.consumeMemExp2,
                   MachineState.memExpansionDelta2, Gas.callSurcharge, Bool.and_false,
@@ -678,15 +685,16 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
               set s3 := ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                           retOff.toNat retLen.toNat h_mem).consumeGas
                           ((Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc with hs3
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))) h_sc with hs3
               have post_eq :
                   ({ (if (value.toNat != 0) then
                         { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
                       else s3) with
                       returnData := .empty,
-                      substate := (if (value.toNat != 0) then
+                      substate := State.warmCallTarget s (if (value.toNat != 0) then
                                      { s3 with gasAvailable := s3.gasAvailable + Gas.callStipend }
-                                   else s3).substate.addAccessedAccount
+                                   else s3).substate
                                      (AccountAddress.ofUInt256 toArg) }.replaceStackAndIncrPC
                     (UInt256.ofNat 0 :: rest))
                   = ({ s with
@@ -696,7 +704,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       activeWords := s.activeWordsAfterUInt256_2
                         argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                       returnData := .empty
-                      substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                      substate := State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
                       stack := UInt256.ofNat 0 :: rest
                       pc := s.pc.succ } : State) := by
                 by_cases h_vnz : value.toNat != 0 <;>
@@ -704,7 +712,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         State.replaceStackAndIncrPC,
                         State.activeWordsAfterUInt256_2, Gas.callcodeCommitted,
                         UInt256.succ, MachineState.memExpansionDelta2, h_vnz,
-                        Substate.addAccessedAccount,
+                        Substate.addAccessedAccount, State.warmCallTarget,
+                        Substate.addAccessedAccountOpt,
                         show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl] <;>
                   grind
               rw [post_eq]
@@ -725,11 +734,13 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                             - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                         = s.gasAvailable - base - md
                           - (Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) := by
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := by
                   show _ = _
                   rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                           = base + md + (Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) from
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) from
                         rfl]
                   omega
                 rw [eq]
@@ -745,18 +756,21 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas
                       ((Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
                       (Gas.forwardGas s.fork
                         ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                           argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                           ((Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)))
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)))
                           h_sc).gasAvailable) gasArg.toNat)
                       h_fw).enterCall rest
                     (((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                         ((Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
                         _ h_fw).executionEnv.address)
                     (AccountAddress.ofUInt256 toArg)
                     value
@@ -764,16 +778,18 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                         ((Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))) h_sc).consumeGas
                         _ h_fw).memory argsOff.toNat argsLen.toNat)
-                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).accountMap
-                      (AccountAddress.ofUInt256 toArg)).code
+                    (State.callTargetCode ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
+                        argsLen.toNat retOff.toNat retLen.toNat h_mem)
+                      (AccountAddress.ofUInt256 toArg))
                     (Gas.forwardGas s.fork
                       ((((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
                         argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas
                         ((Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)))
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)))
                         h_sc).gasAvailable) gasArg.toNat
                       + (bif (value.toNat != 0) then Gas.callStipend else 0))
                     retOff.toNat retLen.toNat
@@ -789,7 +805,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       } : State).enterCall rest s.executionEnv.address
                         (AccountAddress.ofUInt256 toArg) value
                         (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-                        (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+                        (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
                         (Gas.forwardGas s.fork
                             (s.gasAvailable
                              - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
@@ -798,7 +814,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         retOff.toNat retLen.toNat) := by
                 simp [State.enterCall, State.consumeGas, State.consumeMemExp2,
                       State.activeWordsAfterUInt256_2, Gas.callcodeCommitted,
-                      MachineState.memExpansionDelta2,
+                      MachineState.memExpansionDelta2, State.callTargetCode,
+                      State.delegateOf, Substate.addAccessedAccountOpt,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
@@ -816,11 +833,13 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                             - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
                         = s.gasAvailable - base - md
                           - (Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) := by
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := by
                   show _ = _
                   rw [show Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
                           = base + md + (Gas.callSurcharge s.fork (value.toNat != 0) false
-                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)) from
+                  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                  + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) from
                         rfl]
                   omega
                 rw [eq]
@@ -854,7 +873,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   - MachineState.memCost s.activeWords.toNat with hmd
         split at h
         · rename_i h_cs
-          set cold := Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) with hcold
+          set cold := Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                        + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg) with hcold
           have h_committed :
               Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
                 ≤ s.gasAvailable := by
@@ -873,9 +893,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   ({ (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs) with
                       returnData := .empty,
-                      substate := (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
-                        argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas cold
-                        h_cs).substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                      substate := State.warmCallTarget s (((s.consumeGas base h_gas).consumeMemExp2
+                        argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas cold
+                        h_cs).substate (AccountAddress.ofUInt256 toArg)
                     }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                   = ({ s with
                         gasAvailable := s.gasAvailable
@@ -883,13 +903,15 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                         returnData := .empty
-                        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                        substate :=
+                          State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
                         stack := UInt256.ofNat 0 :: rest
                         pc := s.pc.succ } : State) := by
                 simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
                       State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
                       UInt256.succ, MachineState.memExpansionDelta2,
-                      Substate.addAccessedAccount,
+                      Substate.addAccessedAccount, State.warmCallTarget,
+                      Substate.addAccessedAccountOpt,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
@@ -932,9 +954,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).consumeGas
                           _ h_fw).memory
                       argsOff.toNat argsLen.toNat)
-                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).accountMap
-                      (AccountAddress.ofUInt256 toArg)).code
+                    (State.callTargetCode ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
+                        argsLen.toNat retOff.toNat retLen.toNat h_mem)
+                      (AccountAddress.ofUInt256 toArg))
                     (Gas.forwardGas s.fork
                       (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).gasAvailable
@@ -953,7 +975,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       } : State).enterCallFor .DelegateCall rest
                         (AccountAddress.ofUInt256 toArg) ⟨0⟩
                         (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-                        (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+                        (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
                         (Gas.forwardGas s.fork
                           (s.gasAvailable
                             - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
@@ -961,7 +983,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         retOff.toNat retLen.toNat) := by
                 simp [State.enterCallFor, State.consumeGas, State.consumeMemExp2,
                       State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted,
-                      MachineState.memExpansionDelta2,
+                      MachineState.memExpansionDelta2, State.callTargetCode,
+                      State.delegateOf, Substate.addAccessedAccountOpt,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
@@ -1012,7 +1035,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   - MachineState.memCost s.activeWords.toNat with hmd
         split at h
         · rename_i h_cs
-          set cold := Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg) with hcold
+          set cold := Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+                        + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg) with hcold
           have h_committed :
               Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
                 ≤ s.gasAvailable := by
@@ -1031,9 +1055,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                   ({ (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                       retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs) with
                       returnData := .empty,
-                      substate := (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
-                        argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas cold
-                        h_cs).substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                      substate := State.warmCallTarget s (((s.consumeGas base h_gas).consumeMemExp2
+                        argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat h_mem).consumeGas cold
+                        h_cs).substate (AccountAddress.ofUInt256 toArg)
                     }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
                   = ({ s with
                         gasAvailable := s.gasAvailable
@@ -1041,13 +1065,15 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         activeWords := s.activeWordsAfterUInt256_2
                           argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
                         returnData := .empty
-                        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 toArg)
+                        substate :=
+                          State.warmCallTarget s s.substate (AccountAddress.ofUInt256 toArg)
                         stack := UInt256.ofNat 0 :: rest
                         pc := s.pc.succ } : State) := by
                 simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
                       State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
                       UInt256.succ, MachineState.memExpansionDelta2,
-                      Substate.addAccessedAccount,
+                      Substate.addAccessedAccount, State.warmCallTarget,
+                      Substate.addAccessedAccountOpt,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
@@ -1090,9 +1116,9 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).consumeGas
                           _ h_fw).memory
                       argsOff.toNat argsLen.toNat)
-                    (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
-                        retOff.toNat retLen.toNat h_mem).accountMap
-                      (AccountAddress.ofUInt256 toArg)).code
+                    (State.callTargetCode ((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat
+                        argsLen.toNat retOff.toNat retLen.toNat h_mem)
+                      (AccountAddress.ofUInt256 toArg))
                     (Gas.forwardGas s.fork
                       (((s.consumeGas base h_gas).consumeMemExp2 argsOff.toNat argsLen.toNat
                         retOff.toNat retLen.toNat h_mem).consumeGas cold h_cs).gasAvailable
@@ -1111,7 +1137,7 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                       } : State).enterCallFor .StaticCall rest
                         (AccountAddress.ofUInt256 toArg) ⟨0⟩
                         (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
-                        (s.accountMap (AccountAddress.ofUInt256 toArg)).code
+                        (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
                         (Gas.forwardGas s.fork
                           (s.gasAvailable
                             - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
@@ -1119,7 +1145,8 @@ theorem system_sound (s : State) (op : Operation.SystemOps)
                         retOff.toNat retLen.toNat) := by
                 simp [State.enterCallFor, State.consumeGas, State.consumeMemExp2,
                       State.activeWordsAfterUInt256_2, Gas.staticcallCommitted,
-                      MachineState.memExpansionDelta2,
+                      MachineState.memExpansionDelta2, State.callTargetCode,
+                      State.delegateOf, Substate.addAccessedAccountOpt,
                       show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
                 grind
               rw [post_eq]
