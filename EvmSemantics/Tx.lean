@@ -328,8 +328,13 @@ def buildInitState (preMap : AccountMap) (header : BlockHeader)
                     ++ (if fork ≥ .Shanghai then [header.coinbase] else [])
                     ++ (if fork ≥ .Osaka then [AccountAddress.ofNat 0x100] else [])
                     ++ tx.accessList.map (·.1)
-                    -- EIP-7702: warm each authority and its delegation target.
-                    ++ tx.authList.flatMap (fun a => [a.authority, a.address]))
+                    -- EIP-7702: authorization processing warms each `authority`
+                    -- (added to the accessed set before the validity checks, so
+                    -- even invalid authorizations warm it). The delegation
+                    -- *target* is NOT pre-warmed here — it is accessed (and
+                    -- warmed, cold-priced on first touch) lazily when a call
+                    -- resolves the designator; see `Gas.delegationAccessCost`.
+                    ++ tx.authList.map (·.authority))
           -- …and the access list's `(address, slot)` pairs join the
           -- warm-storage-key set.
           accessedStorageKeys :=
