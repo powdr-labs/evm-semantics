@@ -48,6 +48,10 @@ name = "blockchaintests"
 root = "tests.BlockchainTestRunner"
 
 [[lean_exe]]
+name = "blockchaintests_engine"
+root = "tests.BlockchainEngineTestRunner"
+
+[[lean_exe]]
 name = "keccak_test"
 root = "tests.KeccakTest"
 

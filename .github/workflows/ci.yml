@@ -60,7 +60,7 @@ jobs:
           # linters re-emit their diagnostics, then fail if any appear.
           rm -rf .lake/build
           set -o pipefail
-          lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests 2>&1 | tee build.log
+          lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine 2>&1 | tee build.log
           if grep -E "warning:" build.log; then
             echo "::error::Linter warnings detected — see the build log above."
             exit 1
@@ -99,6 +99,9 @@ jobs:
       - name: Upload blockchaintests binary
         uses: actions/upload-artifact@v7
         with: { name: bin-blockchaintests, path: .lake/build/bin/blockchaintests, retention-days: 1 }
+      - name: Upload blockchaintests_engine binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-blockchaintests-engine, path: .lake/build/bin/blockchaintests_engine, retention-days: 1 }
 
   # ── VMTests shard (light: legacytests VMTests slice, no execution-heavy) ──
   vmtests:
@@ -680,6 +683,85 @@ jobs:
             blockchaintests-output.txt
             blockchaintests-summary.txt
 
+  # ── BlockchainTests (Engine) shard: same block/chain execution, fed as ──
+  # ── Engine-API newPayload envelopes (raw-RLP txs, ECDSA sender recovery) ──
+  blockchaintests_engine:
+    name: BlockchainTests (Engine)
+    needs: build
+    # Same execution weight as the plain blockchain_tests shard (it runs the
+    # same block/chain processing), so it gets the same 16-core runner; the
+    # extra per-tx RLP-decode + secp256k1 sender/authority recovery is cheap
+    # next to block execution.
+    runs-on: warp-ubuntu-2404-x64-16x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download blockchaintests_engine binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-blockchaintests-engine
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/blockchaintests_engine
+
+      # Fetch the EEST blockchain_tests_engine from the same release tarball as
+      # the other EEST suites (own copy — this shard runs in parallel with the
+      # `eest` and `blockchaintests` shards). Pin EEST_REV together with
+      # .github/blockchaintests-engine-expected-failures.txt.
+      - name: Fetch EEST blockchain_tests_engine corpus
+        env:
+          EEST_REV: v5.4.0
+        run: |
+          url="https://github.com/ethereum/execution-spec-tests/releases/download/$EEST_REV/fixtures_develop.tar.gz"
+          curl -sSL --retry 3 -o fixtures_develop.tar.gz "$url"
+          mkdir -p eest
+          tar xzf fixtures_develop.tar.gz -C eest fixtures/blockchain_tests_engine
+          rm -f fixtures_develop.tar.gz
+          # Guard: a wrong asset/path silently extracts nothing → `total 0` →
+          # skipped comparison read as a false green. Fail loud instead.
+          bccount=$(find eest/fixtures/blockchain_tests_engine -name '*.json' | wc -l)
+          echo "Extracted $bccount EEST blockchain_test_engine json files."
+          [ "$bccount" -gt 0 ] || { echo "::error::no EEST blockchain_tests_engine extracted — check EEST_REV / asset name"; exit 1; }
+
+      # Non-gating: full block processing delivered as Engine-API newPayload
+      # envelopes. Reuses the blockchaintests_* scripts (identical output
+      # format) via the BLOCKCHAINTESTS_BIN override, against this suite's own
+      # baseline. Per-file subprocess-isolation wrapper (60s cap): a
+      # pathological block can't hang or OOM the whole run.
+      - name: Run EEST blockchain_tests_engine
+        continue-on-error: true
+        env:
+          BLOCKCHAINTESTS_BIN: ./.lake/build/bin/blockchaintests_engine
+        run: |
+          .github/scripts/blockchaintests_run.sh \
+            eest/fixtures/blockchain_tests_engine 60 16 | tee blockchaintests-engine-output.txt
+
+      - name: Summarize and compare EEST blockchain_tests_engine against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/blockchaintests_summary.sh blockchaintests-engine-output.txt > blockchaintests-engine-summary.txt; then
+            .github/scripts/blockchaintests_check.sh \
+              .github/blockchaintests-engine-expected-failures.txt blockchaintests-engine-summary.txt \
+              blockchaintests-engine-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=BlockchainTests (Engine)::blockchaintests_engine produced no parseable summary; skipping regression comparison."
+            {
+              echo "## BlockchainTests (Engine) regression report"
+              echo
+              echo "⚠️ The blockchaintests_engine run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`blockchaintests-engine-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload BlockchainTests (Engine) report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: blockchaintests-engine-report
+          path: |
+            blockchaintests-engine-output.txt
+            blockchaintests-engine-summary.txt
+
   # ─────────────────────────────────────────────────────────────────────────
   # Single stable aggregate check. Branch protection / the merge queue should
   # require THIS job ("CI / Gate") rather than the individual shard names, so
@@ -695,7 +777,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   ci:
     name: Gate
-    needs: [build, vmtests, statetests, modgst, eest, txtests, blockchaintests]
+    needs: [build, vmtests, statetests, modgst, eest, txtests, blockchaintests, blockchaintests_engine]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -709,6 +791,7 @@ jobs:
             eest=${{ needs.eest.result }}
             txtests=${{ needs.txtests.result }}
             blockchaintests=${{ needs.blockchaintests.result }}
+            blockchaintests_engine=${{ needs.blockchaintests_engine.result }}
         run: |
           echo "Upstream job results: $RESULTS"
           failed=0
