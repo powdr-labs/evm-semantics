@@ -225,8 +225,16 @@ def resumeCreateSuccess (child : State) (f : Frame) (rest : List Frame)
     let pushed := newAddr.toUInt256
     child.resumeWith f rest pushed ByteArray.empty
       (child.gasAvailable - depositCost) σ child.substate
+  else if child.executionEnv.fork < .Homestead ∧ ¬ oversized ∧ ¬ badPrefix then
+    -- Frontier (pre-EIP-2): an unaffordable code-deposit does *not* fail the
+    -- CREATE. The account is created with empty code, the new address is
+    -- pushed, and the deposit is simply skipped (no charge). EIP-2 (Homestead)
+    -- turns this into the OOG failure below.
+    child.resumeWith f rest newAddr.toUInt256 ByteArray.empty
+      child.gasAvailable child.accountMap child.substate
   else
-    -- Reject deployment (OOG, EIP-170, or EIP-3541): act like an exception.
+    -- Reject deployment (OOG on Homestead+, EIP-170, or EIP-3541): act like an
+    -- exception.
     child.resumeWith f rest (UInt256.ofNat 0) ByteArray.empty 0
       f.snapAccountMap f.snapSubstate
 
