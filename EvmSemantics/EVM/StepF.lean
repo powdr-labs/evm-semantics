@@ -705,11 +705,11 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .error e => .error e
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
-        let callee   := s2.accountMap tgt
         let valNZ    : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge s.fork valNZ
                            (Gas.callTargetIsNew s.fork s2.accountMap tgt)
                          + Gas.accountColdSurcharge s tgt
+                         + Gas.delegationAccessCost s tgt
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -745,7 +745,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- price even though this call silently fails. (The taken path
               -- warms it inside `enterCall`.)
               .ok ({ s3' with returnData := .empty,
-                              substate := s3'.substate.addAccessedAccount tgt
+                              substate := State.warmCallTarget s s3'.substate tgt
                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s4       := s3.consumeGas forwarded hfw
@@ -755,8 +755,10 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- by the generic precompile arm at the top of `stepF`'s
               -- running branch — see the `Precompile.isPrecompile` check
               -- there. This keeps the CALL handler oblivious to the
-              -- precompile-vs-bytecode distinction.
-              .ok (s4.enterCall rest tgt tgt value calldata callee.code
+              -- precompile-vs-bytecode distinction. EIP-7702: `callTargetCode`
+              -- resolves a delegation designator at `tgt` to the delegate's
+              -- code (the delegate is warmed inside `enterCall`).
+              .ok (s4.enterCall rest tgt tgt value calldata (State.callTargetCode s2 tgt)
                      childGas retOff.toNat retLen.toNat)
           else .error .OutOfGas
         else .error .OutOfGas
@@ -772,10 +774,10 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .error e => .error e
       | .ok s2 =>
         let codeAddr  := AccountAddress.ofUInt256 toArg  -- where the code comes from
-        let codeSrc   := s2.accountMap codeAddr
         let valNZ     : Bool := value.toNat != 0
         let surcharge := Gas.callSurcharge s.fork valNZ false
                          + Gas.accountColdSurcharge s codeAddr
+                         + Gas.delegationAccessCost s codeAddr
         if hsc : surcharge ≤ s2.gasAvailable then
           let s3 := s2.consumeGas surcharge hsc
           let caller := s3.accountMap s3.executionEnv.address
@@ -794,7 +796,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- EIP-2929: warm the code source even on the silent-fail path
               -- (see CALL above).
               .ok ({ s3' with returnData := .empty,
-                              substate := s3'.substate.addAccessedAccount codeAddr
+                              substate := State.warmCallTarget s s3'.substate codeAddr
                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s4       := s3.consumeGas forwarded hfw
@@ -812,7 +814,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- YP: CALLCODE-ing into a precompile address just runs
               -- the precompile's empty code in the caller's context.)
               .ok (s4.enterCall rest s4.executionEnv.address codeAddr value calldata
-                     codeSrc.code childGas retOff.toNat retLen.toNat)
+                     (State.callTargetCode s2 codeAddr) childGas retOff.toNat retLen.toNat)
           else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
@@ -826,10 +828,9 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .error e => .error e
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
-        let callee   := s2.accountMap tgt
         -- EIP-2929 cold-access surcharge for the target, charged before
         -- forwarding (mirrors CALL/CALLCODE's `surcharge` stage).
-        let coldSur  := Gas.accountColdSurcharge s tgt
+        let coldSur  := Gas.accountColdSurcharge s tgt + Gas.delegationAccessCost s tgt
         if hcs : coldSur ≤ s2.gasAvailable then
           let s2c := s2.consumeGas coldSur hcs
           -- Gas-cap check first (pre-EIP-150 `gasArg > available` OOGs)
@@ -843,7 +844,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- EIP-2929: warm the target even on the depth silent-fail path
               -- (mirrors CALL/CALLCODE; the taken path warms via enterCallFor).
               .ok ({ s2c with returnData := .empty,
-                              substate := s2c.substate.addAccessedAccount tgt
+                              substate := State.warmCallTarget s s2c.substate tgt
                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s3       := s2c.consumeGas forwarded hfw
@@ -854,7 +855,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- iteration; the frame's `codeAddr := tgt` is set by
               -- `enterCallFor` so the arm has the right key.
               .ok (s3.enterCallFor .DelegateCall rest tgt ⟨0⟩ calldata
-                     callee.code forwarded retOff.toNat retLen.toNat)
+                     (State.callTargetCode s2 tgt) forwarded retOff.toNat retLen.toNat)
           else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow
@@ -868,10 +869,9 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
       | .error e => .error e
       | .ok s2 =>
         let tgt      := AccountAddress.ofUInt256 toArg
-        let callee   := s2.accountMap tgt
         -- EIP-2929 cold-access surcharge for the target, charged before
         -- forwarding (mirrors CALL/CALLCODE's `surcharge` stage).
-        let coldSur  := Gas.accountColdSurcharge s tgt
+        let coldSur  := Gas.accountColdSurcharge s tgt + Gas.delegationAccessCost s tgt
         if hcs : coldSur ≤ s2.gasAvailable then
           let s2c := s2.consumeGas coldSur hcs
           -- STATICCALL is Byzantium+, always past EIP-150, so `forwardGas`
@@ -885,7 +885,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- EIP-2929: warm the target even on the depth silent-fail path
               -- (mirrors CALL/CALLCODE; the taken path warms via enterCallFor).
               .ok ({ s2c with returnData := .empty,
-                              substate := s2c.substate.addAccessedAccount tgt
+                              substate := State.warmCallTarget s s2c.substate tgt
                    }.replaceStackAndIncrPC (UInt256.ofNat 0 :: rest))
             else
               let s3       := s2c.consumeGas forwarded hfw
@@ -895,7 +895,7 @@ def system (s s' : State) : Operation.SystemOps → Except ExecutionException St
               -- generic precompile arm's job at the top of the next
               -- iteration.
               .ok (s3.enterCallFor .StaticCall rest tgt ⟨0⟩ calldata
-                     callee.code forwarded retOff.toNat retLen.toNat)
+                     (State.callTargetCode s2 tgt) forwarded retOff.toNat retLen.toNat)
           else .error .OutOfGas
         else .error .OutOfGas
     | _ => underflow

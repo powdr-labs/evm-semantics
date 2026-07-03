@@ -122,21 +122,6 @@ def delegationPrefix : ByteArray := ⟨#[0xef, 0x01, 0x00]⟩
 def delegationDesignator (addr : AccountAddress) : ByteArray :=
   delegationPrefix ++ Data.Bytes.natToBytesPadded addr.val 20
 
-/-- If `code` is a 23-byte `0xef0100`-prefixed delegation designator, the
-    20-byte target it points to; else `none`. -/
-def delegationTarget (code : ByteArray) : Option AccountAddress :=
-  if code.size = 23 ∧ code[0]! = 0xef ∧ code[1]! = 0x01 ∧ code[2]! = 0x00 then
-    some (AccountAddress.ofNat (Data.Bytes.bytesToBigEndianNat (code.extract 3 23)))
-  else none
-
-/-- EIP-7702 code resolution (one hop): if `code` is a delegation designator,
-    the target account's code in `m`; otherwise `code` unchanged. A designator
-    pointing at another designator is *not* followed a second time. -/
-def resolveDelegatedCode (m : AccountMap) (code : ByteArray) : ByteArray :=
-  match delegationTarget code with
-  | some target => (m target).code
-  | none        => code
-
 /-- Apply one EIP-7702 authorization to the world (if valid): set the
     authority's code to the designator for `address` (or clear it when
     `address = 0`) and bump its nonce. Skipped (world unchanged) unless

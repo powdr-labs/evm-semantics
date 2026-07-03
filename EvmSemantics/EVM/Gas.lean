@@ -617,11 +617,23 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   Gas.baseCost s.executionEnv.fork .REVERT
   + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
 
+/-- EIP-7702 (Prague+) extra EIP-2929 access cost for a CALL-family opcode
+    whose target `tgt` carries a delegation designator: resolving the
+    delegation accesses the delegate address, costing the full account-access
+    price — `100` if the delegate is already warm, `2600` if cold — *on top of*
+    the target's own access surcharge. `0` when `tgt` is not delegated or
+    pre-Prague (no designator can exist). Charged on both the taken and the
+    depth/balance silent-fail paths, so it is folded into every `*Committed`. -/
+@[inline] def Gas.delegationAccessCost (s : State) (tgt : AccountAddress) : Nat :=
+  match s.delegateOf tgt with
+  | some a => if s.substate.isWarmAccount a then 100 else 2600
+  | none   => 0
+
 /-- Gas charged to the parent frame before forwarding for a `CALL`:
     static base + memory-expansion delta for the union of args and return
-    ranges + value/new-account surcharge. The forwarded gas (63/64 etc.) is
-    separately deducted from `s.gasAvailable - callCommitted` and given to
-    the callee. -/
+    ranges + value/new-account surcharge + EIP-7702 delegate-access cost. The
+    forwarded gas (63/64 etc.) is separately deducted from
+    `s.gasAvailable - callCommitted` and given to the callee. -/
 @[inline] def Gas.callCommitted (s : State) (value : UInt256)
     (argsOff argsLen retOff retLen toArg : UInt256) : Nat :=
   Gas.baseCost s.executionEnv.fork .CALL
@@ -630,7 +642,8 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0)
         (Gas.callTargetIsNew s.executionEnv.fork s.accountMap
           (AccountAddress.ofUInt256 toArg))
-      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
+      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+      + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `CALLCODE`:
     static base + memory-expansion delta + value-transfer surcharge +
@@ -642,7 +655,8 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
   + (Gas.callSurcharge s.executionEnv.fork (value.toNat != 0) false
-      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg))
+      + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+      + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `DELEGATECALL`:
     static base + memory-expansion delta + EIP-2929 cold surcharge for the
@@ -652,7 +666,8 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   Gas.baseCost s.executionEnv.fork .DELEGATECALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+  + (Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+      + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for a `STATICCALL`:
     static base + memory-expansion delta + EIP-2929 cold surcharge for the
@@ -662,7 +677,8 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   Gas.baseCost s.executionEnv.fork .STATICCALL
   + MachineState.memExpansionDelta2 s.activeWords.toNat
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
-  + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+  + (Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+      + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg))
 
 /-- Gas charged to the parent frame before forwarding for `CREATE`:
     static base + memory-expansion delta for the init-code window +
