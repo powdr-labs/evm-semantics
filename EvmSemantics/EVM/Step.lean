@@ -506,6 +506,7 @@ inductive StepRunning : State → State → Prop
   | address (s : State)
         (h_op      : s.decodedOp = some .ADDRESS)
         (h_gas     : Gas.baseCost s.fork .ADDRESS ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.address.toUInt256 :: s.stack
@@ -527,6 +528,7 @@ inductive StepRunning : State → State → Prop
   | origin (s : State)
         (h_op      : s.decodedOp = some .ORIGIN)
         (h_gas     : Gas.baseCost s.fork .ORIGIN ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.origin.toUInt256 :: s.stack
@@ -536,6 +538,7 @@ inductive StepRunning : State → State → Prop
   | caller (s : State)
         (h_op      : s.decodedOp = some .CALLER)
         (h_gas     : Gas.baseCost s.fork .CALLER ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.caller.toUInt256 :: s.stack
@@ -545,6 +548,7 @@ inductive StepRunning : State → State → Prop
   | callvalue (s : State)
         (h_op      : s.decodedOp = some .CALLVALUE)
         (h_gas     : Gas.baseCost s.fork .CALLVALUE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.weiValue :: s.stack
@@ -566,6 +570,7 @@ inductive StepRunning : State → State → Prop
   | calldatasize (s : State)
         (h_op      : s.decodedOp = some .CALLDATASIZE)
         (h_gas     : Gas.baseCost s.fork .CALLDATASIZE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := UInt256.ofNat s.executionEnv.calldata.size :: s.stack
@@ -593,6 +598,7 @@ inductive StepRunning : State → State → Prop
   | codesize (s : State)
         (h_op      : s.decodedOp = some .CODESIZE)
         (h_gas     : Gas.baseCost s.fork .CODESIZE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := UInt256.ofNat s.executionEnv.code.size :: s.stack
@@ -620,6 +626,7 @@ inductive StepRunning : State → State → Prop
   | gasprice (s : State)
         (h_op      : s.decodedOp = some .GASPRICE)
         (h_gas     : Gas.baseCost s.fork .GASPRICE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.gasPrice :: s.stack
@@ -665,6 +672,7 @@ inductive StepRunning : State → State → Prop
   | returndatasize (s : State)
         (h_op      : s.decodedOp = some .RETURNDATASIZE)
         (h_gas     : Gas.baseCost s.fork .RETURNDATASIZE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := UInt256.ofNat s.returnData.size :: s.stack
@@ -720,6 +728,7 @@ inductive StepRunning : State → State → Prop
   | coinbase (s : State)
         (h_op      : s.decodedOp = some .COINBASE)
         (h_gas     : Gas.baseCost s.fork .COINBASE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.coinbase.toUInt256 :: s.stack
@@ -729,6 +738,7 @@ inductive StepRunning : State → State → Prop
   | timestamp (s : State)
         (h_op      : s.decodedOp = some .TIMESTAMP)
         (h_gas     : Gas.baseCost s.fork .TIMESTAMP ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.timestamp :: s.stack
@@ -738,6 +748,7 @@ inductive StepRunning : State → State → Prop
   | number (s : State)
         (h_op      : s.decodedOp = some .NUMBER)
         (h_gas     : Gas.baseCost s.fork .NUMBER ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.number :: s.stack
@@ -747,6 +758,7 @@ inductive StepRunning : State → State → Prop
   | prevrandao (s : State)
         (h_op      : s.decodedOp = some .PREVRANDAO)
         (h_gas     : Gas.baseCost s.fork .PREVRANDAO ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.prevRandao :: s.stack
@@ -756,6 +768,7 @@ inductive StepRunning : State → State → Prop
   | gaslimit (s : State)
         (h_op      : s.decodedOp = some .GASLIMIT)
         (h_gas     : Gas.baseCost s.fork .GASLIMIT ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.gasLimit :: s.stack
@@ -765,6 +778,7 @@ inductive StepRunning : State → State → Prop
   | chainid (s : State)
         (h_op      : s.decodedOp = some .CHAINID)
         (h_gas     : Gas.baseCost s.fork .CHAINID ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.chainId :: s.stack
@@ -774,6 +788,7 @@ inductive StepRunning : State → State → Prop
   | selfbalance (s : State)
         (h_op      : s.decodedOp = some .SELFBALANCE)
         (h_gas     : Gas.baseCost s.fork .SELFBALANCE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := (s.accountMap s.executionEnv.address).balance :: s.stack
@@ -783,6 +798,7 @@ inductive StepRunning : State → State → Prop
   | basefee (s : State)
         (h_op      : s.decodedOp = some .BASEFEE)
         (h_gas     : Gas.baseCost s.fork .BASEFEE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.baseFeePerGas :: s.stack
@@ -815,6 +831,7 @@ inductive StepRunning : State → State → Prop
   | blobbasefee (s : State)
         (h_op      : s.decodedOp = some .BLOBBASEFEE)
         (h_gas     : Gas.baseCost s.fork .BLOBBASEFEE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.blobBaseFee :: s.stack
@@ -839,6 +856,7 @@ inductive StepRunning : State → State → Prop
   | push0 (s : State)
         (h_op      : s.decodedOp = some (.Push ⟨0, by decide⟩))
         (h_gas     : Gas.baseCost s.fork (.Push ⟨0, by decide⟩) ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := ⟨0⟩ :: s.stack
@@ -857,6 +875,7 @@ inductive StepRunning : State → State → Prop
         (h_k_pos   : 0 < k.val)
         (h_op      : s.decoded = some (.Push ⟨k, k.isLt⟩, some (data, immWidth)))
         (h_gas     : Gas.baseCost s.fork (.Push ⟨k, k.isLt⟩) ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := data :: s.stack
@@ -868,6 +887,7 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some (.Dup ⟨n⟩))
         (h_gas     : Gas.baseCost s.fork (.Dup ⟨n⟩) ≤ s.gasAvailable)
         (h_get     : s.stack[n.val]? = some v)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := v :: s.stack
@@ -939,6 +959,7 @@ inductive StepRunning : State → State → Prop
   | msize (s : State)
         (h_op      : s.decodedOp = some .MSIZE)
         (h_gas     : Gas.baseCost s.fork .MSIZE ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := MachineState.msize s.toMachineState :: s.stack
@@ -1089,6 +1110,7 @@ inductive StepRunning : State → State → Prop
   | pc (s : State)
         (h_op      : s.decodedOp = some .PC)
         (h_gas     : Gas.baseCost s.fork .PC ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := s.pc :: s.stack
@@ -1101,6 +1123,7 @@ inductive StepRunning : State → State → Prop
   | gas (s : State)
         (h_op      : s.decodedOp = some .GAS)
         (h_gas     : Gas.baseCost s.fork .GAS ≤ s.gasAvailable)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := UInt256.ofNat (s.gasAvailable - Gas.baseCost s.fork .GAS)
@@ -1181,6 +1204,10 @@ inductive StepRunning : State → State → Prop
         (h_op       : s.decodedOp = some .CALL)
         (h_stack    : s.stack =
                         gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        -- Complement of `callStatic`: a value-transferring CALL in a static
+        -- frame is rejected *before* any gas is charged, so neither the
+        -- taken nor the silent-fail path may fire in that case.
+        (h_static   : s.executionEnv.permitStateMutation = true ∨ value.toNat = 0)
         (h_gas      : Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                         ≤ s.gasAvailable)
         (h_take     : ¬ (s.executionEnv.depth ≥ 1024 ∨
@@ -1221,6 +1248,10 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CALL)
         (h_stack : s.stack =
                      gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
+        -- Same static-mode exclusion as `call`: the `callStatic` rejection
+        -- fires before the depth/balance check, so the silent-fail exit is
+        -- unreachable for a value-transferring CALL in a static frame.
+        (h_static : s.executionEnv.permitStateMutation = true ∨ value.toNat = 0)
         (h_gas   : Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                      ≤ s.gasAvailable)
         -- Same `h_afford` as `call`: pre-EIP-150 `forwardGas gasArg =
@@ -1732,6 +1763,7 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some (.DupN ⟨n⟩))
         (h_gas     : Gas.baseCost s.fork (.DupN ⟨n⟩) ≤ s.gasAvailable)
         (h_get     : s.stack[n.val]? = some v)
+        (h_cap     : s.stack.length < 1024)
       : StepRunning s
           { s with
               stack        := v :: s.stack
@@ -1789,16 +1821,36 @@ inductive StepRunning : State → State → Prop
       : StepRunning s ({ s with halt := .Exception .InvalidInstruction })
 
   /-- Insufficient gas to pay for the decoded operation's *total* cost.
-      `cost` is any witness gas amount at least `baseCost` — this lets the
-      rule fire not only when the static fee alone exceeds the budget but
-      also when a dynamic surcharge does: memory expansion, per-word copy,
-      per-byte LOG/EXP, `Gas.sstoreCost`, or the EIP-2200 stipend. The
-      `h_cost_lb` constraint prevents bogus OOGs (a `cost < baseCost`
-      witness could not actually halt the op). -/
+      `cost` is a witness bounded above by `Gas.totalCost s op` — the exact
+      staged charge the operation makes at `s` (static fee + memory
+      expansion + per-word/per-byte dynamic costs + EIP-2929 cold
+      surcharges + CALL-family surcharge/forwarding, with `SSTORE`'s
+      EIP-2200 sentry folded in as a cost floor). Since `s.gasAvailable <
+      cost ≤ Gas.totalCost s op`, this rule is derivable *exactly* when the
+      operation genuinely cannot be afforded; a synthetic over-estimate
+      (e.g. `s.gasAvailable + 1` on a cheap op) is ruled out by
+      `h_cost_ub`. The witness form (rather than demanding
+      `s.gasAvailable < Gas.totalCost s op` directly) lets the soundness
+      proof present just the charging stage that failed. -/
   | outOfGas (s : State) (op : Operation) (cost : Nat)
         (h_op       : s.decodedOp = some op)
-        (h_cost_lb  : Gas.baseCost s.fork op ≤ cost)
+        (h_cost_ub  : cost ≤ Gas.totalCost s op)
         (h_gas      : s.gasAvailable < cost)
+      : StepRunning s ({ s with halt := .Exception .OutOfGas })
+
+  /-- CREATE/CREATE2 whose init code exceeds the EIP-3860
+      `MAX_INITCODE_SIZE` cap (Shanghai+): the opcode aborts exceptionally,
+      consuming all gas, *before* any gas or memory charging — this is a
+      size-cap failure, not a gas shortage, so it is not folded into
+      `Gas.totalCost`/`outOfGas`. Both opcodes read `size` from the third
+      stack slot, so one rule covers them (CREATE2's `salt` sits in the
+      tail). -/
+  | initCodeSizeOog (s : State) (op : Operation)
+        (value offset size : UInt256) (rest : List UInt256)
+        (h_op       : s.decodedOp = some op)
+        (h_create   : op = .System .CREATE ∨ op = .System .CREATE2)
+        (h_stack    : s.stack = value :: offset :: size :: rest)
+        (h_large    : Gas.initCodeTooLarge s.fork size.toNat = true)
       : StepRunning s ({ s with halt := .Exception .OutOfGas })
 
   /-- Stack has fewer items than the operation requires to pop. -/

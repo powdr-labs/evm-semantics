@@ -31,11 +31,15 @@ jobs:
   # ~60s, run in parallel). The floor is now `build + slowest single suite`,
   # not the sum of all suites.
   #
-  # GATING is preserved exactly as it was in the old single job: a build/lint
-  # failure fails `build`, and a CALL-state-test regression fails `statetests`
-  # (its `--strict` compare is the only non-`continue-on-error` test step). The
-  # other four suites stay informational. The `ci` gate job at the bottom
-  # aggregates every job into one stable required-check name.
+  # GATING: a build/lint failure fails `build`; a CALL-state-test regression
+  # fails `statetests` (its `--strict` compare gates every tier regression,
+  # including INCON); and every other suite's compare step gates *correctness*
+  # regressions — any test whose new tier is FAIL or CRASH vs the committed
+  # expected-failures baseline fails its shard, while INCON-tier regressions
+  # (the known walltimeout perf incons flapping under CPU load) remain
+  # warnings-only. A run that produces no parseable summary also fails its
+  # shard. The `ci` gate job at the bottom aggregates every job into one
+  # stable required-check name.
   # ─────────────────────────────────────────────────────────────────────────
   build:
     name: Build and lint
@@ -143,8 +147,8 @@ jobs:
           git fetch --depth 1 --filter=blob:none origin "$CORPUS_REV"
           git checkout -q FETCH_HEAD
 
-      # Non-gating: reports the VMTests pass/fail picture and flags regressions,
-      # but never blocks the PR. The expected-failures list lives in
+      # Gates correctness regressions (new tier FAIL/CRASH vs the baseline);
+      # INCON-tier regressions stay warnings. The expected-failures list lives in
       # .github/vmtests-expected-failures.txt (sorted "<id>: <tier>" lines; no
       # aggregate counts, so branches that fix or add failing tests do not
       # produce merge conflicts on adjacent lines).
@@ -156,7 +160,6 @@ jobs:
 
       - name: Summarize and compare against expected failures
         if: always()
-        continue-on-error: true
         run: |
           # Only compare if a complete summary was produced. A failed/partial
           # vmtests run yields no parseable aggregate line, so vmtests_summary.sh
@@ -168,12 +171,15 @@ jobs:
               .github/vmtests-expected-failures.txt vmtests-summary.txt \
               vmtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
+            echo "::error title=VMTests::vmtests produced no parseable summary; skipping regression comparison."
             {
               echo "## VMTests regression report"
               echo
               echo "⚠️ The vmtests run did not produce a parseable summary (incomplete run, missing output, or an output-format change), so the regression comparison was **skipped** to avoid false results. See the \`vmtests-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload VMTests report
@@ -293,12 +299,15 @@ jobs:
               .github/statetests-expected-failures.txt statetests-summary.txt \
               statetests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=StateTests::statetests produced no parseable summary; skipping regression comparison."
+            echo "::error title=StateTests::statetests produced no parseable summary; skipping regression comparison."
             {
               echo "## StateTests (CALL) regression report"
               echo
               echo "⚠️ The statetests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`statetests-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload StateTests report
@@ -364,7 +373,8 @@ jobs:
           echo "Extracted $count GeneralStateTests json files."
           [ "$count" -gt 0 ] || { echo "::error::no GeneralStateTests extracted — check TESTS_REV / archive paths"; exit 1; }
 
-      # Non-gating: reports the modern GeneralStateTests conformance picture over
+      # Gates correctness regressions (new tier FAIL/CRASH); INCON-tier
+      # regressions stay warnings. Runs the modern GeneralStateTests over
       # (almost) the whole corpus and flags regressions against
       # .github/gstatetests-expected-failures.txt. Run via the per-file
       # subprocess-isolation wrapper (45s cap, parallelism 30 sized for the
@@ -378,19 +388,21 @@ jobs:
 
       - name: Summarize and compare modern GeneralStateTests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/gstatetests_summary.sh gstatetests-output.txt > gstatetests-summary.txt; then
             .github/scripts/gstatetests_check.sh \
               .github/gstatetests-expected-failures.txt gstatetests-summary.txt \
               gstatetests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=GeneralStateTests::gstatetests produced no parseable summary; skipping regression comparison."
+            echo "::error title=GeneralStateTests::gstatetests produced no parseable summary; skipping regression comparison."
             {
               echo "## GeneralStateTests (modern) regression report"
               echo
               echo "⚠️ The gstatetests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`gstatetests-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload GeneralStateTests report
@@ -459,7 +471,8 @@ jobs:
           echo "Extracted $ttcount EEST transaction_test json files."
           [ "$ttcount" -gt 0 ] || { echo "::error::no EEST transaction_tests extracted — check EEST_REV / asset name"; exit 1; }
 
-      # Non-gating: reports the modern Osaka conformance picture and flags
+      # Gates correctness regressions (new tier FAIL/CRASH); INCON-tier stay
+      # warnings. Reports the modern Osaka conformance picture and flags
       # regressions against .github/eest-osaka-expected-failures.txt. Reuses the
       # subprocess-isolation runner + summary / check scripts. Parallelism 8
       # (sized for this 4-core shard — the Osaka corpus is small, so a wide fan
@@ -472,19 +485,21 @@ jobs:
 
       - name: Summarize and compare EEST Osaka state_tests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/gstatetests_summary.sh eest-osaka-output.txt > eest-osaka-summary.txt; then
             .github/scripts/gstatetests_check.sh \
               .github/eest-osaka-expected-failures.txt eest-osaka-summary.txt \
               eest-osaka-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=EEST Osaka::eest osaka run produced no parseable summary; skipping regression comparison."
+            echo "::error title=EEST Osaka::eest osaka run produced no parseable summary; skipping regression comparison."
             {
               echo "## EEST Osaka state_tests regression report"
               echo
               echo "⚠️ The EEST Osaka run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`eest-osaka-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload EEST Osaka report
@@ -496,7 +511,7 @@ jobs:
             eest-osaka-output.txt
             eest-osaka-summary.txt
 
-      # Non-gating: the modern EEST transaction_tests (EIP-7702 set-code tx
+      # Gates FAIL/CRASH regressions: the modern EEST transaction_tests (EIP-7702 set-code tx
       # decode/validate vectors, extracted above from the same EEST tarball as
       # the Osaka state_tests). Reuses the txtests runner + scripts against a
       # separate baseline .github/eest-txtests-expected-failures.txt. Parallelism
@@ -511,19 +526,21 @@ jobs:
 
       - name: Summarize and compare EEST transaction_tests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/txtests_summary.sh eest-txtests-output.txt > eest-txtests-summary.txt; then
             .github/scripts/txtests_check.sh \
               .github/eest-txtests-expected-failures.txt eest-txtests-summary.txt \
               eest-txtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=EEST transaction_tests::txtests produced no parseable summary; skipping regression comparison."
+            echo "::error title=EEST transaction_tests::txtests produced no parseable summary; skipping regression comparison."
             {
               echo "## EEST transaction_tests regression report"
               echo
               echo "⚠️ The EEST transaction_tests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`eest-txtests-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload EEST transaction_tests report
@@ -576,7 +593,8 @@ jobs:
           echo "Checked out $count TransactionTests json files."
           [ "$count" -gt 0 ] || { echo "::error::no TransactionTests checked out — check TESTS_REV / sparse path"; exit 1; }
 
-      # Non-gating: reports the TransactionTests pass/fail picture and flags
+      # Gates correctness regressions (new tier FAIL/CRASH); INCON-tier stay
+      # warnings. Reports the TransactionTests pass/fail picture and flags
       # regressions against .github/txtests-expected-failures.txt.
       - name: Run TransactionTests
         continue-on-error: true
@@ -586,19 +604,21 @@ jobs:
 
       - name: Summarize and compare TransactionTests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/txtests_summary.sh txtests-output.txt > txtests-summary.txt; then
             .github/scripts/txtests_check.sh \
               .github/txtests-expected-failures.txt txtests-summary.txt \
               txtests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=TransactionTests::txtests produced no parseable summary; skipping regression comparison."
+            echo "::error title=TransactionTests::txtests produced no parseable summary; skipping regression comparison."
             {
               echo "## TransactionTests regression report"
               echo
               echo "⚠️ The txtests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`txtests-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload TransactionTests report
@@ -653,7 +673,8 @@ jobs:
           echo "Extracted $bccount EEST blockchain_test json files (static excluded)."
           [ "$bccount" -gt 0 ] || { echo "::error::no EEST blockchain_tests extracted — check EEST_REV / asset name"; exit 1; }
 
-      # Non-gating: full block processing (multi-tx/multi-block execution,
+      # Gates FAIL/CRASH regressions (walltimeout INCON flapping stays
+      # warnings-only): full block processing (multi-tx/multi-block execution,
       # EIP-4788/EIP-2935/EIP-7002/EIP-7251 system calls, withdrawals, block
       # reward — compared against postState). Per-file subprocess-isolation
       # wrapper (20s cap): a pathological block can't hang or OOM the whole run.
@@ -665,19 +686,21 @@ jobs:
 
       - name: Summarize and compare EEST blockchain_tests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/blockchaintests_summary.sh blockchaintests-output.txt > blockchaintests-summary.txt; then
             .github/scripts/blockchaintests_check.sh \
               .github/blockchaintests-expected-failures.txt blockchaintests-summary.txt \
               blockchaintests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=BlockchainTests::blockchaintests produced no parseable summary; skipping regression comparison."
+            echo "::error title=BlockchainTests::blockchaintests produced no parseable summary; skipping regression comparison."
             {
               echo "## BlockchainTests regression report"
               echo
               echo "⚠️ The blockchaintests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`blockchaintests-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload BlockchainTests report
@@ -729,7 +752,8 @@ jobs:
           echo "Extracted $bccount EEST blockchain_test_engine json files."
           [ "$bccount" -gt 0 ] || { echo "::error::no EEST blockchain_tests_engine extracted — check EEST_REV / asset name"; exit 1; }
 
-      # Non-gating: full block processing delivered as Engine-API newPayload
+      # Gates FAIL/CRASH regressions (walltimeout INCON flapping stays
+      # warnings-only): full block processing delivered as Engine-API newPayload
       # envelopes. Reuses the blockchaintests_* scripts (identical output
       # format) via the BLOCKCHAINTESTS_BIN override, against this suite's own
       # baseline. Per-file subprocess-isolation wrapper (60s cap): a
@@ -744,19 +768,21 @@ jobs:
 
       - name: Summarize and compare EEST blockchain_tests_engine against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/blockchaintests_summary.sh blockchaintests-engine-output.txt > blockchaintests-engine-summary.txt; then
             .github/scripts/blockchaintests_check.sh \
               .github/blockchaintests-engine-expected-failures.txt blockchaintests-engine-summary.txt \
               blockchaintests-engine-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=BlockchainTests (Engine)::blockchaintests_engine produced no parseable summary; skipping regression comparison."
+            echo "::error title=BlockchainTests (Engine)::blockchaintests_engine produced no parseable summary; skipping regression comparison."
             {
               echo "## BlockchainTests (Engine) regression report"
               echo
               echo "⚠️ The blockchaintests_engine run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`blockchaintests-engine-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload BlockchainTests (Engine) report
@@ -817,7 +843,7 @@ jobs:
           echo "Extracted $count EEST static/historical state_test json files."
           [ "$count" -gt 0 ] || { echo "::error::no EEST state_tests extracted — check EEST_REV / asset name"; exit 1; }
 
-      # Non-gating: reuses the gstatetests subprocess-isolation wrapper +
+      # Gates FAIL/CRASH regressions; reuses the gstatetests subprocess-isolation wrapper +
       # summary / check scripts against this corpus's own baseline.
       # Parallelism 30 sized for the 32-core runner (same as modgst).
       - name: Run EEST static state_tests
@@ -828,19 +854,21 @@ jobs:
 
       - name: Summarize and compare EEST static state_tests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/gstatetests_summary.sh eest-static-output.txt > eest-static-summary.txt; then
             .github/scripts/gstatetests_check.sh \
               .github/eest-static-expected-failures.txt eest-static-summary.txt \
               eest-static-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=EEST static::eest static run produced no parseable summary; skipping regression comparison."
+            echo "::error title=EEST static::eest static run produced no parseable summary; skipping regression comparison."
             {
               echo "## EEST static state_tests regression report"
               echo
               echo "⚠️ The EEST static state_tests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`eest-static-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload EEST static report
@@ -898,7 +926,7 @@ jobs:
           echo "Checked out $count RLPTests+TrieTests json files."
           [ "$count" -gt 0 ] || { echo "::error::no RLPTests/TrieTests checked out — check TESTS_REV / sparse paths"; exit 1; }
 
-      # Non-gating. Both runners emit the txtests output format, so the run +
+      # Gates FAIL/CRASH regressions. Both runners emit the txtests output format, so the run +
       # summary scripts are reused via the TXTESTS_BIN override (the same
       # pattern as blockchaintests_engine ↔ BLOCKCHAINTESTS_BIN); each suite
       # has its own check script (report title) and baseline.
@@ -911,19 +939,21 @@ jobs:
 
       - name: Summarize and compare RLPTests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/txtests_summary.sh rlptests-output.txt > rlptests-summary.txt; then
             .github/scripts/rlptests_check.sh \
               .github/rlptests-expected-failures.txt rlptests-summary.txt \
               rlptests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=RLPTests::rlptests produced no parseable summary; skipping regression comparison."
+            echo "::error title=RLPTests::rlptests produced no parseable summary; skipping regression comparison."
             {
               echo "## RLPTests regression report"
               echo
               echo "⚠️ The rlptests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`trierlp-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Run TrieTests
@@ -936,19 +966,21 @@ jobs:
 
       - name: Summarize and compare TrieTests against expected failures
         if: always()
-        continue-on-error: true
         run: |
           if .github/scripts/txtests_summary.sh trietests-output.txt > trietests-summary.txt; then
             .github/scripts/trietests_check.sh \
               .github/trietests-expected-failures.txt trietests-summary.txt \
               trietests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning title=TrieTests::trietests produced no parseable summary; skipping regression comparison."
+            echo "::error title=TrieTests::trietests produced no parseable summary; skipping regression comparison."
             {
               echo "## TrieTests regression report"
               echo
               echo "⚠️ The trietests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`trierlp-report\` artifact."
             } >> "$GITHUB_STEP_SUMMARY"
+            # A run that produced no parseable summary is itself a gating
+            # failure — a wholesale crash must not leave the shard green.
+            exit 1
           fi
 
       - name: Upload TrieTests + RLPTests report
@@ -967,13 +999,13 @@ jobs:
   # require THIS job ("CI / Gate") rather than the individual shard names, so
   # the required-check name stays put even as shards are added or renamed.
   #
-  # It fails iff any upstream job did not succeed. Because the non-gating
-  # suites' compare steps are `continue-on-error`, those shards stay green on a
-  # conformance regression and only go red on an infra failure (checkout /
-  # artifact download / corpus fetch) — which SHOULD block, exactly as it did
-  # when those fetches lived in the old single job. `build` gates on build/lint;
-  # `statetests` gates on a CALL-suite regression. Net: identical gating to the
-  # pre-split job, now reported through one durable check.
+  # It fails iff any upstream job did not succeed. Every shard's compare step
+  # now gates: `build` on build/lint, `statetests` on any CALL-suite tier
+  # regression (strict, including INCON), and every other suite on correctness
+  # regressions (new tier FAIL/CRASH vs its committed baseline) — INCON-tier
+  # flapping (walltimeout perf incons under CPU load) stays warnings-only so
+  # loaded runners don't produce spurious reds. Infra failures (checkout /
+  # artifact download / corpus fetch / unparseable summary) also block.
   # ─────────────────────────────────────────────────────────────────────────
   ci:
     name: Gate

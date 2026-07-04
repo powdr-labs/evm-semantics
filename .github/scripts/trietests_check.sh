@@ -62,13 +62,20 @@ else
   echo
 fi
 
+gating=0
 if [ "${#regressions[@]}" -gt 0 ]; then
   echo "### ⚠️ ${#regressions[@]} regression(s) — worse tier than expected"
   echo
   for line in "${regressions[@]}"; do
     read -r _ id b c <<<"$line"
     echo "- \`$id\`: expected \`$b\`, got \`$c\`"
-    echo "::warning title=TrieTests regression::$id regressed ($b -> $c)"
+    case "$c" in
+      FAIL|CRASH)
+        echo "::error title=TrieTests correctness regression::$id regressed ($b -> $c)"
+        gating=1 ;;
+      *)
+        echo "::warning title=TrieTests regression::$id regressed ($b -> $c)" ;;
+    esac
   done
   echo
 else
@@ -89,4 +96,12 @@ if [ "${#improvements[@]}" -gt 0 ]; then
   echo
 fi
 
+# GATE: a regression whose *new* tier is FAIL or CRASH is a correctness
+# regression and fails the shard. Regressions that only land at INCON (e.g.
+# the known walltimeout perf incons flapping under CPU load) stay
+# warnings-only, as do improvements.
+if [ "$gating" -ne 0 ]; then
+  echo "⛔ Correctness regression(s) — new tier FAIL/CRASH — failing this shard."
+  exit 1
+fi
 exit 0

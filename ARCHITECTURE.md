@@ -18,12 +18,13 @@ definition agrees with the relational one:
 - **`stepF`** — an `Except`-valued *executable* function shadowing `Step`
   opcode-by-opcode (the thing the demo and the test harness actually run).
 
-`EVM/Equiv.lean` closes `stepF_sound : stepF s = .ok s' → Step s s'` with no
-`sorry`, so any *successful* `stepF` step is backed by a derivation in the
-relational spec. This covers only the `.ok s'` path — `stepF`'s `.error`
-(exception) results are **not** in general matched by a `Step` successor; the
-memory-expansion `OutOfGas` case (`chargeMem` → `.error`, with no Step-side
-memory-OOG rule) is a current example.
+`EVM/Equiv.lean` closes `stepF_sound : ¬ s.isDone → Step s (stepF s)` with no
+`sorry`: `stepF` is total (in-frame exceptions fold into
+`halt := .Exception e`), and *every* step it takes on a non-done state —
+success or exception — is backed by a derivation in the relational spec
+(the underlying `stepFE_sound` covers both the `.ok` and `.error`
+outcomes of the `Except`-valued `stepFE`, with every `OutOfGas` site
+bounded by the exact per-op `Gas.totalCost`).
 
 ## Module layers
 

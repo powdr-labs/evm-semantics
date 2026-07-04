@@ -4,7 +4,9 @@
 # *expected-failures* file (sorted "<id>: <tier>" lines) and emit a Markdown
 # regression report on stdout (for $GITHUB_STEP_SUMMARY).
 #
-# This is a REPORT (non-gating): it exits 0 and only surfaces regressions as
+# This is a HYBRID report/gate: regressions whose *new* tier is FAIL or
+# CRASH (correctness) exit 1 and fail the shard; INCON-tier regressions
+# (e.g. walltimeout flapping under CPU load) are surfaced as
 # GitHub `::warning::` annotations. Regression / improvement classification is
 # tier-aware (severity order: pass < INCON < FAIL < CRASH), so INCON -> FAIL,
 # FAIL -> CRASH, and pass -> anything all count as regressions.
@@ -66,13 +68,20 @@ else
   echo
 fi
 
+gating=0
 if [ "${#regressions[@]}" -gt 0 ]; then
   echo "### ⚠️ ${#regressions[@]} regression(s) — worse tier than expected"
   echo
   for line in "${regressions[@]}"; do
     read -r _ id b c <<<"$line"
     echo "- \`$id\`: expected \`$b\`, got \`$c\`"
-    echo "::warning title=GeneralStateTests regression::$id regressed ($b -> $c)"
+    case "$c" in
+      FAIL|CRASH)
+        echo "::error title=GeneralStateTests correctness regression::$id regressed ($b -> $c)"
+        gating=1 ;;
+      *)
+        echo "::warning title=GeneralStateTests regression::$id regressed ($b -> $c)" ;;
+    esac
   done
   echo
 else
@@ -93,4 +102,12 @@ if [ "${#improvements[@]}" -gt 0 ]; then
   echo
 fi
 
+# GATE: a regression whose *new* tier is FAIL or CRASH is a correctness
+# regression and fails the shard. Regressions that only land at INCON (e.g.
+# the known walltimeout perf incons flapping under CPU load) stay
+# warnings-only, as do improvements.
+if [ "$gating" -ne 0 ]; then
+  echo "⛔ Correctness regression(s) — new tier FAIL/CRASH — failing this shard."
+  exit 1
+fi
 exit 0
