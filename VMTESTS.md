@@ -5,7 +5,8 @@
 As of the committed CI baselines (`.github/*-expected-failures.txt`, kept in
 lockstep with real runner output), **every suite has zero correctness failures
 and zero crashes**. The only non-passing entries are long-standing report-only
-VMTests incons and two performance walltimeout incons:
+VMTests incons and the same two performance walltimeout incons in both the
+plain and Engine-API blockchain suites:
 
 | Suite | Runner / CI job | fail | incon | crash | notes |
 | --- | --- | --- | --- | --- | --- |
@@ -16,6 +17,7 @@ VMTests incons and two performance walltimeout incons:
 | **EEST** transaction_tests | `eest` | 0 | 0 | 0 | non-gating; decode+validate |
 | **TransactionTests** (`ethereum/tests`) | `txtests` | 0 | 0 | 0 | non-gating; decode+validate |
 | **EEST blockchain_tests** | `blockchaintests` | 0 | **2** | 0 | both `*_walltimeout` — perf, not correctness (see below) |
+| **EEST blockchain_tests** (Engine API) | `blockchaintests_engine` | 0 | **2** | 0 | same chains as `newPayload` envelopes; same two `*_walltimeout` |
 
 - The **7 VMTests incons** are report-only single-frame evaluator gaps
   (OOG/fuel-exhausted tests the interpreter can't reproduce under its fuel cap,
@@ -30,7 +32,7 @@ VMTests incons and two performance walltimeout incons:
 
 ## Harnesses
 
-Five harnesses exercise the verified evaluator (`stepF` / `run`):
+Six harnesses exercise the verified evaluator (`stepF` / `run`):
 
 - **`tests/VMRunner.lean`** (executable `vmtests`) — runs the legacy ethereum/tests
   **VMTests** suite, the *single-frame* corpus (no inter-contract calls,
@@ -71,6 +73,21 @@ Five harnesses exercise the verified evaluator (`stepF` / `run`):
   block-validity verdict. Exercises the Prague/Osaka EIP set (4844, 2537,
   2935, 7918/BPO, 7702, 6780, …). Baseline:
   `.github/blockchaintests-expected-failures.txt`.
+- **`tests/BlockchainEngineTestRunner.lean`** (executable
+  `blockchaintests_engine`) — runs the EEST **blockchain_tests_engine**: the
+  same chains as `blockchaintests`, but each block arrives as an Engine-API
+  `engineNewPayload` envelope (`params = [executionPayload, versionedHashes,
+  parentBeaconBlockRoot, executionRequests?]`) instead of a raw block `rlp`.
+  The `executionPayload` carries transactions as opaque EIP-2718 RLP byte
+  strings, so the runner RLP-decodes each (legacy / 2930 / 1559 / 4844 / 7702),
+  **recovers the sender** from its signature and — for set-code txs — recovers
+  each authorization's **authority** from `keccak(0x05 ‖ rlp([chainId, address,
+  nonce]))`, then executes through the same `Tx.execute` core. A payload flagged
+  `validationError` is rejected (Engine-API `INVALID`), mirroring how the plain
+  runner treats a block flagged `expectException`. Output format is identical to
+  `blockchaintests`, so the CI shard reuses `blockchaintests_{run,summary,check}.sh`
+  via the `BLOCKCHAINTESTS_BIN` override. Baseline:
+  `.github/blockchaintests-engine-expected-failures.txt`.
 
 The `eest` CI job additionally runs the **maintained EEST (execution-spec-tests)
 Osaka `state_tests`** through the `gstatetests` binary — modern-fork fixtures
@@ -211,9 +228,10 @@ list, gating discipline, and script pair (`<suite>_summary.sh`,
 | `eest` | EEST `transaction_tests` (`txtests` binary) | `.github/eest-txtests-expected-failures.txt` | report-only |
 | `txtests` | `ethereum/tests` TransactionTests | `.github/txtests-expected-failures.txt` | report-only |
 | `blockchaintests` | EEST `blockchain_tests` @ `EEST_REV` | `.github/blockchaintests-expected-failures.txt` | report-only |
+| `blockchaintests_engine` | EEST `blockchain_tests_engine` @ `EEST_REV` | `.github/blockchaintests-engine-expected-failures.txt` | report-only |
 
-The EEST corpora (Osaka `state_tests`, `transaction_tests`, `blockchain_tests`)
-are extracted from the `fixtures_develop.tar.gz` release asset pinned by
+The EEST corpora (Osaka `state_tests`, `transaction_tests`, `blockchain_tests`,
+`blockchain_tests_engine`) are extracted from the `fixtures_develop.tar.gz` release asset pinned by
 `EEST_REV`; the legacy corpora are pinned by `CORPUS_REV` and the modern
 `ethereum/tests` GeneralStateTests/TransactionTests by `TESTS_REV`. A baseline
 file and the corpus revision it was generated against must always move together.
@@ -264,6 +282,13 @@ new floor:
 .github/scripts/blockchaintests_run.sh eest/fixtures/blockchain_tests 45 8 > raw.txt
 .github/scripts/blockchaintests_summary.sh raw.txt \
   > .github/blockchaintests-expected-failures.txt
+
+# EEST blockchain_tests_engine (reuses the blockchaintests scripts via the
+# BLOCKCHAINTESTS_BIN override):
+BLOCKCHAINTESTS_BIN=./.lake/build/bin/blockchaintests_engine \
+  .github/scripts/blockchaintests_run.sh eest/fixtures/blockchain_tests_engine 45 8 > raw.txt
+.github/scripts/blockchaintests_summary.sh raw.txt \
+  > .github/blockchaintests-engine-expected-failures.txt
 ```
 If you regenerate against a newer corpus, bump `CORPUS_REV` or `TESTS_REV`
 in `.github/workflows/ci.yml` in the same commit — the expected-failures

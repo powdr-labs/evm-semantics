@@ -13,7 +13,7 @@ conformance harness). This file stays terse and operational.
 
 ```sh
 lake build                          # build the default target only (evm_semantics exe + lib)
-lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests  # all runner binaries — what CI builds
+lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine  # all runner binaries — what CI builds
 lake exe cache get                  # fetch Mathlib prebuilt oleans (after `lake update`)
 lake lint                           # Batteries runLinter over the EvmSemantics namespace
 .lake/build/bin/evm_semantics       # run the demo (PUSH1 5; PUSH1 3; ADD; STOP -> [8])
@@ -22,6 +22,7 @@ lake lint                           # Batteries runLinter over the EvmSemantics 
 .lake/build/bin/gstatetests <dir>   # MODERN ethereum/tests GeneralStateTests (state_test fixtures; also EEST Osaka)
 .lake/build/bin/txtests <dir>       # TransactionTests + EEST transaction_tests (decode/validate only)
 .lake/build/bin/blockchaintests <dir> # EEST blockchain_tests (full chain execution + consensus)
+.lake/build/bin/blockchaintests_engine <dir> # EEST blockchain_tests_engine (same chains via Engine-API newPayload; RLP tx decode + sender recovery)
 ```
 
 - Cold build is ~10 min (compiles Mathlib); cached, ~30 s. Always `lake exe
@@ -158,9 +159,11 @@ exclusive at the relation level. `Precompile.run` takes the
 `isPrecompile` proof as a precondition, so its `Result` only has
 `.success` / `.outOfGas` — no `.notAPrecompile` arm. The full precompile
 set is implemented (`0x01`–`0x09`, plus `0x0A` KZG point evaluation and
-the `0x0B`+ BLS12-381 set). **Not yet implemented:** full RLP (only
-`[address, nonce]`) and ECDSA-recovered tx senders. Block validation is
-covered by the EEST `blockchain_tests` job (chain execution + consensus).
+the `0x0B`+ BLS12-381 set). Block validation is covered by the EEST
+`blockchain_tests` job (chain execution + consensus); the
+`blockchain_tests_engine` job additionally decodes raw-RLP txs from
+Engine-API `newPayload` envelopes and ECDSA-recovers the sender (and each
+EIP-7702 authority).
 
 **Known gaps** (tracked in `VMTESTS.md`):
 - **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
@@ -223,7 +226,7 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 ## CI gates (`.github/workflows/ci.yml`)
 
-1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests`,
+1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine`,
    fail on any `warning:`.
 2. `lake lint`.
 3. VMTests on the full corpus — **non-gating**: compares against
@@ -251,11 +254,17 @@ Touch these in order, then rebuild + lint + run vmtests:
 8. EEST `blockchain_tests` (`blockchaintests`, full chain execution + consensus,
    pinned by `EEST_REV`) — **non-gating**;
    `.github/blockchaintests-expected-failures.txt`.
+9. EEST `blockchain_tests_engine` (`blockchaintests_engine`, the same chains fed
+   as Engine-API `newPayload` envelopes — raw-RLP txs decoded with ECDSA sender
+   + EIP-7702 authority recovery, pinned by `EEST_REV`) — **non-gating**; reuses
+   the `blockchaintests_{run,summary,check}.sh` scripts via `BLOCKCHAINTESTS_BIN`;
+   `.github/blockchaintests-engine-expected-failures.txt`.
 
 Current state of all baselines: **zero correctness fails and zero crashes**
 across every suite. The only committed non-passing entries are 7 report-only
-VMTests incons (single-frame evaluator gaps) and 2 blockchain `*_walltimeout`
-perf incons. See `VMTESTS.md` for the status table.
+VMTests incons (single-frame evaluator gaps) and 2 `*_walltimeout` perf incons
+in each of the two blockchain suites (same two tests). See `VMTESTS.md` for the
+status table.
 
 The expected-failures files list one entry per non-passing test in the form
 `<test_id>: <FAIL|INCON|CRASH>` sorted alphabetically, with no aggregate counts.

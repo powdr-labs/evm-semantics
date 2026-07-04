@@ -587,16 +587,20 @@ flowchart LR
 
 ## The conformance harnesses
 
-Five runner executables exercise `stepF` / `run` against external corpora, each
+Six runner executables exercise `stepF` / `run` against external corpora, each
 gated in CI by a committed `.github/<suite>-expected-failures.txt` baseline:
 `vmtests` (legacy VMTests), `statetests` (legacy curated GeneralStateTests,
 **gating**), `gstatetests` (modern `ethereum/tests` GeneralStateTests + EEST
 Osaka `state_tests`), `txtests` (TransactionTests + EEST `transaction_tests`,
-decode/validate only), and `blockchaintests` (EEST `blockchain_tests`, full
-chain execution). As of the committed baselines all suites are **clean** — zero
-correctness fails, zero crashes; the only non-passing entries are 7 report-only
-VMTests incons and 2 blockchain `*_walltimeout` perf incons. See `VMTESTS.md`
-for the full status table and per-suite details.
+decode/validate only), `blockchaintests` (EEST `blockchain_tests`, full
+chain execution), and `blockchaintests_engine` (EEST `blockchain_tests_engine`
+— the same chains delivered as Engine-API `newPayload` envelopes, decoding
+raw-RLP txs with ECDSA sender + EIP-7702 authority recovery and reusing the
+`blockchaintests` execution core). As of the committed baselines all suites are
+**clean** — zero correctness fails, zero crashes; the only non-passing entries
+are 7 report-only VMTests incons and 2 `*_walltimeout` perf incons in each of
+the two blockchain suites (same two tests). See `VMTESTS.md` for the full status
+table and per-suite details.
 
 The `vmtests` executable runs the legacy ethereum/tests **VMTests** corpus
 against `stepF` via its `run` fuel loop (cap `2_000_000`):
