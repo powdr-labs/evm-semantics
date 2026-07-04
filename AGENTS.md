@@ -13,7 +13,7 @@ conformance harness). This file stays terse and operational.
 
 ```sh
 lake build                          # build the default target only (evm_semantics exe + lib)
-lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine  # all runner binaries — what CI builds
+lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests  # all runner binaries — what CI builds
 lake exe cache get                  # fetch Mathlib prebuilt oleans (after `lake update`)
 lake lint                           # Batteries runLinter over the EvmSemantics namespace
 .lake/build/bin/evm_semantics       # run the demo (PUSH1 5; PUSH1 3; ADD; STOP -> [8])
@@ -23,6 +23,8 @@ lake lint                           # Batteries runLinter over the EvmSemantics 
 .lake/build/bin/txtests <dir>       # TransactionTests + EEST transaction_tests (decode/validate only)
 .lake/build/bin/blockchaintests <dir> # EEST blockchain_tests (full chain execution + consensus)
 .lake/build/bin/blockchaintests_engine <dir> # EEST blockchain_tests_engine (same chains via Engine-API newPayload; RLP tx decode + sender recovery)
+.lake/build/bin/rlptests <dir>      # ethereum/tests RLPTests (RLP codec conformance)
+.lake/build/bin/trietests <dir>     # ethereum/tests TrieTests (MPT root conformance)
 ```
 
 - Cold build is ~10 min (compiles Mathlib); cached, ~30 s. Always `lake exe
@@ -226,7 +228,7 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 ## CI gates (`.github/workflows/ci.yml`)
 
-1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine`,
+1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests`,
    fail on any `warning:`.
 2. `lake lint`.
 3. VMTests on the full corpus — **non-gating**: compares against
@@ -259,12 +261,23 @@ Touch these in order, then rebuild + lint + run vmtests:
    + EIP-7702 authority recovery, pinned by `EEST_REV`) — **non-gating**; reuses
    the `blockchaintests_{run,summary,check}.sh` scripts via `BLOCKCHAINTESTS_BIN`;
    `.github/blockchaintests-engine-expected-failures.txt`.
+10. EEST static + historical `state_tests` (`gstatetests` binary; the maintained
+    ports of the full legacy corpus, filled through Osaka, minus `osaka/` —
+    covered by job 6 — and minus `static/state_tests/{stTimeConsuming,VMTests}`,
+    pinned by `EEST_REV`) — **non-gating**;
+    `.github/eest-static-expected-failures.txt`.
+11. `ethereum/tests` RLPTests (`rlptests`) + TrieTests (`trietests`) — direct
+    RLP-codec and MPT-root conformance, sparse checkout pinned by `TESTS_REV` —
+    **non-gating**; reuse `txtests_{run,summary}.sh` via `TXTESTS_BIN` with
+    per-suite check scripts; `.github/rlptests-expected-failures.txt` and
+    `.github/trietests-expected-failures.txt`.
 
 Current state of all baselines: **zero correctness fails and zero crashes**
 across every suite. The only committed non-passing entries are 7 report-only
-VMTests incons (single-frame evaluator gaps) and 2 `*_walltimeout` perf incons
-in each of the two blockchain suites (same two tests). See `VMTESTS.md` for the
-status table.
+VMTests incons (single-frame evaluator gaps), 2 `*_walltimeout` perf incons in
+each of the two blockchain suites and the EEST static suite (same two tests),
+and 1 out-of-scope trie-iterator incon (`trietestnextprev`). See `VMTESTS.md`
+for the status table.
 
 The expected-failures files list one entry per non-passing test in the form
 `<test_id>: <FAIL|INCON|CRASH>` sorted alphabetically, with no aggregate counts.

@@ -60,7 +60,7 @@ jobs:
           # linters re-emit their diagnostics, then fail if any appear.
           rm -rf .lake/build
           set -o pipefail
-          lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine 2>&1 | tee build.log
+          lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests 2>&1 | tee build.log
           if grep -E "warning:" build.log; then
             echo "::error::Linter warnings detected — see the build log above."
             exit 1
@@ -102,6 +102,12 @@ jobs:
       - name: Upload blockchaintests_engine binary
         uses: actions/upload-artifact@v7
         with: { name: bin-blockchaintests-engine, path: .lake/build/bin/blockchaintests_engine, retention-days: 1 }
+      - name: Upload rlptests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-rlptests, path: .lake/build/bin/rlptests, retention-days: 1 }
+      - name: Upload trietests binary
+        uses: actions/upload-artifact@v7
+        with: { name: bin-trietests, path: .lake/build/bin/trietests, retention-days: 1 }
 
   # ── VMTests shard (light: legacytests VMTests slice, no execution-heavy) ──
   vmtests:
@@ -762,6 +768,200 @@ jobs:
             blockchaintests-engine-output.txt
             blockchaintests-engine-summary.txt
 
+  # ── EEST static state_tests shard: the maintained ports of the full legacy
+  # ── corpus, filled for current forks (the only Osaka fills of the legacy
+  # ── test logic — ethereum/tests is frozen at Prague), plus the small
+  # ── historical per-fork dirs. Reuses the gstatetests binary + scripts. ──
+  eeststatic:
+    name: EEST state_tests (static + historical forks)
+    needs: build
+    # 32-core runner: ~2.6k files of full state-test execution — the same
+    # per-file weight as the modgst shard, which runs at the same width.
+    runs-on: warp-ubuntu-2404-x64-32x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download gstatetests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-gstatetests
+          path: .lake/build/bin
+      - name: Make binary executable
+        run: chmod +x .lake/build/bin/gstatetests
+
+      # Fetch the EEST state_tests subtree (own tarball copy — this shard runs
+      # in parallel with the other EEST shards). We keep `static/` (the
+      # maintained ports of the whole legacy corpus, filled through Osaka) and
+      # the historical per-fork dirs, and drop:
+      #   * `osaka/` — already run by the `eest` shard against its own baseline;
+      #   * `static/state_tests/stTimeConsuming` + `static/state_tests/VMTests`
+      #     — the same two exclusions the modgst shard applies to the
+      #     ethereum/tests copy of this corpus (deliberately pathological /
+      #     not-a-state-test), for the same reasons.
+      # Pin EEST_REV together with .github/eest-static-expected-failures.txt.
+      - name: Fetch EEST static state_tests corpus
+        env:
+          EEST_REV: v5.4.0
+        run: |
+          url="https://github.com/ethereum/execution-spec-tests/releases/download/$EEST_REV/fixtures_develop.tar.gz"
+          curl -sSL --retry 3 -o fixtures_develop.tar.gz "$url"
+          mkdir -p eest
+          tar xzf fixtures_develop.tar.gz -C eest fixtures/state_tests
+          rm -f fixtures_develop.tar.gz
+          rm -rf eest/fixtures/state_tests/osaka \
+                 eest/fixtures/state_tests/static/state_tests/stTimeConsuming \
+                 eest/fixtures/state_tests/static/state_tests/VMTests
+          # Guard: a wrong asset/path silently extracts nothing → `total 0` →
+          # skipped comparison read as a false green. Fail loud instead.
+          count=$(find eest/fixtures/state_tests -name '*.json' | wc -l)
+          echo "Extracted $count EEST static/historical state_test json files."
+          [ "$count" -gt 0 ] || { echo "::error::no EEST state_tests extracted — check EEST_REV / asset name"; exit 1; }
+
+      # Non-gating: reuses the gstatetests subprocess-isolation wrapper +
+      # summary / check scripts against this corpus's own baseline.
+      # Parallelism 30 sized for the 32-core runner (same as modgst).
+      - name: Run EEST static state_tests
+        continue-on-error: true
+        run: |
+          .github/scripts/gstatetests_run.sh \
+            eest/fixtures/state_tests 45 30 | tee eest-static-output.txt
+
+      - name: Summarize and compare EEST static state_tests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/gstatetests_summary.sh eest-static-output.txt > eest-static-summary.txt; then
+            .github/scripts/gstatetests_check.sh \
+              .github/eest-static-expected-failures.txt eest-static-summary.txt \
+              eest-static-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=EEST static::eest static run produced no parseable summary; skipping regression comparison."
+            {
+              echo "## EEST static state_tests regression report"
+              echo
+              echo "⚠️ The EEST static state_tests run did not produce a parseable summary (incomplete run, timeout, or an output-format change), so the regression comparison was **skipped**. See the \`eest-static-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload EEST static report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eest-static-report
+          path: |
+            eest-static-output.txt
+            eest-static-summary.txt
+
+  # ── TrieTests + RLPTests shard: direct conformance for the MPT and the ──
+  # ── RLP codec — the two data-structure layers every other suite only ──
+  # ── exercises end-to-end (state roots, tx decode). Tiny corpora. ──
+  trierlp:
+    name: TrieTests + RLPTests
+    needs: build
+    runs-on: warp-ubuntu-2404-x64-8x
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Download rlptests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-rlptests
+          path: .lake/build/bin
+      - name: Download trietests binary
+        uses: actions/download-artifact@v7
+        with:
+          name: bin-trietests
+          path: .lake/build/bin
+      - name: Make binaries executable
+        run: chmod +x .lake/build/bin/rlptests .lake/build/bin/trietests
+
+      # Sparse checkout of just the two (tiny, checked-in) suites from
+      # ethereum/tests, pinned to the same TESTS_REV as the other
+      # ethereum/tests corpora — bump together with the expected-failures
+      # files, never alone.
+      - name: Fetch RLPTests + TrieTests corpora
+        env:
+          # tag v17.2 — kept in lockstep with the other ethereum/tests revs.
+          TESTS_REV: c67e485ff8b5be9abc8ad15345ec21aa22e290d9
+        run: |
+          mkdir corpus && cd corpus
+          git init -q
+          git remote add origin https://github.com/ethereum/tests
+          git sparse-checkout init --no-cone
+          git sparse-checkout set RLPTests TrieTests
+          git fetch --depth 1 --filter=blob:none origin "$TESTS_REV"
+          git checkout -q FETCH_HEAD
+          cd ..
+          # Guard: a wrong rev/path silently checks out nothing → `total 0` →
+          # skipped comparison read as a false green. Fail loud instead.
+          count=$(find corpus/RLPTests corpus/TrieTests -name '*.json' | wc -l)
+          echo "Checked out $count RLPTests+TrieTests json files."
+          [ "$count" -gt 0 ] || { echo "::error::no RLPTests/TrieTests checked out — check TESTS_REV / sparse paths"; exit 1; }
+
+      # Non-gating. Both runners emit the txtests output format, so the run +
+      # summary scripts are reused via the TXTESTS_BIN override (the same
+      # pattern as blockchaintests_engine ↔ BLOCKCHAINTESTS_BIN); each suite
+      # has its own check script (report title) and baseline.
+      - name: Run RLPTests
+        continue-on-error: true
+        env:
+          TXTESTS_BIN: ./.lake/build/bin/rlptests
+        run: |
+          .github/scripts/txtests_run.sh corpus/RLPTests 8 | tee rlptests-output.txt
+
+      - name: Summarize and compare RLPTests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/txtests_summary.sh rlptests-output.txt > rlptests-summary.txt; then
+            .github/scripts/rlptests_check.sh \
+              .github/rlptests-expected-failures.txt rlptests-summary.txt \
+              rlptests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=RLPTests::rlptests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## RLPTests regression report"
+              echo
+              echo "⚠️ The rlptests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`trierlp-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Run TrieTests
+        if: always()
+        continue-on-error: true
+        env:
+          TXTESTS_BIN: ./.lake/build/bin/trietests
+        run: |
+          .github/scripts/txtests_run.sh corpus/TrieTests 8 | tee trietests-output.txt
+
+      - name: Summarize and compare TrieTests against expected failures
+        if: always()
+        continue-on-error: true
+        run: |
+          if .github/scripts/txtests_summary.sh trietests-output.txt > trietests-summary.txt; then
+            .github/scripts/trietests_check.sh \
+              .github/trietests-expected-failures.txt trietests-summary.txt \
+              trietests-output.txt | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=TrieTests::trietests produced no parseable summary; skipping regression comparison."
+            {
+              echo "## TrieTests regression report"
+              echo
+              echo "⚠️ The trietests run did not produce a parseable summary (incomplete run or an output-format change), so the regression comparison was **skipped**. See the \`trierlp-report\` artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload TrieTests + RLPTests report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trierlp-report
+          path: |
+            rlptests-output.txt
+            rlptests-summary.txt
+            trietests-output.txt
+            trietests-summary.txt
+
   # ─────────────────────────────────────────────────────────────────────────
   # Single stable aggregate check. Branch protection / the merge queue should
   # require THIS job ("CI / Gate") rather than the individual shard names, so
@@ -777,7 +977,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────
   ci:
     name: Gate
-    needs: [build, vmtests, statetests, modgst, eest, txtests, blockchaintests, blockchaintests_engine]
+    needs: [build, vmtests, statetests, modgst, eest, eeststatic, txtests, blockchaintests, blockchaintests_engine, trierlp]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -789,9 +989,11 @@ jobs:
             statetests=${{ needs.statetests.result }}
             modgst=${{ needs.modgst.result }}
             eest=${{ needs.eest.result }}
+            eeststatic=${{ needs.eeststatic.result }}
             txtests=${{ needs.txtests.result }}
             blockchaintests=${{ needs.blockchaintests.result }}
             blockchaintests_engine=${{ needs.blockchaintests_engine.result }}
+            trierlp=${{ needs.trierlp.result }}
         run: |
           echo "Upstream job results: $RESULTS"
           failed=0

@@ -38,11 +38,12 @@ trivial program.
 
 ## Conformance status
 
-Eight CI conformance jobs run against committed baselines
+Eleven CI conformance suites run against committed baselines
 (`.github/*-expected-failures.txt`, kept in lockstep with real runner output).
 **Every suite is clean — zero correctness failures and zero crashes.** The only
-non-passing entries are report-only VMTests incons and the same two performance
-walltimeout incons in both blockchain suites:
+non-passing entries are report-only VMTests incons, the same two performance
+walltimeout incons in the blockchain/static suites, and one out-of-scope
+trie-iterator incon:
 
 | Suite | Runner | fail | incon | crash |
 | --- | --- | --- | --- | --- |
@@ -50,16 +51,22 @@ walltimeout incons in both blockchain suites:
 | Legacy GeneralStateTests (curated) | `statetests` | 0 | 0 | 0 |
 | Modern GeneralStateTests (`ethereum/tests`) | `gstatetests` | 0 | 0 | 0 |
 | EEST Osaka state_tests | `gstatetests` | 0 | 0 | 0 |
+| EEST static + historical state_tests | `gstatetests` | 0 | 2² | 0 |
 | EEST transaction_tests | `txtests` | 0 | 0 | 0 |
 | TransactionTests (`ethereum/tests`) | `txtests` | 0 | 0 | 0 |
 | EEST blockchain_tests | `blockchaintests` | 0 | 2² | 0 |
 | EEST blockchain_tests (Engine API) | `blockchaintests_engine` | 0 | 2² | 0 |
+| RLPTests (`ethereum/tests`) | `rlptests` | 0 | 0 | 0 |
+| TrieTests (`ethereum/tests`) | `trietests` | 0 | 1³ | 0 |
 
 ¹ Long-standing report-only single-frame evaluator gaps (OOG/fuel-exhausted
 tests plus a few arithmetic/jumpdest edge cases) — documented, not regressions.
-² `test_run_until_out_of_gas_walltimeout` / `test_valid_walltimeout`: the
-evaluator's throughput trips the per-test wall-clock cap under CI load;
-`test_valid` passes standalone. Perf, not correctness.
+² `test_run_until_out_of_gas_walltimeout` / `test_valid_walltimeout` (the same
+two tests in each suite that runs them): the evaluator's throughput trips the
+per-test wall-clock cap under CI load; `test_valid` passes standalone. Perf,
+not correctness.
+³ `trietestnextprev`: trie *iterator* (`next`/`prev`) semantics, out of scope
+for a root-hash MPT.
 
 See `VMTESTS.md` for the full breakdown, per-suite corpus/gating details, and
 baseline-refresh procedure.
