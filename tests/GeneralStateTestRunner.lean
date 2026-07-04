@@ -97,20 +97,27 @@ def mkAccount (j : Json) : Account :=
 ----------------------------------------------------------------------------
 
 /-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
-    approximating `factor · e^(numerator / denominator)` via the convergent
-    series, stopping once a term contributes 0 (Nat arithmetic). -/
+    approximating `factor · e^(numerator / denominator)` via the Taylor series
+    with *factorial* denominators (`Σ factor·num^i / (denom^i · i!)`). The
+    running term is `numerator_accum`, seeded at `factor·denominator` and
+    updated `numerator_accum := numerator_accum · numerator / (denominator · i)`
+    each step (so the `i!` accumulates), summed until it underflows to `0`; the
+    total is then divided by `denominator`. A plain `num^i` polynomial (without
+    the `/i!`) truncates after the first term for any `numerator <
+    denominator`, understating the blob base fee (`0x240000` excess must give
+    fee `2`, not `1`) and letting an `INSUFFICIENT_MAX_FEE_PER_BLOB_GAS` tx
+    through. Same implementation as the `blockchaintests` runner's. -/
 partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
-  let rec go (i accum numAcc : Nat) (fuel : Nat) : Nat :=
-    if fuel = 0 then accum
-    else
-      let term := numAcc / (denominator * i)
-      if term = 0 then accum
-      else go (i + 1) (accum + term) (numAcc * numerator) (fuel - 1)
-  go 1 factor (factor * numerator) 64
+  let rec go (i output numAccum : Nat) (fuel : Nat) : Nat :=
+    if fuel = 0 ∨ numAccum = 0 then output
+    else go (i + 1) (output + numAccum) (numAccum * numerator / (denominator * i)) (fuel - 1)
+  (go 1 0 (factor * denominator) 100000) / denominator
 
-/-- EIP-4844 blob base fee derived from `excessBlobGas`. -/
-def blobBaseFeeOf (excessBlobGas : Nat) : Nat :=
-  fakeExponential 1 excessBlobGas 3338477
+/-- EIP-4844/7691 blob base fee derived from `excessBlobGas`, with the
+    fork's `BLOB_BASE_FEE_UPDATE_FRACTION` (`3338477` at Cancun, `5007716`
+    from Prague). -/
+def blobBaseFeeOf (excessBlobGas : Nat) (fork : Fork) : Nat :=
+  fakeExponential 1 excessBlobGas (if fork ≥ .Prague then 5007716 else 3338477)
 
 /-- Decode the modern `state_test` `env` object into a `BlockHeader`.
 
@@ -118,8 +125,9 @@ def blobBaseFeeOf (excessBlobGas : Nat) : Nat :=
     is filled for post-Merge forks, so `prevRandao` reads `currentRandom`
     first, only falling back to the pre-Merge `currentDifficulty` when
     `currentRandom` is absent. `chainId` is fixed to mainnet `1`; `blobBaseFee`
-    is derived from `currentExcessBlobGas` via EIP-4844 `fake_exp`. -/
-def decodeEnv (env : Json) : BlockHeader :=
+    is derived from `currentExcessBlobGas` via EIP-4844 `fake_exp` with the
+    `fork`'s update fraction. -/
+def decodeEnv (env : Json) (fork : Fork) : BlockHeader :=
   let randomStr := strField env "currentRandom"
   let prevRandao : UInt256 :=
     if randomStr ≠ "" then hexToUInt256 randomStr
@@ -127,7 +135,7 @@ def decodeEnv (env : Json) : BlockHeader :=
   let excessStr := strField env "currentExcessBlobGas"
   let blobBaseFee : UInt256 :=
     if excessStr ≠ "" then
-      UInt256.ofNat (blobBaseFeeOf (hexToUInt256 excessStr).toNat)
+      UInt256.ofNat (blobBaseFeeOf (hexToUInt256 excessStr).toNat fork)
     else ⟨0⟩
   { coinbase      := hexToAddress (strField env "currentCoinbase")
     timestamp     := hexToUInt256 (strField env "currentTimestamp")
@@ -243,26 +251,72 @@ def buildTx (txJson : Json) (dataIdx gasIdx valIdx baseFee : Nat) : Tx.Transacti
     maxFeePerBlobGas := hexToUInt256 (strField txJson "maxFeePerBlobGas")
     authList  := parseAuthList txJson }
 
-/-- EIP-1559 validity conditions a legacy-shaped `Tx.execute` can't see (it
-    only receives the *effective* `gasPrice`, not the fee cap). For a 1559 tx
-    (`maxFeePerGas` present) the tx is invalid — not included, world left
-    unchanged — when:
+/-- EIP-1559 / EIP-4844 validity conditions a legacy-shaped `Tx.execute` can't
+    see (it only receives the *effective* `gasPrice`, not the fee caps). For a
+    fee-market tx (`maxFeePerGas` present) the tx is invalid — not included,
+    world left unchanged — when:
     * the priority fee exceeds the fee cap (`maxPriorityFeePerGas > maxFeePerGas`);
-    * the sender can't afford `gasLimit · maxFeePerGas + value` (the balance
-      check uses the *cap*, not the effective price); or
+    * the sender can't afford `gasLimit · maxFeePerGas + value` plus, for a
+      blob tx, the *cap-priced* blob fee `blob_count · GAS_PER_BLOB ·
+      maxFeePerBlobGas` (EIP-4844's affordability check uses the caps, not the
+      effective/burned prices — fixtures: `insufficient_balance_blob_tx`); or
     * `gasLimit` exceeds the block gas limit.
     Legacy txs return `false` here — `Tx.execute`'s own gates cover them. -/
 def invalid1559 (txJson : Json) (gasIdx valIdx : Nat)
-    (header : BlockHeader) (senderBalance : Nat) : Bool :=
+    (header : BlockHeader) (senderBalance : Nat)
+    (blobHashes : Array UInt256) : Bool :=
   if (txJson.getObjVal? "maxFeePerGas").toOption.isNone then false
   else
     let maxFee   := hexToNat (strField txJson "maxFeePerGas")
     let maxPrio  := hexToNat (strField txJson "maxPriorityFeePerGas")
     let gasLimit := hexToNat (arrStr txJson "gasLimit" gasIdx)
     let value    := (hexToUInt256 (arrStr txJson "value" valIdx)).toNat
+    let blobFeeCap := blobHashes.size * Tx.gasPerBlob
+                        * hexToNat (strField txJson "maxFeePerBlobGas")
     maxPrio > maxFee
-      || gasLimit * maxFee + value > senderBalance
+      || gasLimit * maxFee + value + blobFeeCap > senderBalance
       || gasLimit > header.gasLimit.toNat
+
+/-- The EIP-2718 transaction *type* a fixture's transaction template denotes,
+    from its distinguishing fields: an `authorizationList` marks a type-4
+    set-code tx, `maxFeePerBlobGas`/`blobVersionedHashes` a type-3 blob tx,
+    `maxFeePerGas` a type-2 fee-market tx, and an `accessLists` entry that is
+    non-`null` *for the selected data index* a type-1 access-list tx (legacy
+    fixtures may carry `accessLists: [null, …]`, which stays type 0). -/
+def txTypeOf (txJson : Json) (dataIdx : Nat) : Nat :=
+  let has (k : String) : Bool :=
+    match (txJson.getObjVal? k).toOption with
+    | some .null => false
+    | some _     => true
+    | none       => false
+  if has "authorizationList" then 4
+  else if has "maxFeePerBlobGas" ∨ has "blobVersionedHashes" then 3
+  else if has "maxFeePerGas" ∨ has "maxPriorityFeePerGas" then 2
+  else
+    match (jsonArr (subObj txJson "accessLists"))[dataIdx]? with
+    | some (Json.arr _) => 1
+    | _                 => 0
+
+/-- The fork a transaction type activates at: an envelope used *before* its
+    activation fork is `TYPE_NOT_SUPPORTED` — invalid regardless of its body
+    (fixtures: `test_eip2930_tx_validity[fork_<pre-Berlin>-invalid…]`,
+    `test_blob_type_tx_pre_fork`, `test_set_code_type_tx_pre_fork`, …). -/
+def typeActivation (t : Nat) : Fork :=
+  match t with
+  | 4 => .Prague
+  | 3 => .Cancun
+  | 2 => .London
+  | 1 => .Berlin
+  | _ => .Frontier
+
+/-- EIP-7702 static validity `Tx.execute` can't see (it receives the parsed
+    `authList`, not the type-4 signal): a set-code tx must carry a *non-empty*
+    authorization list and cannot be a contract creation. Fixtures:
+    `test_empty_authorization_list`, `test_contract_create`. -/
+def invalid7702 (txJson : Json) (txType : Nat) : Bool :=
+  txType == 4 ∧
+    ((jsonArr (subObj txJson "authorizationList")).isEmpty
+      ∨ strField txJson "to" = "")
 
 ----------------------------------------------------------------------------
 -- Post-state comparison (mirrors tests/StateTestRunner.lean).
@@ -336,19 +390,23 @@ def runEntry (preMap : AccountMap) (preEntries : List (String × Json))
   match txUnsupportedReason txJson with
   | some reason => .incon reason
   | none =>
-    let header := decodeEnv env
+    let header := decodeEnv env fork
     let tx := buildTx txJson dataIdx gasIdx valIdx header.baseFeePerGas.toNat
     let blobHashes := parseBlobHashes txJson
+    let txType := txTypeOf txJson dataIdx
     -- Fuel is a backstop against a 0-gas non-halting evaluator bug; the CI
     -- wall-timeout is the real bound on runaway tests.
     let fuel := 2 * tx.gasLimit + 100_000
-    -- A 1559 / blob tx failing a validity rule that the legacy-shaped
-    -- `Tx.execute` can't see (cap-based 1559 checks, empty/wrong-version blob
-    -- lists) is invalid: not applied, world unchanged — model it as an
-    -- exceptional no-op (`finalAccounts := preMap`).
+    -- A typed tx failing a validity rule that the legacy-shaped `Tx.execute`
+    -- can't see (type not yet activated at this fork, cap-based 1559/4844
+    -- affordability, empty/wrong-version blob lists, 7702 static shape) is
+    -- invalid: not applied, world unchanged — model it as an exceptional
+    -- no-op (`finalAccounts := preMap`).
     let result : Tx.ExecResult :=
-      if invalid1559 txJson gasIdx valIdx header (preMap tx.sender).balance.toNat
-         ∨ invalidBlob txJson blobHashes then
+      if fork < typeActivation txType
+         ∨ invalid1559 txJson gasIdx valIdx header (preMap tx.sender).balance.toNat blobHashes
+         ∨ invalidBlob txJson blobHashes
+         ∨ invalid7702 txJson txType then
         { finalAccounts := preMap, outcome := .exceptional }
       else EvmSemantics.Tx.execute preMap header tx fork fuel blobHashes
     match result.outcome with

@@ -587,19 +587,26 @@ flowchart LR
 
 ## The conformance harnesses
 
-Six runner executables exercise `stepF` / `run` against external corpora, each
-gated in CI by a committed `.github/<suite>-expected-failures.txt` baseline:
+Eight runner executables exercise `stepF` / `run` (and the data-structure
+layers under them) against external corpora, each gated in CI by a committed
+`.github/<suite>-expected-failures.txt` baseline:
 `vmtests` (legacy VMTests), `statetests` (legacy curated GeneralStateTests,
 **gating**), `gstatetests` (modern `ethereum/tests` GeneralStateTests + EEST
-Osaka `state_tests`), `txtests` (TransactionTests + EEST `transaction_tests`,
+Osaka `state_tests` + the EEST static/historical `state_tests`), `txtests`
+(TransactionTests + EEST `transaction_tests`,
 decode/validate only), `blockchaintests` (EEST `blockchain_tests`, full
-chain execution), and `blockchaintests_engine` (EEST `blockchain_tests_engine`
+chain execution), `blockchaintests_engine` (EEST `blockchain_tests_engine`
 — the same chains delivered as Engine-API `newPayload` envelopes, decoding
 raw-RLP txs with ECDSA sender + EIP-7702 authority recovery and reusing the
-`blockchaintests` execution core). As of the committed baselines all suites are
+`blockchaintests` execution core), `rlptests` (`ethereum/tests` RLPTests —
+direct conformance for the RLP codec, including canonical-decode rejection of
+the invalid vectors), and `trietests` (`ethereum/tests` TrieTests — direct
+conformance for the MPT root hash, plain and secure variants). As of the
+committed baselines all suites are
 **clean** — zero correctness fails, zero crashes; the only non-passing entries
-are 7 report-only VMTests incons and 2 `*_walltimeout` perf incons in each of
-the two blockchain suites (same two tests). See `VMTESTS.md` for the full status
+are 7 report-only VMTests incons, 2 `*_walltimeout` perf incons in each of the
+two blockchain suites and the EEST static suite (same two tests), and 1
+out-of-scope trie-iterator incon. See `VMTESTS.md` for the full status
 table and per-suite details.
 
 The `vmtests` executable runs the legacy ethereum/tests **VMTests** corpus

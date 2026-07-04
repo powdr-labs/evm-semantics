@@ -52,6 +52,14 @@ name = "blockchaintests_engine"
 root = "tests.BlockchainEngineTestRunner"
 
 [[lean_exe]]
+name = "rlptests"
+root = "tests.RlpTestRunner"
+
+[[lean_exe]]
+name = "trietests"
+root = "tests.TrieTestRunner"
+
+[[lean_exe]]
 name = "keccak_test"
 root = "tests.KeccakTest"
 
