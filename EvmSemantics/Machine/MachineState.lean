@@ -108,6 +108,116 @@ def writeBytes (bs bytes : ByteArray) (start : Nat) : ByteArray :=
       acc := acc.set! (start + i) bytes[i]!
     return acc
 
+/-! ### Read-after-write reasoning for `writeBytes`
+
+The `mstore`/`mcopy` correctness arguments (and the verified-bytecode compiler
+downstream) need to know what `writeBytes` does to memory pointwise. Everything
+below reduces the `Id.run do … for … acc.set! …` loop to a `List.foldl` over
+`List.range'` and reasons about that by induction. -/
+
+/-- Bridge `bs[i]?.getD 0` (the zero-padded read the callers speak) to the
+    ambient `bs[i]!`, whose `ByteArray.set!` lemmas are `@[simp]`. -/
+private theorem getD0_eq_getElem! (c : ByteArray) (i : Nat) : c[i]?.getD 0 = c[i]! := by
+  rw [getElem!_def]; cases c[i]? <;> rfl
+
+/-- Folding `set!` over a list of indices never changes the array size. -/
+private theorem foldl_set!_size (l : List Nat) (init : ByteArray)
+    (g : Nat → Nat) (h : Nat → UInt8) :
+    (l.foldl (fun acc i => acc.set! (g i) (h i)) init).size = init.size := by
+  induction l generalizing init with
+  | nil => simp
+  | cons x xs ih => simp only [List.foldl_cons]; rw [ih]; simp
+
+/-- Appending zero padding does not change the zero-padded read: an index that
+    lands in (or past) the appended zeros reads `0`, exactly what an
+    out-of-range read of the original array yields. -/
+private theorem append_replicate_zero_getElem! (bs : ByteArray) (k a : Nat) :
+    (bs ++ ByteArray.mk (Array.replicate k 0))[a]! = bs[a]! := by
+  by_cases h : a < bs.size
+  · rw [getElem!_pos (bs ++ _) a (by rw [ByteArray.size_append]; omega),
+        getElem!_pos bs a h, ByteArray.getElem_append_left h]
+  · rw [getElem!_neg bs a h]
+    by_cases h2 : a < (bs ++ ByteArray.mk (Array.replicate k 0)).size
+    · rw [getElem!_pos _ a h2, ByteArray.getElem_append_right (by omega)]
+      simp only [ByteArray.getElem_eq_getElem_data, Array.getElem_replicate]; rfl
+    · rw [getElem!_neg _ a h2]
+
+/-- Read-after-write for the copy loop as a `List.foldl`: writing
+    `bytes[i]!` at `start + i` for `i ∈ [0, n)` (with the destination already
+    sized to hold the whole window, `start + n ≤ init.size`) makes index `a`
+    read the written byte inside the window and the original byte otherwise. -/
+private theorem foldl_set!_read (bytes init : ByteArray) (start : Nat) :
+    ∀ (n a : Nat), start + n ≤ init.size →
+    ((List.range' 0 n).foldl (fun acc i => acc.set! (start + i) bytes[i]!) init)[a]!
+      = if start ≤ a ∧ a < start + n then bytes[a - start]! else init[a]! := by
+  intro n
+  induction n with
+  | zero => intro a _; rw [if_neg (by omega)]; simp
+  | succ m ih =>
+    intro a hsz
+    rw [List.range'_concat, List.foldl_append]
+    simp only [Nat.one_mul, Nat.zero_add, List.foldl_cons, List.foldl_nil]
+    have hWsize : (List.foldl (fun acc i => acc.set! (start + i) bytes[i]!) init
+        (List.range' 0 m)).size = init.size :=
+      foldl_set!_size (List.range' 0 m) init (fun i => start + i) (fun i => bytes[i]!)
+    rw [ByteArray.getElem!_set! _ (start + m) bytes[m]! a (by rw [hWsize]; omega)]
+    by_cases hcase : start + m = a
+    · subst hcase
+      rw [if_pos rfl, if_pos (by omega), Nat.add_sub_cancel_left]
+    · rw [if_neg hcase, ih a (by omega)]
+      by_cases hin : start ≤ a ∧ a < start + m
+      · rw [if_pos hin, if_pos (by omega)]
+      · rw [if_neg hin, if_neg (by omega)]
+
+/-- Read-after-write for `writeBytes`, as a zero-padded pointwise read.
+    The byte at index `a` is the written byte when `a` lands in the write
+    window `[start, start + bytes.size)`, and otherwise the original byte;
+    the `[a]?.getD 0` framing absorbs the zero padding on both the growth
+    side (`start + bytes.size > bs.size`) and the out-of-range side. -/
+theorem writeBytes_getElem?_getD (bs bytes : ByteArray) (start a : Nat) :
+    (writeBytes bs bytes start)[a]?.getD 0
+      = if start ≤ a ∧ a < start + bytes.size then bytes[a - start]?.getD 0
+        else bs[a]?.getD 0 := by
+  simp only [getD0_eq_getElem!]
+  unfold writeBytes
+  split
+  · next hz => rw [if_neg (by omega)]
+  · next hne =>
+    simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+      Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one,
+      pure_bind, bind_pure, List.forIn_pure_yield_eq_foldl, Id.run_pure]
+    have hsz : start + bytes.size ≤ (if bs.size < start + bytes.size then
+        bs ++ ByteArray.mk (Array.replicate (start + bytes.size - bs.size) 0) else bs).size := by
+      split <;> rename_i hc
+      · rw [ByteArray.size_append]
+        show start + bytes.size ≤ bs.size + (Array.replicate (start + bytes.size - bs.size) 0).size
+        rw [Array.size_replicate]; omega
+      · omega
+    rw [foldl_set!_read bytes _ start bytes.size a hsz]
+    by_cases hcond : start ≤ a ∧ a < start + bytes.size
+    · rw [if_pos hcond, if_pos hcond]
+    · rw [if_neg hcond, if_neg hcond]
+      split <;> rename_i hc
+      · exact append_replicate_zero_getElem! bs _ a
+      · rfl
+
+/-- `writeBytes` grows the array to cover the write window (and never shrinks). -/
+theorem writeBytes_size (bs bytes : ByteArray) (start : Nat) :
+    (writeBytes bs bytes start).size
+      = if bytes.size = 0 then bs.size else max bs.size (start + bytes.size) := by
+  unfold writeBytes
+  split
+  · rfl
+  · next hne =>
+    simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
+      Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one,
+      pure_bind, bind_pure, List.forIn_pure_yield_eq_foldl, Id.run_pure, foldl_set!_size]
+    split <;> rename_i hlt
+    · rw [ByteArray.size_append]
+      show bs.size + (Array.replicate (start + bytes.size - bs.size) 0).size = _
+      rw [Array.size_replicate]; omega
+    · omega
+
 /-- Read a 32-byte big-endian word from `bs` at `offset`, zero-padding
     past the end. Used by both `MLOAD` (over memory) and `CALLDATALOAD`
     (over calldata). Bytes → Nat conversion lives in
