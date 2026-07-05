@@ -502,15 +502,19 @@ def applyTxGasAccounting (map : AccountMap)
 /-- Build the post-state for a *world-rolled-back* outcome (collision,
     top-level exception, top-level revert, deploy rejected): start
     from `preMap`, bump the sender's nonce, debit the full upfront
-    `gasLimit · gasPrice`, then call `applyTxGasAccounting` to credit
-    sender + coinbase. `gasRefunded` is `0` for an exception (sender
-    keeps nothing) and `sf.gasAvailable` for a revert (sender keeps
-    the unspent gas; substate refund counter is discarded). -/
+    `gasLimit · gasPrice` **plus the EIP-4844 `blobFee`** (an included
+    blob tx burns `blob_gas_used · blob_base_fee` even when its
+    execution fails — the fee is never refunded), then call
+    `applyTxGasAccounting` to credit sender + coinbase. `gasRefunded`
+    is `0` for an exception (sender keeps nothing) and
+    `sf.gasAvailable` for a revert (sender keeps the unspent gas;
+    substate refund counter is discarded). -/
 def failPostStateRefunded (preMap : AccountMap)
     (sender coinbase : AccountAddress)
-    (gasLimit gasRefunded gasPrice baseFee : Nat) (fork : Fork) : AccountMap :=
+    (gasLimit gasRefunded gasPrice baseFee : Nat) (fork : Fork)
+    (blobFee : Nat := 0) : AccountMap :=
   let s := preMap sender
-  let upfront := UInt256.ofNat (gasLimit * gasPrice)
+  let upfront := UInt256.ofNat (gasLimit * gasPrice + blobFee)
   let m₀ := preMap.set sender
     { s with nonce := s.nonce + UInt256.ofNat 1
              balance := s.balance - upfront }
@@ -520,12 +524,14 @@ def failPostStateRefunded (preMap : AccountMap)
 /-- Materialise the post-state of a transaction that aborts before
     execution (collision, OOG-on-intrinsic, fuel exhausted) or that
     halts exceptionally at the top frame: sender's nonce bumped,
-    full upfront gas paid to the coinbase, no value transfer. The
-    `gasLimit·gasPrice` charge is applied via `applyTxGasAccounting`
-    with `gasRefunded = 0`. -/
+    full upfront gas paid to the coinbase, blob fee burned, no value
+    transfer. The `gasLimit·gasPrice + blobFee` charge is applied via
+    `applyTxGasAccounting` with `gasRefunded = 0`. -/
 def failPostState (preMap : AccountMap) (sender coinbase : AccountAddress)
-    (gasLimit gasPrice baseFee : Nat) (fork : Fork) : AccountMap :=
+    (gasLimit gasPrice baseFee : Nat) (fork : Fork) (blobFee : Nat := 0) :
+    AccountMap :=
   failPostStateRefunded preMap sender coinbase gasLimit 0 gasPrice baseFee fork
+    blobFee
 
 /-- Execute one transaction against `preMap` under `header`/`fork`.
 
@@ -571,7 +577,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
   -- "no state changes, all gas to coinbase" arm.
   let rollback : ExecResult :=
     { finalAccounts := withReward (withAuths (failPostState preMap tx.sender coinbase
-                                     tx.gasLimit gasPrice baseFee fork)),
+                                     tx.gasLimit gasPrice baseFee fork blobFee)),
       outcome := .exceptional }
   -- Address-collision check for create tx: per YP, a target with code
   -- or non-zero nonce makes the create fail before any code runs.
@@ -695,7 +701,7 @@ def execute (preMap : AccountMap) (header : BlockHeader)
         -- is floored too — cap the unspent-gas refund at `gasLimit - floor`.
         let refunded := applyDataFloor fork tx.gasLimit sf.gasAvailable tx.data
         let map := failPostStateRefunded preMap tx.sender coinbase
-                     tx.gasLimit refunded gasPrice baseFee fork
+                     tx.gasLimit refunded gasPrice baseFee fork blobFee
         { finalAccounts := withReward (withAuths map), outcome := .exceptional }
       | _ =>
         -- YP §6.1 end-of-tx cleanup: zero out every account that

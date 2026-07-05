@@ -99,9 +99,12 @@ Three views of the same semantics, with `Step` as the source of truth:
 - **`stepF : State → Except ExecutionException State`** (`EVM/StepF.lean`) —
   executable shadow, mirroring `Step` opcode-by-opcode. Split into per-group
   helpers (`stepF.stopArith`, `stepF.compBit`, …) so each is small.
-- **`EVM/Equiv.lean`** — `stepF_sound : stepF s = .ok s' → Step s s'`, closed.
-  Layered as 14 per-helper soundness lemmas dispatched from the headline
-  theorem.
+- **`EVM/Equiv.lean`** — `stepF_sound : ¬ s.isDone → Step s (stepF s)`,
+  closed. `stepF` is total (exceptions fold into `halt := .Exception e`);
+  soundness covers both the success and exception directions, layered as
+  14 per-helper soundness lemmas (+ `*_sound_error` mirrors) dispatched
+  from the headline theorem. Every `OutOfGas` derivation is bounded by the
+  exact per-op `Gas.totalCost`.
 
 ### File layout (`EvmSemantics/`)
 
@@ -168,11 +171,6 @@ Engine-API `newPayload` envelopes and ECDSA-recovers the sender (and each
 EIP-7702 authority).
 
 **Known gaps** (tracked in `VMTESTS.md`):
-- **Stack 1024 cap is not enforced anywhere** — `stepF` has no cap, and while
-  `Step` has a `stackOverflow` constructor, its *success* rules (e.g. `push0`,
-  `pushN`) carry no stack-length guard, so a near-full stack admits both a
-  successful push and the `stackOverflow` successor. Closing this needs guards
-  on the `Step` success rules *and* a check in `stepF`.
 - **Dynamic gas.** `Gas.baseCost fork op` charges the static Yellow-Paper fee
   per fork; dynamic costs are modelled via `Gas.sstoreCost`, `Gas.copyWordCost`,
   `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`, the CALL
@@ -228,12 +226,20 @@ Touch these in order, then rebuild + lint + run vmtests:
 
 ## CI gates (`.github/workflows/ci.yml`)
 
+Gating policy: build/lint failures and the curated CALL suite gate every
+tier regression; every other suite gates *correctness* regressions — any
+test whose new tier is FAIL or CRASH vs its committed baseline fails the
+shard — while INCON-tier regressions (walltimeout perf incons flapping
+under CPU load) stay warnings-only. A run with no parseable summary also
+fails its shard.
+
 1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests`,
    fail on any `warning:`.
 2. `lake lint`.
-3. VMTests on the full corpus — **non-gating**: compares against
-   `.github/vmtests-expected-failures.txt` (pinned to `CORPUS_REV`) and surfaces
-   regressions as warnings without blocking the merge.
+3. VMTests on the full corpus — compares against
+   `.github/vmtests-expected-failures.txt` (pinned to `CORPUS_REV`); a
+   regression to FAIL/CRASH fails the shard, other regressions surface as
+   warnings.
 4. StateTests (legacy BlockchainTests/GeneralStateTests, curated subset from
    `ethereum/legacytests`) — compares against
    `.github/statetests-expected-failures.txt`; the CALL-test gate fails the
@@ -241,34 +247,37 @@ Touch these in order, then rebuild + lint + run vmtests:
    FAIL → CRASH).
 5. Modern GeneralStateTests (`gstatetests`, ~whole corpus from the maintained
    `ethereum/tests` `fixtures_general_state_tests.tgz`, pinned to `TESTS_REV`,
-   minus `stTimeConsuming` + internal `VMTests`) — **non-gating**: driven by the
+   minus `stTimeConsuming` + internal `VMTests`) — gates FAIL/CRASH
+   regressions (INCON-tier stays warnings): driven by the
    per-file subprocess-isolation wrapper `.github/scripts/gstatetests_run.sh` (so
    an OOM/panic in one file is a contained `crash`, not a batch abort) and
    compared against `.github/gstatetests-expected-failures.txt`. Only legacy
    `gasPrice` txs run; typed txs are `INCON`. See `VMTESTS.md`.
 6. EEST Osaka `state_tests` (`gstatetests` binary) + EEST `transaction_tests`
    (`txtests` binary), extracted from the `fixtures_develop.tar.gz` release
-   pinned by `EEST_REV` — **non-gating**; baselines
+   pinned by `EEST_REV` — gate FAIL/CRASH regressions; baselines
    `.github/eest-osaka-expected-failures.txt` and
    `.github/eest-txtests-expected-failures.txt`.
 7. TransactionTests (`txtests`, `ethereum/tests` sparse checkout, decode+validate
-   only) — **non-gating**; `.github/txtests-expected-failures.txt`.
+   only) — gates FAIL/CRASH regressions; `.github/txtests-expected-failures.txt`.
 8. EEST `blockchain_tests` (`blockchaintests`, full chain execution + consensus,
-   pinned by `EEST_REV`) — **non-gating**;
+   pinned by `EEST_REV`) — gates FAIL/CRASH regressions (the walltimeout
+   INCON flapping stays warnings-only);
    `.github/blockchaintests-expected-failures.txt`.
 9. EEST `blockchain_tests_engine` (`blockchaintests_engine`, the same chains fed
    as Engine-API `newPayload` envelopes — raw-RLP txs decoded with ECDSA sender
-   + EIP-7702 authority recovery, pinned by `EEST_REV`) — **non-gating**; reuses
+   + EIP-7702 authority recovery, pinned by `EEST_REV`) — gates FAIL/CRASH
+   regressions; reuses
    the `blockchaintests_{run,summary,check}.sh` scripts via `BLOCKCHAINTESTS_BIN`;
    `.github/blockchaintests-engine-expected-failures.txt`.
 10. EEST static + historical `state_tests` (`gstatetests` binary; the maintained
     ports of the full legacy corpus, filled through Osaka, minus `osaka/` —
     covered by job 6 — and minus `static/state_tests/{stTimeConsuming,VMTests}`,
-    pinned by `EEST_REV`) — **non-gating**;
+    pinned by `EEST_REV`) — gates FAIL/CRASH regressions;
     `.github/eest-static-expected-failures.txt`.
 11. `ethereum/tests` RLPTests (`rlptests`) + TrieTests (`trietests`) — direct
     RLP-codec and MPT-root conformance, sparse checkout pinned by `TESTS_REV` —
-    **non-gating**; reuse `txtests_{run,summary}.sh` via `TXTESTS_BIN` with
+    gate FAIL/CRASH regressions; reuse `txtests_{run,summary}.sh` via `TXTESTS_BIN` with
     per-suite check scripts; `.github/rlptests-expected-failures.txt` and
     `.github/trietests-expected-failures.txt`.
 

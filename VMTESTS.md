@@ -376,14 +376,13 @@ These are gaps in the evaluator (not the harness), in rough order of impact.
   EVM stops these via gas, but they run beyond the harness's
   `fuel = 2_000_000` cap inside our interpreter.
 
-### StackOverflow not enforced
-`stepF` enforces no 1024-deep stack limit. The relation `Step` has a
-`stackOverflow` constructor, but its *success* rules (e.g. `push0`, `pushN`)
-carry no stack-length guard, so from a near-full stack both a successful push
-and the `stackOverflow` successor are derivable — `Step` doesn't make the cap
-exclusive either. No VMTest in the suite currently turns this into a mismatch,
-but closing it needs guards on the `Step` success rules *and* a check in
-`stepF`.
+### StackOverflow enforced on both sides
+`stepF` enforces the 1024-deep stack limit before dispatch (an op that would
+leave more than 1024 items halts with `StackOverflow` without spending its
+base cost), and the `Step` success rules that grow the stack (`push0`,
+`pushN`, `dup`, `dupN`, and the nullary reads) carry a matching
+`h_cap : s.stack.length < 1024` premise, so a near-full stack no longer
+admits both a successful push and the `stackOverflow` successor.
 
 ## Evaluator behavior relied upon
 - **End-of-code implicit STOP.** `Decode.decodeAt` returns `(STOP, none)` for
@@ -397,10 +396,17 @@ but closing it needs guards on the `Step` success rules *and* a check in
 Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator fixes (turn crashes/fails into passes)
-- [ ] **Enforce the 1024-deep stack limit** — add the cap to `stepF` **and**
-      guard the `Step` success rules (`push0`/`pushN`/…), since neither side
-      currently rules out an oversized push (see "StackOverflow not enforced"
-      above).
+
+### Block runners: independent tx-level invalid-block detection
+- [ ] **Implement typed-transaction block-validity checks in the block
+      runners** — today many invalid-block fixtures are rejected because the
+      fixture metadata (`expectException` / `validationError`) says so, with
+      independent detection covering only header-consensus rules. Fee-cap
+      ordering, cap-priced affordability, fork activation, and blob-hash
+      constraints are not detected independently, so those fixtures pass by
+      trusting the oracle rather than exercising validation logic (flagged by
+      the 2026-07 audit). Prefer shared tx-validity code over per-runner
+      copies, and report flagged-but-undetected blocks separately.
 
 ### Evaluator: model the remaining dynamic gas costs
 Already modelled: memory expansion (Yellow-Paper quadratic), `Gas.sstoreCost`

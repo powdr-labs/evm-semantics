@@ -724,5 +724,146 @@ def Gas.refundDenom (fork : Fork) : Nat :=
   + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
   + Gas.logDataCost size
 
+/-- EIP-2200 sentry expressed as a cost floor for `SSTORE` (see
+    `Gas.sstoreSentry`): from Istanbul the opcode demands *strictly more*
+    than `G_callstipend = 2300` gas at entry regardless of the actual write
+    cost — a floor of `2301`. Pre-Istanbul there is no sentry, so `0`. -/
+def Gas.sstoreSentryFloor (fork : Fork) : Nat :=
+  if fork ≥ .Istanbul then Gas.callStipend + 1 else 0
+
+/-- The *actual* total gas charge the decoded operation `op` makes at state
+    `s`, reading the operation's arguments off `s.stack`. This is the exact
+    amount whose unaffordability makes `stepF` halt the frame with
+    `OutOfGas`, bundling every stage of the executable charging chain:
+    static base fee, memory-expansion delta, per-word/per-byte dynamic
+    costs, EIP-2929 cold surcharges, the CALL-family value/new-account
+    surcharge, and (pre-EIP-150) the uncapped forwarded gas. It anchors the
+    `StepRunning.outOfGas` rule: an OOG transition is derivable exactly when
+    `s.gasAvailable < Gas.totalCost s op`.
+
+    Details worth calling out:
+    * The CALL/CREATE families add the *forwarded* gas
+      (`Gas.forwardGas` / `Gas.allButOneSixtyFourth` of what remains after
+      the committed charge) on top of `Gas.*Committed`. Post-EIP-150 the
+      63/64 cap makes that summand always affordable; pre-EIP-150 a
+      too-large `gasArg` genuinely OOGs, and this is where that shows up.
+    * `SSTORE` takes the max of its net-metered cost and the EIP-2200
+      sentry floor (`Gas.sstoreSentryFloor`): from Istanbul an SSTORE with
+      `gasleft ≤ 2300` must OOG even when the write itself is cheaper. The
+      sentry applies before the executable even looks at the stack, so the
+      underflow-length arms keep the floor.
+    * When the stack is too short for the operation the dynamic charge is
+      unreachable (`stepF` reports underflow instead), so the fallback arm
+      is the static base fee.
+    * The EIP-3860 oversized-initcode abort is *not* a gas shortage and is
+      modelled by the dedicated `StepRunning.initCodeSizeOog` rule, not
+      here. -/
+def Gas.totalCost (s : State) (op : Operation) : Nat :=
+  match op, s.stack with
+  | .StopArith .EXP, _ :: exponent :: _ =>
+      Gas.baseCost s.executionEnv.fork (.StopArith .EXP)
+      + Gas.expByteCost s.executionEnv.fork exponent
+  | .Keccak .KECCAK256, offset :: size :: _ => Gas.keccakTotal s offset size
+  | .Env .BALANCE, a :: _ => Gas.balanceTotal s a
+  | .Env .EXTCODESIZE, a :: _ => Gas.extcodesizeTotal s a
+  | .Env .EXTCODEHASH, a :: _ => Gas.extcodehashTotal s a
+  | .Env .CALLDATACOPY, destOff :: _ :: sz :: _ => Gas.calldatacopyTotal s destOff sz
+  | .Env .CODECOPY, destOff :: _ :: sz :: _ => Gas.codecopyTotal s destOff sz
+  | .Env .EXTCODECOPY, a :: destOff :: _ :: sz :: _ => Gas.extcodecopyTotal s a destOff sz
+  | .Env .RETURNDATACOPY, destOff :: _ :: sz :: _ => Gas.returndatacopyTotal s destOff sz
+  | .StackMemFlow .MLOAD, offset :: _ => Gas.mloadTotal s offset
+  | .StackMemFlow .MSTORE, offset :: _ => Gas.mstoreTotal s offset
+  | .StackMemFlow .MSTORE8, offset :: _ => Gas.mstore8Total s offset
+  | .StackMemFlow .SLOAD, key :: _ => Gas.sloadTotal s key
+  | .StackMemFlow .SSTORE, key :: value :: _ =>
+      Nat.max (Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)
+                + Gas.sstoreSentryFloor s.executionEnv.fork)
+              (Gas.sstoreTotal s key value)
+  | .StackMemFlow .SSTORE, _ =>
+      Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)
+      + Gas.sstoreSentryFloor s.executionEnv.fork
+  | .StackMemFlow .MCOPY, destOff :: srcOff :: sz :: _ => Gas.mcopyTotal s destOff srcOff sz
+  -- Inlined body of `Gas.logTotal` (spelling `.Log l` directly rather than
+  -- rebuilding the op from `l.topics`) so proof automation sees one atom.
+  | .Log l, offset :: size :: _ =>
+      Gas.baseCost s.executionEnv.fork (.Log l)
+      + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+      + Gas.logDataCost size
+  | .System .RETURN, offset :: size :: _ => Gas.returnTotal s offset size
+  | .System .REVERT, offset :: size :: _ => Gas.revertTotal s offset size
+  | .System .CALL, gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: _ =>
+      Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+      + Gas.forwardGas s.executionEnv.fork
+          (s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+          gasArg.toNat
+  | .System .CALLCODE, gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: _ =>
+      Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
+      + Gas.forwardGas s.executionEnv.fork
+          (s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
+          gasArg.toNat
+  | .System .DELEGATECALL, gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: _ =>
+      Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+      + Gas.forwardGas s.executionEnv.fork
+          (s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+          gasArg.toNat
+  | .System .STATICCALL, gasArg :: toArg :: argsOff :: argsLen :: retOff :: retLen :: _ =>
+      Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+      + Gas.forwardGas s.executionEnv.fork
+          (s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+          gasArg.toNat
+  | .System .SELFDESTRUCT, beneficiary :: _ => Gas.selfDestructTotal s beneficiary
+  | .System .CREATE, _ :: offset :: size :: _ =>
+      Gas.createCommitted s offset size
+      + Gas.allButOneSixtyFourth s.executionEnv.fork
+          (s.gasAvailable - Gas.createCommitted s offset size)
+  | .System .CREATE2, _ :: offset :: size :: _ =>
+      Gas.create2Committed s offset size
+      + Gas.allButOneSixtyFourth s.executionEnv.fork
+          (s.gasAvailable - Gas.create2Committed s offset size)
+  | op, _ => Gas.baseCost s.executionEnv.fork op
+
+/-- The static base fee never exceeds the actual total charge: every arm of
+    `Gas.totalCost` is `baseCost + …` (for `SSTORE`, under a `max` whose
+    other side also starts with the base). Discharges the top-level
+    `stepFE` gas check (`gasAvailable < baseCost`) against the
+    `StepRunning.outOfGas` rule's `Gas.totalCost` bound. -/
+theorem Gas.baseCost_le_totalCost (s : State) (op : Operation) :
+    Gas.baseCost s.executionEnv.fork op ≤ Gas.totalCost s op := by
+  unfold Gas.totalCost
+  split
+  all_goals
+    first
+      | exact Nat.le_refl _
+      | exact Nat.le_trans (Nat.le_add_right _ _) (Nat.le_max_left _ _)
+      | omega
+      | (simp only [Gas.keccakTotal, Gas.balanceTotal, Gas.extcodesizeTotal,
+          Gas.extcodehashTotal, Gas.calldatacopyTotal, Gas.codecopyTotal, Gas.extcodecopyTotal,
+          Gas.returndatacopyTotal, Gas.mloadTotal, Gas.mstoreTotal, Gas.mstore8Total,
+          Gas.sloadTotal, Gas.mcopyTotal, Gas.returnTotal, Gas.revertTotal,
+          Gas.callCommitted, Gas.callcodeCommitted, Gas.delegatecallCommitted,
+          Gas.staticcallCommitted, Gas.createCommitted, Gas.create2Committed,
+          Gas.selfDestructTotal, Operation.KECCAK256, Operation.BALANCE, Operation.EXTCODESIZE,
+          Operation.EXTCODEHASH, Operation.CALLDATACOPY, Operation.CODECOPY,
+          Operation.EXTCODECOPY, Operation.RETURNDATACOPY, Operation.MLOAD, Operation.MSTORE,
+          Operation.MSTORE8, Operation.SLOAD, Operation.MCOPY,
+          Operation.RETURN, Operation.REVERT, Operation.CALL, Operation.CALLCODE,
+          Operation.DELEGATECALL, Operation.STATICCALL, Operation.CREATE, Operation.CREATE2,
+          Operation.SELFDESTRUCT]
+         omega)
+
+/-- The EIP-2200 sentry floor is a lower bound on `SSTORE`'s total charge
+    for *any* stack shape (the sentry fires before the executable looks at
+    the stack). Discharges the sentry-OOG site in
+    `stackMemFlow_sound_error`. -/
+theorem Gas.sstoreFloor_le_totalCost (s : State) :
+    Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)
+      + Gas.sstoreSentryFloor s.executionEnv.fork
+      ≤ Gas.totalCost s (.StackMemFlow .SSTORE) := by
+  rcases h : s.stack with _ | ⟨key, _ | ⟨value, rest⟩⟩ <;>
+    simp only [Gas.totalCost, h] <;>
+    first
+      | exact Nat.le_refl _
+      | exact Nat.le_max_left _ _
+
 end EVM
 end EvmSemantics

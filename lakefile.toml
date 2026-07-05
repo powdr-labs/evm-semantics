@@ -3,8 +3,12 @@ version = "0.1.0"
 defaultTargets = ["evm_semantics"]
 
 # Enforce a 100-column line limit (comments and docstrings included) via
-# Mathlib's text-based style linter
-leanOptions = { weak.linter.style.longLine = true }
+# Mathlib's text-based style linter. `autoImplicit` (and its relaxed
+# variant) are disabled so a typo in a theorem or constructor statement
+# becomes an elaboration error instead of a silently-quantified fresh
+# implicit variable — essential when the core artifacts are Prop-valued
+# specifications and soundness theorems.
+leanOptions = { weak.linter.style.longLine = true, autoImplicit = false, relaxedAutoImplicit = false }
 
 # Use Batteries' `runLinter` script as the lint driver (same approach as
 # Mathlib's lakefile). `lake lint` will build and execute this driver
@@ -22,6 +26,13 @@ rev = "v4.31.0"
 
 [[lean_lib]]
 name = "EvmSemantics"
+
+# Shared helpers imported by several test-runner executables (Lake only
+# builds modules owned by some target, so the shared module needs a lib
+# entry of its own).
+[[lean_lib]]
+name = "TestSupport"
+roots = ["tests.FakeExponential"]
 
 [[lean_exe]]
 name = "evm_semantics"

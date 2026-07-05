@@ -170,9 +170,12 @@ baseline-refresh procedure.
   (pre-EIP-1283 for Constantinople / EIP-2200 for Cancun, with the
   EIP-2200 stipend sentry via `Gas.sstoreSentry`), `Gas.copyWordCost`,
   `Gas.keccakWordCost`, `Gas.logDataCost`, `Gas.expByteCost`. The relational
-  `StepRunning.outOfGas` is generalised to accept a `cost : Nat` witness with
-  `Gas.baseCost ≤ cost`, so dynamic-cost OOG (memory expansion, sstoreCost,
-  per-word/byte/topic charges) is expressible. **EIP-2929** cold/warm
+  `StepRunning.outOfGas` takes a `cost : Nat` witness bounded above by
+  `Gas.totalCost s op` — the exact staged charge the executable makes
+  (base + memory expansion + dynamic costs + cold surcharges +
+  CALL-family surcharge/forwarding, with `SSTORE`'s EIP-2200 sentry as a
+  cost floor) — so an OOG transition is derivable exactly when the op
+  genuinely cannot be afforded. **EIP-2929** cold/warm
   access pricing is now fully modelled (`accessedAccounts` /
   `accessedStorageKeys` sets in `Substate`, warm-seeded per tx in
   `Tx.execute`), covering `BALANCE` / `EXTCODESIZE` / `EXTCODECOPY` /
@@ -356,17 +359,25 @@ emit a structured result.
 
 ### Soundness lemmas
 
-`EVM/Equiv.lean` establishes `stepF_sound : stepF s = .ok s' → Step s s'`
-**without any `sorry`**. The proof is layered:
+`EVM/Equiv.lean` establishes `stepF_sound : ¬ s.isDone → Step s (stepF s)`
+**without any `sorry`**: `stepF` is total (in-frame exceptions fold into
+`halt := .Exception e`), and on any non-done state the transition it
+takes — success *or* exception — is backed by a `Step` derivation
+(underlying combined statement: `stepFE_sound`, covering both the
+`.ok` and `.error` outcomes of the `Except`-valued `stepFE`). The
+proof is layered:
 
-- **Headline theorem `stepF_sound`** — unfolds `stepF`, splits on
-  halt/decode/gas, then dispatches to the 14 per-helper soundness
-  lemmas based on the top-level `Operation` constructor.
-- **Per-helper soundness lemmas** — all 14 closed:
+- **Headline theorems `stepFE_sound_ok'` / `stepFE_sound_error'`** —
+  unfold `stepFE`, split on halt/precompile/decode/stack-cap/gas, then
+  dispatch to the per-helper soundness lemmas based on the top-level
+  `Operation` constructor.
+- **Per-helper soundness lemmas** — all 14 closed in both directions:
   `stopArith_sound`, `compBit_sound`, `keccak_sound`, `env_sound`,
   `block_sound`, `system_sound`, `stackMemFlow_sound`, `push_sound`,
   `log_sound`, `dup_sound`, `swap_sound`, `dupN_sound`, `swapN_sound`,
-  `exchange_sound`.
+  `exchange_sound`, plus their `*_sound_error` mirrors for the
+  exception paths (every `OutOfGas` site presents the actual failed
+  charging stage, bounded by `Gas.totalCost`).
 - **Supporting lemma `popN_correct`** (in `StepF.lean`) — by induction
   on `k`, shows that if `popN stk k = some (topics, rest)` then
   `topics.length = k` and `stk = topics ++ rest`. Used by `log_sound`

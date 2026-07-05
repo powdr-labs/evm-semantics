@@ -3,6 +3,7 @@ module
 public import Lean.Data.Json
 public import EvmSemantics
 public import EvmSemantics.Data.Hex
+public import tests.FakeExponential
 
 /-!
 `BlockchainEngineTestRunner` — JSON driver for the execution-spec-tests
@@ -168,14 +169,6 @@ def activeForkName (network : String) (timestamp : Nat) : String :=
 -- Blob base fee (EIP-4844 fake_exponential) + blob update fraction.
 ----------------------------------------------------------------------------
 
-/-- EIP-4844 `fake_exponential(factor, numerator, denominator)` — the Taylor
-    series with factorial denominators (see the `blockchaintests` runner). -/
-partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
-  let rec go (i output numAccum : Nat) (fuel : Nat) : Nat :=
-    if fuel = 0 ∨ numAccum = 0 then output
-    else go (i + 1) (output + numAccum) (numAccum * numerator / (denominator * i)) (fuel - 1)
-  (go 1 0 (factor * denominator) 100000) / denominator
-
 /-- EIP-4844/7691/7892 blob-base-fee update fraction for the block at
     `timestamp`: prefer `config.blobSchedule[<forkName>].baseFeeUpdateFraction`,
     else the protocol defaults (`3338477` Cancun, `5007716` Prague+). -/
@@ -202,7 +195,8 @@ def decodeEngineHeader (ep : Json) (blobFrac : Nat)
     (blockHashFn : UInt256 → UInt256 := fun _ => ⟨0⟩) : BlockHeader :=
   let excessStr := strField ep "excessBlobGas"
   let blobBaseFee : UInt256 :=
-    if excessStr ≠ "" then UInt256.ofNat (fakeExponential 1 (hexToUInt256 excessStr).toNat blobFrac)
+    if excessStr ≠ "" then
+      UInt256.ofNat (TestSupport.fakeExponential 1 (hexToUInt256 excessStr).toNat blobFrac)
     else ⟨0⟩
   { coinbase      := hexToAddress (strField ep "feeRecipient")
     timestamp     := hexToUInt256 (strField ep "timestamp")

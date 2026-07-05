@@ -33,7 +33,7 @@ def ofNat (n : Nat) : UInt256 := ⟨Fin.ofNat _ n⟩
 /-- Project a `UInt256` back to its underlying `Nat`. -/
 def toNat (u : UInt256) : Nat := u.val.val
 
-instance : OfNat UInt256 n := ⟨ofNat n⟩
+instance {n : Nat} : OfNat UInt256 n := ⟨ofNat n⟩
 instance : Inhabited UInt256 := ⟨ofNat 0⟩
 instance : Repr UInt256 where reprPrec u _ := repr u.toNat
 instance : ToString UInt256 where toString u := toString u.toNat

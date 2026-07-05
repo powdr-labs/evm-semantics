@@ -3,6 +3,7 @@ module
 public import Lean.Data.Json
 public import EvmSemantics
 public import EvmSemantics.Data.Hex
+public import tests.FakeExponential
 
 /-!
 `StateTestRunner` — JSON driver around `EvmSemantics.Tx.execute`.
@@ -112,24 +113,9 @@ def decodeTx (tx : Json) : Option EvmSemantics.Tx.Transaction := do
       gasPrice  := hexToUInt256 (strField tx "gasPrice")
       nonce     := hexToUInt256 (strField tx "nonce") }
 
-/-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
-    approximates `factor · e^(numerator / denominator)` using the
-    convergent series `Σ (numerator^i · factor) / (denominator^i · i!)`,
-    stopping as soon as a term contributes 0 (Nat arithmetic). The blob
-    base fee is `fake_exp(MIN_BLOB_BASE_FEE = 1, excessBlobGas,
-    BLOB_BASE_FEE_UPDATE_FRACTION = 3338477)` per EIP-4844 §5. -/
-partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
-  let rec go (i accum numAcc : Nat) (fuel : Nat) : Nat :=
-    if fuel = 0 then accum
-    else
-      let term := numAcc / (denominator * i)
-      if term = 0 then accum
-      else go (i + 1) (accum + term) (numAcc * numerator) (fuel - 1)
-  go 1 factor (factor * numerator) 64
-
 /-- EIP-4844 blob base fee derived from `excessBlobGas`. -/
 def blobBaseFeeOf (excessBlobGas : Nat) : Nat :=
-  fakeExponential 1 excessBlobGas 3338477
+  TestSupport.fakeExponential 1 excessBlobGas 3338477
 
 /-- Decode the EVM-relevant subset of the BlockchainTests block header.
     The corpus stores these in `blocks[i].blockHeader` with the same

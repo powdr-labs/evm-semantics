@@ -18,12 +18,13 @@ definition agrees with the relational one:
 - **`stepF`** — an `Except`-valued *executable* function shadowing `Step`
   opcode-by-opcode (the thing the demo and the test harness actually run).
 
-`EVM/Equiv.lean` closes `stepF_sound : stepF s = .ok s' → Step s s'` with no
-`sorry`, so any *successful* `stepF` step is backed by a derivation in the
-relational spec. This covers only the `.ok s'` path — `stepF`'s `.error`
-(exception) results are **not** in general matched by a `Step` successor; the
-memory-expansion `OutOfGas` case (`chargeMem` → `.error`, with no Step-side
-memory-OOG rule) is a current example.
+`EVM/Equiv.lean` closes `stepF_sound : ¬ s.isDone → Step s (stepF s)` with no
+`sorry`: `stepF` is total (in-frame exceptions fold into
+`halt := .Exception e`), and *every* step it takes on a non-done state —
+success or exception — is backed by a derivation in the relational spec
+(the underlying `stepFE_sound` covers both the `.ok` and `.error`
+outcomes of the `Except`-valued `stepFE`, with every `OutOfGas` site
+bounded by the exact per-op `Gas.totalCost`).
 
 ## Module layers
 
@@ -205,6 +206,18 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   UInt256` wired to `keccak256Impl` via `@[implemented_by]`. The
   relational `Step` rules see only the opaque signature, so soundness is
   independent of the hash; the executable `stepF` runs the real thing.
+
+  **Trust boundary.** The `@[implemented_by]` bridge is part of the
+  trusted computing base: the kernel never checks that `keccak256Impl`
+  equals the opaque `keccak256` symbol, so the soundness theorems are
+  internally consistent whatever the implementation computes, and a bug
+  in `keccak256Impl` would change executable behaviour (and conformance
+  results) without any theorem noticing. The compensating controls are
+  differential: `keccak_test` pins known Ethereum vectors, and every
+  conformance suite exercises the hash against corpus-recorded state
+  roots and CREATE2 addresses. The same caveat applies to the rest of
+  the `Crypto/` stack — all of it is spec code trusted at the
+  executable layer, validated by tests rather than proofs.
 
 **Semantics** — see the next two sections.
 
@@ -533,7 +546,7 @@ flowchart LR
         Run["run = fuel loop<br/>Main.lean · tests/VMRunner.lean"]
         StepF --> Run
     end
-    StepF -.->|"stepF_sound:<br/>stepF s = ok s' → Step s s'<br/>EVM/Equiv.lean (no sorry)"| Step
+    StepF -.->|"stepF_sound:<br/>¬ s.isDone → Step s (stepF s)<br/>EVM/Equiv.lean (no sorry)"| Step
 ```
 
 - **`Step`** (`EVM/Step.lean`) — a thin two-constructor wrapper around

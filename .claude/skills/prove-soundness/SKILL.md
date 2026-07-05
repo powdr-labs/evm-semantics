@@ -6,8 +6,9 @@ description: Work on the stepF-to-Step soundness proofs in EVM/Equiv.lean — di
 # prove-soundness
 
 Maintain `EVM/Equiv.lean`, which proves
-`stepF_sound : stepF s = .ok s' → Step s s'` — every transition the executable
-`stepF` produces is a valid `Step` derivation. Read `AGENTS.md` for the
+`stepF_sound : ¬ s.isDone → Step s (stepF s)` — every transition the (total)
+executable `stepF` takes on a non-done state, success or exception, is a valid
+`Step` derivation (via `stepFE_sound` over the `Except`-valued `stepFE`). Read `AGENTS.md` for the
 three-view architecture (Step / Eval / stepF) before editing.
 
 ## The hard rule

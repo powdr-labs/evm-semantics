@@ -56,6 +56,21 @@ trap 'rm -rf "$work"' EXIT
 find "$dir" -name '*.json' | sort \
   | GSTATETESTS_BIN="$BIN" xargs -P "$par" -I{} "$self" --one {} "$cap" > "$work/raw"
 
+# Guard against silently dropped files: every corpus file must have produced
+# a per-file aggregate line (the worker synthesises one even on timeout or
+# crash). If any are missing (e.g. a worker was killed before it could print),
+# count them as crashes so the strict gate sees them instead of a silently
+# shrunken total.
+files=$(find "$dir" -name '*.json' | wc -l)
+aggs=$(grep -c 'pass(root=' "$work/raw" || true)
+if [ "$aggs" -lt "$files" ]; then
+  missing=$((files - aggs))
+  {
+    echo "CRASH corpus_files_missing_aggregate: $missing of $files corpus files produced no aggregate"
+    echo "pass(root=0 full+=0 core+=0) fail=0 incon=0 crash=$missing (total $missing)"
+  } >> "$work/raw"
+fi
+
 # Per-test notes (stable order).
 grep -E '^(FAIL|INCON|CRASH) ' "$work/raw" | sort || true
 
