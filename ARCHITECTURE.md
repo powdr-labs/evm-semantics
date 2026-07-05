@@ -207,6 +207,18 @@ trading enumerability for clean algebraic reasoning (`Function.update`, `simp`):
   relational `Step` rules see only the opaque signature, so soundness is
   independent of the hash; the executable `stepF` runs the real thing.
 
+  **Trust boundary.** The `@[implemented_by]` bridge is part of the
+  trusted computing base: the kernel never checks that `keccak256Impl`
+  equals the opaque `keccak256` symbol, so the soundness theorems are
+  internally consistent whatever the implementation computes, and a bug
+  in `keccak256Impl` would change executable behaviour (and conformance
+  results) without any theorem noticing. The compensating controls are
+  differential: `keccak_test` pins known Ethereum vectors, and every
+  conformance suite exercises the hash against corpus-recorded state
+  roots and CREATE2 addresses. The same caveat applies to the rest of
+  the `Crypto/` stack — all of it is spec code trusted at the
+  executable layer, validated by tests rather than proofs.
+
 **Semantics** — see the next two sections.
 
 **Executables**
@@ -534,7 +546,7 @@ flowchart LR
         Run["run = fuel loop<br/>Main.lean · tests/VMRunner.lean"]
         StepF --> Run
     end
-    StepF -.->|"stepF_sound:<br/>stepF s = ok s' → Step s s'<br/>EVM/Equiv.lean (no sorry)"| Step
+    StepF -.->|"stepF_sound:<br/>¬ s.isDone → Step s (stepF s)<br/>EVM/Equiv.lean (no sorry)"| Step
 ```
 
 - **`Step`** (`EVM/Step.lean`) — a thin two-constructor wrapper around

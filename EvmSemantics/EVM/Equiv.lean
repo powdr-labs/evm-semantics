@@ -4815,5 +4815,25 @@ theorem stepFE_sound (s : State) (h_nd : ¬ s.isDone) :
 theorem stepF_sound (s : State) (h_nd : ¬ s.isDone) : Step s (stepF s) :=
   stepFE_sound s h_nd
 
+/-!
+### Axiom-footprint guard
+
+Pin the axiom dependencies of the headline soundness theorems to the three
+standard Lean axioms. A `sorry` shows up as a build *warning* (caught by
+CI's warning gate), but a newly introduced `axiom` produces no warning —
+these `#guard_msgs` checks turn any change to the footprint into a hard
+build error, keeping the "closed, no extra axioms" claim machine-checked.
+-/
+
+/-- info: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, Classical.choice,
+Quot.sound] -/
+#guard_msgs in
+#print axioms stepFE_sound
+
+/-- info: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, Classical.choice,
+Quot.sound] -/
+#guard_msgs in
+#print axioms stepF_sound
+
 end EVM
 end EvmSemantics

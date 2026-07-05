@@ -3,6 +3,7 @@ module
 public import Lean.Data.Json
 public import EvmSemantics
 public import EvmSemantics.Data.Hex
+public import tests.FakeExponential
 
 /-!
 `GeneralStateTestRunner` — JSON driver around `EvmSemantics.Tx.execute` for the
@@ -96,28 +97,11 @@ def mkAccount (j : Json) : Account :=
 -- Env / transaction / fork decode.
 ----------------------------------------------------------------------------
 
-/-- EIP-4844 fake-exponential `fake_exp(factor, numerator, denominator)`
-    approximating `factor · e^(numerator / denominator)` via the Taylor series
-    with *factorial* denominators (`Σ factor·num^i / (denom^i · i!)`). The
-    running term is `numerator_accum`, seeded at `factor·denominator` and
-    updated `numerator_accum := numerator_accum · numerator / (denominator · i)`
-    each step (so the `i!` accumulates), summed until it underflows to `0`; the
-    total is then divided by `denominator`. A plain `num^i` polynomial (without
-    the `/i!`) truncates after the first term for any `numerator <
-    denominator`, understating the blob base fee (`0x240000` excess must give
-    fee `2`, not `1`) and letting an `INSUFFICIENT_MAX_FEE_PER_BLOB_GAS` tx
-    through. Same implementation as the `blockchaintests` runner's. -/
-partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
-  let rec go (i output numAccum : Nat) (fuel : Nat) : Nat :=
-    if fuel = 0 ∨ numAccum = 0 then output
-    else go (i + 1) (output + numAccum) (numAccum * numerator / (denominator * i)) (fuel - 1)
-  (go 1 0 (factor * denominator) 100000) / denominator
-
 /-- EIP-4844/7691 blob base fee derived from `excessBlobGas`, with the
     fork's `BLOB_BASE_FEE_UPDATE_FRACTION` (`3338477` at Cancun, `5007716`
     from Prague). -/
 def blobBaseFeeOf (excessBlobGas : Nat) (fork : Fork) : Nat :=
-  fakeExponential 1 excessBlobGas (if fork ≥ .Prague then 5007716 else 3338477)
+  TestSupport.fakeExponential 1 excessBlobGas (if fork ≥ .Prague then 5007716 else 3338477)
 
 /-- Decode the modern `state_test` `env` object into a `BlockHeader`.
 

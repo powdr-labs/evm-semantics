@@ -397,6 +397,17 @@ Ordered by impact on the suite. Each item lists the tests it would unlock.
 
 ### Evaluator fixes (turn crashes/fails into passes)
 
+### Block runners: independent tx-level invalid-block detection
+- [ ] **Implement typed-transaction block-validity checks in the block
+      runners** — today many invalid-block fixtures are rejected because the
+      fixture metadata (`expectException` / `validationError`) says so, with
+      independent detection covering only header-consensus rules. Fee-cap
+      ordering, cap-priced affordability, fork activation, and blob-hash
+      constraints are not detected independently, so those fixtures pass by
+      trusting the oracle rather than exercising validation logic (flagged by
+      the 2026-07 audit). Prefer shared tx-validity code over per-runner
+      copies, and report flagged-but-undetected blocks separately.
+
 ### Evaluator: model the remaining dynamic gas costs
 Already modelled: memory expansion (Yellow-Paper quadratic), `Gas.sstoreCost`
 (pre-EIP-1283, EIP-1283 Constantinople, EIP-2200 Istanbul, EIP-2929/EIP-3529

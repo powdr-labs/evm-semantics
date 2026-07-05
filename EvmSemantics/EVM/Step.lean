@@ -65,7 +65,7 @@ namespace List
 /-- Swap the elements at indices `i` and `j` (zero-indexed from the head
     of the list, i.e. the top of the stack). Returns `none` if either
     index is out of range. Used by the `SWAP` / `SWAPN` / `EXCHANGE` rules. -/
-def exchange (s : List α) (i j : Nat) : Option (List α) := do
+def exchange {α : Type _} (s : List α) (i j : Nat) : Option (List α) := do
   let xi ← s[i]?
   let xj ← s[j]?
   return (s.set i xj).set j xi

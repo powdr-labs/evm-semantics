@@ -3,6 +3,7 @@ module
 public import Lean.Data.Json
 public import EvmSemantics
 public import EvmSemantics.Data.Hex
+public import tests.FakeExponential
 
 /-!
 `BlockchainTestRunner` — JSON driver for the `ethereum/tests` /
@@ -113,21 +114,6 @@ def parseForkExact (s : String) : Option Fork :=
 -- Block header decode (the EVM-env subset) + EIP-4844 blob base fee.
 ----------------------------------------------------------------------------
 
-/-- EIP-4844 `fake_exponential(factor, numerator, denominator)` —
-    `⌊factor · e^(numerator/denominator)⌋` approximated by the Taylor series
-    with *factorial* denominators (`Σ factor·num^i / (denom^i · i!)`). The
-    running term is `numerator_accum`, seeded at `factor·denominator` and
-    updated `numerator_accum := numerator_accum · numerator / (denominator · i)`
-    each step (so the `i!` accumulates), summed until it underflows to `0`; the
-    total is then divided by `denominator`. A plain `num^i` polynomial (without
-    the `/i!`) overshoots astronomically for large `numerator`, which would push
-    the blob base fee above `maxFeePerBlobGas` and spuriously reject blob txs. -/
-partial def fakeExponential (factor numerator denominator : Nat) : Nat :=
-  let rec go (i output numAccum : Nat) (fuel : Nat) : Nat :=
-    if fuel = 0 ∨ numAccum = 0 then output
-    else go (i + 1) (output + numAccum) (numAccum * numerator / (denominator * i)) (fuel - 1)
-  (go 1 0 (factor * denominator) 100000) / denominator
-
 /-- Decode a `blockHeader` object into the EVM-env `BlockHeader`. Post-Merge
     `prevRandao` reads `mixHash`, falling back to `difficulty` pre-Merge.
     `blobBaseFee = fake_exponential(1, excessBlobGas, blobFrac)` (EIP-4844),
@@ -143,7 +129,8 @@ def decodeBlockHeader (bh : Json) (blobFrac : Nat)
     else hexToUInt256 (strField bh "difficulty")
   let excessStr := strField bh "excessBlobGas"
   let blobBaseFee : UInt256 :=
-    if excessStr ≠ "" then UInt256.ofNat (fakeExponential 1 (hexToUInt256 excessStr).toNat blobFrac)
+    if excessStr ≠ "" then
+      UInt256.ofNat (TestSupport.fakeExponential 1 (hexToUInt256 excessStr).toNat blobFrac)
     else ⟨0⟩
   { coinbase      := hexToAddress (strField bh "coinbase")
     timestamp     := hexToUInt256 (strField bh "timestamp")
