@@ -134,21 +134,25 @@ theorem stepRunning_complete {s s' : State}
   | calldatasize h_op h_gas h_cap =>
       exact StepComplete.complete_calldatasize s h_op h_gas h_cap h_run h_np
   | calldatacopy destOff srcOff sz rest h_op h_stack h_gas h_cap =>
-      exact StepComplete.complete_calldatacopy s destOff srcOff sz rest h_op h_stack h_gas h_cap h_run h_np
+      exact StepComplete.complete_calldatacopy s destOff srcOff sz rest h_op h_stack h_gas h_cap
+        h_run h_np
   | codesize h_op h_gas h_cap =>
       exact StepComplete.complete_codesize s h_op h_gas h_cap h_run h_np
   | codecopy destOff srcOff sz rest h_op h_stack h_gas h_cap =>
-      exact StepComplete.complete_codecopy s destOff srcOff sz rest h_op h_stack h_gas h_cap h_run h_np
+      exact StepComplete.complete_codecopy s destOff srcOff sz rest h_op h_stack h_gas h_cap h_run
+        h_np
   | gasprice h_op h_gas h_cap =>
       exact StepComplete.complete_gasprice s h_op h_gas h_cap h_run h_np
   | extcodesize addr rest h_op h_gas h_stack h_cap =>
       exact StepComplete.complete_extcodesize s addr rest h_op h_gas h_stack h_cap h_run h_np
   | extcodecopy addr destOff srcOff sz rest h_op h_stack h_gas h_cap =>
-      exact StepComplete.complete_extcodecopy s addr destOff srcOff sz rest h_op h_stack h_gas h_cap h_run h_np
+      exact StepComplete.complete_extcodecopy s addr destOff srcOff sz rest h_op h_stack h_gas
+        h_cap h_run h_np
   | returndatasize h_op h_gas h_cap =>
       exact StepComplete.complete_returndatasize s h_op h_gas h_cap h_run h_np
   | returndatacopy destOff srcOff sz rest h_op h_stack h_inbounds h_gas h_cap =>
-      exact StepComplete.complete_returndatacopy s destOff srcOff sz rest h_op h_stack h_inbounds h_gas h_cap h_run h_np
+      exact StepComplete.complete_returndatacopy s destOff srcOff sz rest h_op h_stack h_inbounds
+        h_gas h_cap h_run h_np
   | extcodehash addr rest h_op h_gas h_stack h_cap =>
       exact StepComplete.complete_extcodehash s addr rest h_op h_gas h_stack h_cap h_run h_np
   | blockhash n rest h_op h_gas h_stack h_cap =>
@@ -198,7 +202,8 @@ theorem stepRunning_complete {s s' : State}
   | sload key rest h_op h_gas h_stack h_cap =>
       exact StepComplete.complete_sload s key rest h_op h_gas h_stack h_cap h_run h_np
   | sstore key value rest h_op h_perm h_stack h_sentry h_gas h_cap =>
-      exact StepComplete.complete_sstore s key value rest h_op h_perm h_stack h_sentry h_gas h_cap h_run h_np
+      exact StepComplete.complete_sstore s key value rest h_op h_perm h_stack h_sentry h_gas h_cap
+        h_run h_np
   | tload key rest h_op h_gas h_stack h_cap =>
       exact StepComplete.complete_tload s key rest h_op h_gas h_stack h_cap h_run h_np
   | tstore key value rest h_op h_perm h_gas h_stack h_cap =>
@@ -206,9 +211,11 @@ theorem stepRunning_complete {s s' : State}
   | jump dest rest h_op h_gas h_stack h_valid h_cap =>
       exact StepComplete.complete_jump s dest rest h_op h_gas h_stack h_valid h_cap h_run h_np
   | jumpi_taken dest cond rest h_op h_gas h_stack h_cond h_valid h_cap =>
-      exact StepComplete.complete_jumpi_taken s dest cond rest h_op h_gas h_stack h_cond h_valid h_cap h_run h_np
+      exact StepComplete.complete_jumpi_taken s dest cond rest h_op h_gas h_stack h_cond h_valid
+        h_cap h_run h_np
   | jumpi_notTaken dest cond rest h_op h_gas h_stack h_cond h_cap =>
-      exact StepComplete.complete_jumpi_notTaken s dest cond rest h_op h_gas h_stack h_cond h_cap h_run h_np
+      exact StepComplete.complete_jumpi_notTaken s dest cond rest h_op h_gas h_stack h_cond h_cap
+        h_run h_np
   | pc h_op h_gas h_cap =>
       exact StepComplete.complete_pc s h_op h_gas h_cap h_run h_np
   | gas h_op h_gas h_cap =>
@@ -221,46 +228,79 @@ theorem stepRunning_complete {s s' : State}
       exact StepComplete.complete_return_ s offset size rest h_op h_stack h_gas h_cap h_run h_np
   | revert offset size rest h_op h_stack h_gas h_cap =>
       exact StepComplete.complete_revert s offset size rest h_op h_stack h_gas h_cap h_run h_np
-  | callStatic gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_perm h_value h_gas h_cap =>
-      exact StepComplete.complete_callStatic s gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_perm h_value h_gas h_cap h_run h_np
-  | call gasArg toArg value argsOff argsLen retOff retLen rest forwarded h_op h_stack h_static h_gas h_take h_fwd h_afford h_cap =>
-      exact StepComplete.complete_call s gasArg toArg value argsOff argsLen retOff retLen rest forwarded h_op h_stack h_static h_gas h_take h_fwd h_afford h_cap h_run h_np
-  | callFail gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_static h_gas h_afford h_fail h_cap =>
-      exact StepComplete.complete_callFail s gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_static h_gas h_afford h_fail h_cap h_run h_np
-  | callcode gasArg toArg value argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap =>
-      exact StepComplete.complete_callcode s gasArg toArg value argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap h_run h_np
-  | callcodeFail gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford h_fail h_cap =>
-      exact StepComplete.complete_callcodeFail s gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford h_fail h_cap h_run h_np
-  | delegatecall gasArg toArg argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap =>
-      exact StepComplete.complete_delegatecall s gasArg toArg argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap h_run h_np
-  | delegatecallFail gasArg toArg argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford h_fail h_cap =>
-      exact StepComplete.complete_delegatecallFail s gasArg toArg argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford h_fail h_cap h_run h_np
-  | staticcall gasArg toArg argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap =>
-      exact StepComplete.complete_staticcall s gasArg toArg argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap h_run h_np
-  | staticcallFail gasArg toArg argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford h_fail h_cap =>
-      exact StepComplete.complete_staticcallFail s gasArg toArg argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford h_fail h_cap h_run h_np
+  | callStatic gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_perm h_value
+    h_gas h_cap =>
+      exact StepComplete.complete_callStatic s gasArg toArg value argsOff argsLen retOff retLen
+        rest h_op h_stack h_perm h_value h_gas h_cap h_run h_np
+  | call gasArg toArg value argsOff argsLen retOff retLen rest forwarded h_op h_stack h_static
+    h_gas h_take h_fwd h_afford h_cap =>
+      exact StepComplete.complete_call s gasArg toArg value argsOff argsLen retOff retLen rest
+        forwarded h_op h_stack h_static h_gas h_take h_fwd h_afford h_cap h_run h_np
+  | callFail gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_static h_gas
+    h_afford h_fail h_cap =>
+      exact StepComplete.complete_callFail s gasArg toArg value argsOff argsLen retOff retLen rest
+        h_op h_stack h_static h_gas h_afford h_fail h_cap h_run h_np
+  | callcode gasArg toArg value argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas
+    h_take h_fwd h_afford h_cap =>
+      exact StepComplete.complete_callcode s gasArg toArg value argsOff argsLen retOff retLen rest
+        forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap h_run h_np
+  | callcodeFail gasArg toArg value argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford
+    h_fail h_cap =>
+      exact StepComplete.complete_callcodeFail s gasArg toArg value argsOff argsLen retOff retLen
+        rest h_op h_stack h_gas h_afford h_fail h_cap h_run h_np
+  | delegatecall gasArg toArg argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas
+    h_take h_fwd h_afford h_cap =>
+      exact StepComplete.complete_delegatecall s gasArg toArg argsOff argsLen retOff retLen rest
+        forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap h_run h_np
+  | delegatecallFail gasArg toArg argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford
+    h_fail h_cap =>
+      exact StepComplete.complete_delegatecallFail s gasArg toArg argsOff argsLen retOff retLen
+        rest h_op h_stack h_gas h_afford h_fail h_cap h_run h_np
+  | staticcall gasArg toArg argsOff argsLen retOff retLen rest forwarded h_op h_stack h_gas h_take
+    h_fwd h_afford h_cap =>
+      exact StepComplete.complete_staticcall s gasArg toArg argsOff argsLen retOff retLen rest
+        forwarded h_op h_stack h_gas h_take h_fwd h_afford h_cap h_run h_np
+  | staticcallFail gasArg toArg argsOff argsLen retOff retLen rest h_op h_stack h_gas h_afford
+    h_fail h_cap =>
+      exact StepComplete.complete_staticcallFail s gasArg toArg argsOff argsLen retOff retLen rest
+        h_op h_stack h_gas h_afford h_fail h_cap h_run h_np
   | createStatic value offset size rest h_op h_stack h_perm h_gas h_cap =>
-      exact StepComplete.complete_createStatic s value offset size rest h_op h_stack h_perm h_gas h_cap h_run h_np
+      exact StepComplete.complete_createStatic s value offset size rest h_op h_stack h_perm h_gas
+        h_cap h_run h_np
   | createFail value offset size rest h_op h_stack h_perm h_gas h_fail h_size h_cap =>
-      exact StepComplete.complete_createFail s value offset size rest h_op h_stack h_perm h_gas h_fail h_size h_cap h_run h_np
-  | createCollision value offset size rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_coll h_size h_cap =>
-      exact StepComplete.complete_createCollision s value offset size rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_coll h_size h_cap h_run h_np
-  | create value offset size rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_nocoll h_size h_cap =>
-      exact StepComplete.complete_create s value offset size rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_nocoll h_size h_cap h_run h_np
+      exact StepComplete.complete_createFail s value offset size rest h_op h_stack h_perm h_gas
+        h_fail h_size h_cap h_run h_np
+  | createCollision value offset size rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_coll
+    h_size h_cap =>
+      exact StepComplete.complete_createCollision s value offset size rest forwarded h_op h_stack
+        h_perm h_gas h_take h_fwd h_coll h_size h_cap h_run h_np
+  | create value offset size rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_nocoll h_size
+    h_cap =>
+      exact StepComplete.complete_create s value offset size rest forwarded h_op h_stack h_perm
+        h_gas h_take h_fwd h_nocoll h_size h_cap h_run h_np
   | create2Static value offset size salt rest h_op h_stack h_perm h_gas h_cap =>
-      exact StepComplete.complete_create2Static s value offset size salt rest h_op h_stack h_perm h_gas h_cap h_run h_np
+      exact StepComplete.complete_create2Static s value offset size salt rest h_op h_stack h_perm
+        h_gas h_cap h_run h_np
   | create2Fail value offset size salt rest h_op h_stack h_perm h_gas h_fail h_size h_cap =>
-      exact StepComplete.complete_create2Fail s value offset size salt rest h_op h_stack h_perm h_gas h_fail h_size h_cap h_run h_np
-  | create2Collision value offset size salt rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_coll h_size h_cap =>
-      exact StepComplete.complete_create2Collision s value offset size salt rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_coll h_size h_cap h_run h_np
-  | create2 value offset size salt rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_nocoll h_size h_cap =>
-      exact StepComplete.complete_create2 s value offset size salt rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_nocoll h_size h_cap h_run h_np
+      exact StepComplete.complete_create2Fail s value offset size salt rest h_op h_stack h_perm
+        h_gas h_fail h_size h_cap h_run h_np
+  | create2Collision value offset size salt rest forwarded h_op h_stack h_perm h_gas h_take h_fwd
+    h_coll h_size h_cap =>
+      exact StepComplete.complete_create2Collision s value offset size salt rest forwarded h_op
+        h_stack h_perm h_gas h_take h_fwd h_coll h_size h_cap h_run h_np
+  | create2 value offset size salt rest forwarded h_op h_stack h_perm h_gas h_take h_fwd h_nocoll
+    h_size h_cap =>
+      exact StepComplete.complete_create2 s value offset size salt rest forwarded h_op h_stack
+        h_perm h_gas h_take h_fwd h_nocoll h_size h_cap h_run h_np
   | selfDestructStatic beneficiary rest h_op h_stack h_perm h_gas h_cap =>
-      exact StepComplete.complete_selfDestructStatic s beneficiary rest h_op h_stack h_perm h_gas h_cap h_run h_np
+      exact StepComplete.complete_selfDestructStatic s beneficiary rest h_op h_stack h_perm h_gas
+        h_cap h_run h_np
   | selfDestruct beneficiary rest h_op h_stack h_perm h_gas h_cap =>
-      exact StepComplete.complete_selfDestruct s beneficiary rest h_op h_stack h_perm h_gas h_cap h_run h_np
+      exact StepComplete.complete_selfDestruct s beneficiary rest h_op h_stack h_perm h_gas h_cap
+        h_run h_np
   | log n offset size topics rest h_op h_perm h_topics_n h_stack h_gas h_cap =>
-      exact StepComplete.complete_log s n offset size topics rest h_op h_perm h_topics_n h_stack h_gas h_cap h_run h_np
+      exact StepComplete.complete_log s n offset size topics rest h_op h_perm h_topics_n h_stack
+        h_gas h_cap h_run h_np
   | dupN n v h_op h_gas h_get h_cap =>
       exact StepComplete.complete_dupN s n v h_op h_gas h_get h_cap h_run h_np
   | swapN n stk' h_op h_gas h_swap h_cap =>
@@ -273,20 +313,25 @@ theorem stepRunning_complete {s s' : State}
       exact StepComplete.complete_invalidOpcode s h_op h_cap h_run h_np
   | outOfGas op cost h_op h_cap h_reach h_cost_ub h_gas =>
       exact StepComplete.complete_outOfGas s op cost h_op h_cap h_reach h_cost_ub h_gas h_run h_np
-  | initCodeSizeOog op value offset size rest h_op h_create h_cap h_gas h_stack h_perm h_large =>
-      exact StepComplete.complete_initCodeSizeOog s op value offset size rest h_op h_create h_cap h_gas h_stack h_perm h_large h_run h_np
+  | initCodeSizeOog op value offset size rest h_op h_create h_cap h_gas h_stack h_len h_perm
+      h_large =>
+      exact StepComplete.complete_initCodeSizeOog s op value offset size rest h_op h_create
+        h_cap h_gas h_stack h_len h_perm h_large h_run h_np
   | stackUnderflow op h_op h_cap h_gas h_reach h_under =>
       exact StepComplete.complete_stackUnderflow s op h_op h_cap h_gas h_reach h_under h_run h_np
   | stackOverflow op h_op h_pop_ok h_over =>
       exact StepComplete.complete_stackOverflow s op h_op h_pop_ok h_over h_run h_np
   | staticModeViolation op h_op h_mut h_cap h_gas h_reach h_perm =>
-      exact StepComplete.complete_staticModeViolation s op h_op h_mut h_cap h_gas h_reach h_perm h_run h_np
+      exact StepComplete.complete_staticModeViolation s op h_op h_mut h_cap h_gas h_reach h_perm
+        h_run h_np
   | jumpBadDest dest rest h_op h_cap h_gas h_stack h_bad =>
       exact StepComplete.complete_jumpBadDest s dest rest h_op h_cap h_gas h_stack h_bad h_run h_np
   | jumpiBadDest dest cond rest h_op h_cap h_gas h_stack h_cond h_bad =>
-      exact StepComplete.complete_jumpiBadDest s dest cond rest h_op h_cap h_gas h_stack h_cond h_bad h_run h_np
+      exact StepComplete.complete_jumpiBadDest s dest cond rest h_op h_cap h_gas h_stack h_cond
+        h_bad h_run h_np
   | returndatacopyOob destOff srcOff sz rest h_op h_cap h_gas h_stack h_oob =>
-      exact StepComplete.complete_returndatacopyOob s destOff srcOff sz rest h_op h_cap h_gas h_stack h_oob h_run h_np
+      exact StepComplete.complete_returndatacopyOob s destOff srcOff sz rest h_op h_cap h_gas
+        h_stack h_oob h_run h_np
 
 /-- Completeness of the resume layer: a `StepReturn` transition is
     exactly the `stepF` step on the halted frame. -/

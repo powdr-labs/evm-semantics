@@ -207,7 +207,8 @@ theorem complete_createCollision (s : State)
   · rw [ if_pos, if_neg ]
     · rw [ if_pos ]
       · simp +decide [Gas.createCommitted, MachineState.memExpansionDelta,
-          State.activeWordsAfterUInt256, State.replaceStackAndIncrPC, State.fork, UInt256.succ]
+          State.activeWordsAfterUInt256, State.replaceStackAndIncrPC, State.fork, UInt256.succ,
+          show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
         grind
       · unfold Gas.allButOneSixtyFourth
         split_ifs <;> omega
@@ -284,7 +285,12 @@ theorem complete_create2Static (s : State)
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_error ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.system, h_stack]
+  rw [if_pos (by simp [h_perm])]
+  rfl
 
 /-- Completeness for `StepRunning.create2Fail`. -/
 theorem complete_create2Fail (s : State)
@@ -310,7 +316,32 @@ theorem complete_create2Fail (s : State)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.create2Committed s offset size
+      = Gas.baseCost s.fork .CREATE2
+        + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+        + Gas.create2HashCost size.toNat
+        + Gas.initCodeWordCost s.fork size.toNat := rfl
+  have h_base : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable := by rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  rw [if_neg (by simp [h_perm]), if_neg (by simp [h_size])]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .CREATE2) h_base).canExpandMemory
+      offset.toNat size.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta, Operation.CREATE2] at h_gas ⊢
+        omega)]
+  rw [if_pos (by
+        simpa only [State.consumeGas, State.consumeMemExp] using h_fail)]
+  simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+    State.activeWordsAfterUInt256, Gas.create2Committed, MachineState.memExpansionDelta,
+    State.fork, UInt256.succ, show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.create2Collision`. -/
 theorem complete_create2Collision (s : State)
@@ -345,7 +376,33 @@ theorem complete_create2Collision (s : State)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_base : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable := by
+    have hC : Gas.create2Committed s offset size
+        = Gas.baseCost s.fork .CREATE2
+          + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+          + Gas.create2HashCost size.toNat
+          + Gas.initCodeWordCost s.fork size.toNat := rfl
+    rw [hC] at h_gas; omega
+  rw [stepF_eq_ok]
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp +decide [ stepF.system, h_stack, h_perm, h_size ]
+  rw [ chargeMem ]
+  split_ifs <;> simp_all +decide [ State.canExpandMemory, State.consumeGas, State.consumeMemExp ]
+  · rw [ if_pos, if_neg ]
+    · rw [ if_pos ]
+      · simp +decide [Gas.create2Committed, MachineState.memExpansionDelta,
+          State.activeWordsAfterUInt256, State.replaceStackAndIncrPC, State.fork, UInt256.succ,
+          show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+        grind
+      · unfold Gas.allButOneSixtyFourth
+        split_ifs <;> omega
+    · grind
+    · unfold Gas.create2Committed at h_gas; simp_all +decide [ Gas.baseCost ]
+      unfold MachineState.memExpansionDelta at h_gas; simp_all +decide [ Nat.sub_sub ]
+      simp only [State.fork]; omega
+  · unfold Gas.create2Committed at h_gas
+    grind
 
 /-- Completeness for `StepRunning.create2`. -/
 theorem complete_create2 (s : State)
@@ -380,7 +437,32 @@ theorem complete_create2 (s : State)
              (MachineState.readPadded s.memory offset.toNat size.toNat)
              forwarded)
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_base : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable := by
+    have hC : Gas.create2Committed s offset size
+        = Gas.baseCost s.fork .CREATE2
+          + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+          + Gas.create2HashCost size.toNat
+          + Gas.initCodeWordCost s.fork size.toNat := rfl
+    rw [hC] at h_gas; omega
+  rw [stepF_eq_ok]
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp +decide [ stepF.system, h_stack, h_perm, h_size ]
+  rw [ chargeMem ]
+  split_ifs <;> simp_all +decide [ State.canExpandMemory, State.consumeGas, State.consumeMemExp ]
+  · rw [ if_pos, if_neg ]
+    · rw [ if_pos ]
+      · simp +decide [ Gas.create2Committed, MachineState.memExpansionDelta,
+            State.activeWordsAfterUInt256 ]
+        grind
+      · unfold Gas.allButOneSixtyFourth
+        split_ifs <;> omega
+    · grind
+    · unfold Gas.create2Committed at h_gas; simp_all +decide [ Gas.baseCost ]
+      unfold MachineState.memExpansionDelta at h_gas; simp_all +decide [ Nat.sub_sub ]
+      simp only [State.fork]; omega
+  · unfold Gas.create2Committed at h_gas
+    grind
 
 /-- Completeness for `StepRunning.selfDestructStatic`. -/
 theorem complete_selfDestructStatic (s : State)
@@ -396,7 +478,12 @@ theorem complete_selfDestructStatic (s : State)
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_error ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.system, h_stack]
+  rw [if_pos (by simp [h_perm])]
+  rfl
 
 /-- Completeness for `StepRunning.selfDestruct`. -/
 theorem complete_selfDestruct (s : State)
@@ -414,7 +501,30 @@ theorem complete_selfDestruct (s : State)
           (({ s with gasAvailable := s.gasAvailable - Gas.selfDestructTotal s beneficiary
             }).selfDestructTo (AccountAddress.ofUInt256 beneficiary))
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hT : Gas.selfDestructTotal s beneficiary
+      = Gas.baseCost s.fork (.System .SELFDESTRUCT)
+        + (Gas.selfDestructSurcharge s.fork
+             ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
+             ((s.accountMap s.executionEnv.address).balance.toNat != 0)
+           + Gas.selfDestructColdSurcharge s (AccountAddress.ofUInt256 beneficiary)) := rfl
+  have h_base : Gas.baseCost s.fork (.System .SELFDESTRUCT) ≤ s.gasAvailable := by
+    rw [hT] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  rw [if_neg (by simp [h_perm])]
+  have h_sc : Gas.selfDestructSurcharge s.fork
+        ((s.accountMap (AccountAddress.ofUInt256 beneficiary)).isEmpty)
+        ((s.accountMap s.executionEnv.address).balance.toNat != 0)
+      + Gas.selfDestructColdSurcharge s (AccountAddress.ofUInt256 beneficiary)
+      ≤ (s.consumeGas (Gas.baseCost s.fork (.System .SELFDESTRUCT)) h_base).gasAvailable := by
+    show _ ≤ s.gasAvailable - Gas.baseCost s.fork (.System .SELFDESTRUCT)
+    rw [hT] at h_gas; omega
+  rw [dif_pos h_sc]
+  simp only [Except.ok.injEq]
+  simp [State.consumeGas, State.selfDestructTo, Gas.selfDestructTotal]
+  grind
 
 end StepComplete
 end EVM

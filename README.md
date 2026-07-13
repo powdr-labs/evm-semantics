@@ -226,6 +226,8 @@ EvmSemantics/
     BigStep.lean                -- reflexive-transitive Steps, big-step Eval
     StepF.lean                  -- executable shadow, split by Operation group
     Equiv.lean                  -- soundness lemmas (helper + headline)
+    StepDeterminism.lean        -- completeness + step_deterministic
+    StepComplete/               -- per-opcode completeness cases
 ```
 
 ## Build & run
@@ -387,6 +389,25 @@ A small design tweak was needed to make the proof go through:
 `StepRunning.pushN` now takes the immediate-width as an explicit parameter
 (`immWidth : Nat`) rather than tying it to `k.val`, sidestepping a
 decoder invariant that would otherwise need a separate lemma.
+
+### Determinism and completeness
+
+`EVM/StepDeterminism.lean` closes the converse direction:
+`step_complete : Step s s' → stepF s = s'` — every relational transition
+is exactly the one the executable computes. Determinism is an immediate
+corollary (`step_deterministic : Step s s₁ → Step s s₂ → s₁ = s₂`), and
+together with `stepF_sound`, `Step` is exactly the graph of `stepF` on
+non-done states (`step_iff_stepF`). What makes this true is that every
+`StepRunning` rule carries premises mirroring `stepF`'s check order —
+the stack-overflow guard (`h_cap`), the base fee, and the per-opcode
+`State.oogReach` / `State.underflowReach` / `State.staticReach`
+predicates on the exception rules — so from any state at most one
+exception *kind* is derivable, and success rules cannot fire where the
+executable would halt exceptionally. The per-constructor completeness
+cases live in `EVM/StepComplete/` (one file per opcode group, shared
+evaluation lemmas in `Dispatch.lean`); the axiom footprint of the
+headline theorems is pinned to `[propext, Classical.choice, Quot.sound]`
+by `#guard_msgs` checks, as in `Equiv.lean`.
 
 ## Reference and credits
 

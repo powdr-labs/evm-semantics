@@ -105,6 +105,16 @@ Three views of the same semantics, with `Step` as the source of truth:
   14 per-helper soundness lemmas (+ `*_sound_error` mirrors) dispatched
   from the headline theorem. Every `OutOfGas` derivation is bounded by the
   exact per-op `Gas.totalCost`.
+- **`EVM/StepDeterminism.lean`** (+ `EVM/StepComplete/`) — the converse:
+  `step_complete : Step s s' → stepF s = s'` (per-constructor completeness
+  cases in `StepComplete/`, one file per opcode group, shared evaluation
+  lemmas in `StepComplete/Dispatch.lean`), hence
+  `step_deterministic : Step s s₁ → Step s s₂ → s₁ = s₂` and
+  `step_iff_stepF : ¬ s.isDone → (Step s s' ↔ stepF s = s')` — `Step` is
+  exactly the graph of `stepF` on non-done states. The exception rules'
+  priority premises (`State.oogReach`/`underflowReach`/`staticReach` plus
+  the `h_cap` overflow guards) encode `stepF`'s check order; that is what
+  makes the relation deterministic.
 
 ### File layout (`EvmSemantics/`)
 
@@ -220,7 +230,13 @@ Touch these in order, then rebuild + lint + run vmtests:
 6. `EVM/Equiv.lean` — extend the helper's soundness lemma so it still
    closes. The helpers produce `StepRunning`; the headline `stepF_sound`
    wraps with `Step.running h_running`.
-7. `tests/VMRunner.lean` — usually nothing. Every test goes through the
+7. `EVM/StepComplete/<Group>.lean` — add/extend the matching
+   `complete_<op>` lemma and its dispatch line in
+   `EVM/StepDeterminism.lean` (`stepRunning_complete`), so
+   `step_complete`/`step_deterministic` keep closing. New checks in
+   `stepF` also mean revisiting the exception rules' priority premises
+   (`State.oogReach`/`underflowReach`/`staticReach`).
+8. `tests/VMRunner.lean` — usually nothing. Every test goes through the
    evaluator with its real `exec.gas` budget; there is no skip filter
    left to update.
 

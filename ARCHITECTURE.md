@@ -26,6 +26,15 @@ success or exception — is backed by a derivation in the relational spec
 outcomes of the `Except`-valued `stepFE`, with every `OutOfGas` site
 bounded by the exact per-op `Gas.totalCost`).
 
+`EVM/StepDeterminism.lean` closes the converse, `step_complete :
+Step s s' → stepF s = s'`, making `Step` **deterministic**
+(`step_deterministic`) and exactly the graph of `stepF` on non-done
+states (`step_iff_stepF`). The per-constructor completeness cases live
+in `EVM/StepComplete/`; the exception rules' priority premises
+(`State.oogReach`/`underflowReach`/`staticReach` + `h_cap` overflow
+guards in `EVM/Step.lean`) encode `stepF`'s check order, which is what
+makes the reported exception kind unique.
+
 ## Module layers
 
 Modules form a clean dependency stack — foundation → state → machine → EVM core

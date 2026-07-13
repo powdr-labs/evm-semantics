@@ -41,7 +41,11 @@ theorem complete_invalidOpcode (s : State)
   simp only [stepF.system]
 
 
-/-- Completeness for `StepRunning.initCodeSizeOog`. -/
+/-- Completeness for `StepRunning.initCodeSizeOog`. The `h_len` premise is
+    what makes the CREATE2 disjunct true: `stepF.system` matches four stack
+    items (`salt` included) *before* the `initCodeTooLarge` abort, so the
+    3-slot `h_stack` pattern alone would leave a `rest = []` state on which
+    the executable underflows instead. -/
 theorem complete_initCodeSizeOog (s : State) (op : Operation)
         (value offset size : UInt256) (rest : List UInt256)
         (h_op       : s.decodedOp = some op)
@@ -49,6 +53,7 @@ theorem complete_initCodeSizeOog (s : State) (op : Operation)
         (h_cap      : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
         (h_gas      : Gas.baseCost s.fork op ≤ s.gasAvailable)
         (h_stack    : s.stack = value :: offset :: size :: rest)
+        (h_len      : op.popArity ≤ s.stack.length)
         (h_perm     : s.executionEnv.permitStateMutation = true)
         (h_large    : Gas.initCodeTooLarge s.fork size.toNat = true)
         (h_run : s.halt = .Running)
@@ -62,20 +67,15 @@ theorem complete_initCodeSizeOog (s : State) (op : Operation)
   · rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
     simp only [stepF.system, h_stack]
     rw [if_neg (by simp [h_perm]), if_pos h_large]
-  · rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
-    simp only [stepF.system, h_stack]
-    -- UNPROVABLE AS STATED (design-level gap, not to be fixed here).
-    -- For CREATE2, `stepF.system` matches four stack items
-    -- (`value :: offset :: size :: salt :: rest`) *before* the
-    -- `initCodeTooLarge` OutOfGas check, but the premises only pin three
-    -- items (`h_stack : s.stack = value :: offset :: size :: rest`) with
-    -- `rest` unconstrained. When `rest = []` the executable takes the
-    -- underflow arm and returns `.error .StackUnderflow`, not
-    -- `.error .OutOfGas`, so the goal is false. The rule
-    -- `StepRunning.initCodeSizeOog` (Step.lean) would need an extra
-    -- `4 ≤ s.stack.length` premise (or a `salt` in `h_stack`) for the
-    -- CREATE2 disjunct; changing it is a design decision outside this task.
-    sorry
+  · -- CREATE2 pops a 4th `salt` slot before the size cap: `h_len` forces
+    -- `rest` to be non-empty, exposing it.
+    match rest, h_stack, h_len with
+    | salt :: rest', h_stack, _ =>
+      rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+      simp only [stepF.system, h_stack]
+      rw [if_neg (by simp [h_perm]), if_pos h_large]
+    | [], h_stack, h_len =>
+      exact absurd h_len (by simp [h_stack, Operation.popArity])
 
 
 /-- Completeness for `StepRunning.stackOverflow`. -/

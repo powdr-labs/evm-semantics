@@ -2590,6 +2590,7 @@ private theorem mk_initCodeOog {s : State} {op : Operation} {stk : List UInt256}
     (h_gas : Gas.baseCost s.fork op ≤ s.gasAvailable)
     (value offset size : UInt256) (rest : List UInt256)
     (h_stack_pat : stk = value :: offset :: size :: rest)
+    (h_len : op.popArity ≤ s.stack.length)
     (h_perm : s.executionEnv.permitStateMutation = true)
     (h_large : Gas.initCodeTooLarge s.fork size.toNat = true) :
     StepRunning s ({ toSharedState := s.toSharedState, pc := s.pc, stack := stk,
@@ -2597,7 +2598,7 @@ private theorem mk_initCodeOog {s : State} {op : Operation} {stk : List UInt256}
                      callStack := s.callStack }) := by
   subst h_stack
   exact StepRunning.initCodeSizeOog s op value offset size rest h_dec h_create
-        h_cap h_gas h_stack_pat h_perm h_large
+        h_cap h_gas h_stack_pat h_len h_perm h_large
 
 /-- StaticModeViolation helper. -/
 private theorem mk_staticMode {s : State} {op : Operation} {stk : List UInt256}
@@ -4433,7 +4434,8 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · rename_i h_large
           cases h
           exact mk_initCodeOog h_dec h_stack (Or.inl rfl) h_cap h_gas value offset size
-            rest rfl (by simpa using h_perm) h_large
+            rest rfl (by simp [h_stack, Operation.popArity])
+            (by simpa using h_perm) h_large
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE)) h_gas).canExpandMemory
@@ -4520,7 +4522,8 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
         · rename_i h_large
           cases h
           exact mk_initCodeOog h_dec h_stack (Or.inr rfl) h_cap h_gas value offset size
-            (salt :: rest) rfl (by simpa using h_perm) h_large
+            (salt :: rest) rfl (by simp [h_stack, Operation.popArity])
+            (by simpa using h_perm) h_large
         unfold chargeMem at h
         by_cases h_mem :
             (s.consumeGas (Gas.baseCost s.fork (.System .CREATE2)) h_gas).canExpandMemory

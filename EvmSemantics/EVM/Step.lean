@@ -11,8 +11,12 @@ public import EvmSemantics.Data.Rlp
 `Step` — the small-step relation, split across three inductives.
 
 * **`StepRunning : State → State → Prop`** holds the per-opcode logic:
-  one success constructor per opcode (81) plus generic exception
-  constructors parametric over `op` (9). Its constructors do **not**
+  one success constructor per opcode plus exception constructors
+  parametric over `op` where possible. Every rule carries priority
+  premises mirroring `stepF`'s check order (see the exception-rules
+  section comment and `State.oogReach`/`underflowReach`/`staticReach`),
+  which makes the relation **deterministic** — proven in
+  `StepDeterminism.lean`. Its constructors do **not**
   carry a `s.halt = .Running` premise — they are meant to be invoked
   only when the caller has separately established that the frame is
   running. The running guard lives on the wrapper `Step.running`
@@ -2122,10 +2126,13 @@ inductive StepRunning : State → State → Prop
       `Gas.totalCost`/`outOfGas`. Both opcodes read `size` from the third
       stack slot, so one rule covers them (CREATE2's `salt` sits in the
       tail). Priority premises mirror `stepF`'s check order for the
-      create family: overflow guard, base fee, stack match (`h_stack`),
-      then the static check (`h_perm`) — all pass before the size cap
-      is consulted. (No premise excludes a simultaneous gas shortage:
-      that would be the same `OutOfGas` kind, hence the same successor.) -/
+      create family: overflow guard, base fee, stack match (`h_stack`,
+      with `h_len` pinning the full pop arity — CREATE2 pops a 4th
+      `salt` slot before the size cap is consulted, so the 3-slot
+      pattern alone would under-constrain it), then the static check
+      (`h_perm`) — all pass before the size cap is consulted. (No
+      premise excludes a simultaneous gas shortage: that would be the
+      same `OutOfGas` kind, hence the same successor.) -/
   | initCodeSizeOog (s : State) (op : Operation)
         (value offset size : UInt256) (rest : List UInt256)
         (h_op       : s.decodedOp = some op)
@@ -2133,6 +2140,7 @@ inductive StepRunning : State → State → Prop
         (h_cap      : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
         (h_gas      : Gas.baseCost s.fork op ≤ s.gasAvailable)
         (h_stack    : s.stack = value :: offset :: size :: rest)
+        (h_len      : op.popArity ≤ s.stack.length)
         (h_perm     : s.executionEnv.permitStateMutation = true)
         (h_large    : Gas.initCodeTooLarge s.fork size.toNat = true)
       : StepRunning s ({ s with halt := .Exception .OutOfGas })
