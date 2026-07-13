@@ -1,0 +1,2355 @@
+✔ [490/1082] Built Mathlib.Lean.Linter:c.o (113ms)
+✔ [491/1082] Built EvmSemantics.Data.Bytes (315ms)
+✔ [492/1082] Built Mathlib.Tactic.Lemma:c.o (177ms)
+✔ [493/1082] Built EvmSemantics.Crypto.EC (355ms)
+✔ [494/1082] Built EvmSemantics.Crypto.FF (393ms)
+✔ [495/1082] Built EvmSemantics.Crypto.Bytes (454ms)
+✔ [496/1082] Built EvmSemantics.EVM.Fork (548ms)
+✔ [497/1082] Built Mathlib.Tactic.AdaptationNote:c.o (504ms)
+✔ [498/1082] Built Mathlib.Tactic.Linter.DocPrime:c.o (401ms)
+✔ [499/1082] Built EvmSemantics.EVM.Exception (705ms)
+✔ [500/1082] Built EvmSemantics.Crypto.Sha256 (664ms)
+✔ [501/1082] Built Mathlib.Tactic.Linter.GlobalAttributeIn:c.o (503ms)
+✔ [502/1082] Built Mathlib.Lean.Environment:c.o (169ms)
+✔ [503/1082] Built Mathlib.Tactic.Linter.AuxLemma:c.o (692ms)
+✔ [504/1082] Built Mathlib.Tactic.Linter.DeprecatedSyntaxLinter:c.o (653ms)
+✔ [505/1082] Built Mathlib.Tactic.Linter.OldObtain:c.o (424ms)
+✔ [506/1082] Built Batteries.Lean.Position:c.o (319ms)
+✔ [507/1082] Built EvmSemantics.Crypto.Blake2f (803ms)
+✔ [508/1082] Built Mathlib.Lean.Elab.Tactic.Meta:c.o (487ms)
+✔ [509/1082] Built EvmSemantics.Crypto.Ripemd160 (949ms)
+✔ [510/1082] Built Mathlib.Tactic.Linter.TacticDocumentation:c.o (267ms)
+✔ [511/1082] Built Batteries.Tactic.Unreachable:c.o (175ms)
+✔ [512/1082] Built Batteries.CodeAction.Deprecated:c.o (1.0s)
+✔ [513/1082] Built Mathlib.Tactic.DeclarationNames:c.o (170ms)
+✔ [514/1082] Built Mathlib.Tactic.Linter.HashCommandLinter:c.o (1.0s)
+✔ [515/1082] Built Mathlib.Tactic.Linter.EmptyLine:c.o (1.2s)
+✔ [516/1082] Built Mathlib.Lean.ContextInfo:c.o (841ms)
+✔ [517/1082] Built Mathlib.Tactic.Linter.PrivateModule:c.o (576ms)
+✔ [518/1082] Built Mathlib.Tactic.Linter.DirectoryDependency:c.o (1.4s)
+✔ [519/1082] Built Mathlib.Tactic.Linter.UnusedTacticExtension:c.o (588ms)
+✔ [520/1082] Built ImportGraph.Imports.Redundant:c.o (250ms)
+✔ [521/1082] Built Mathlib.Tactic.Linter.Multigoal:c.o (1.3s)
+✔ [522/1082] Built Mathlib.Lean.Elab.InfoTree:c.o (845ms)
+✔ [523/1082] Built Batteries.Lean.Meta.Inaccessible:c.o (487ms)
+✔ [524/1082] Built ImportGraph.Lean.Environment:c.o (231ms)
+✔ [525/1082] Built Mathlib.Util.ParseCommand:c.o (311ms)
+✔ [526/1082] Built Batteries.Lean.Syntax:c.o (170ms)
+✔ [527/1082] Built Mathlib.Tactic.TypeStar:c.o (265ms)
+✔ [528/1082] Built ImportGraph.Graph.TransitiveClosure:c.o (178ms)
+✔ [529/1082] Built Mathlib.Tactic.Linter.DocString:c.o (1.9s)
+✔ [530/1082] Built Batteries.Util.LibraryNote:c.o (637ms)
+✔ [531/1082] Built Batteries.Tactic.Lint.Misc:c.o (1.5s)
+✔ [532/1082] Built Batteries.Tactic.Lint.Basic:c.o (1.7s)
+✔ [533/1082] Built ImportGraph.Tools:c.o (188ms)
+✔ [535/1082] Built Mathlib.Tactic.Linter.Header:c.o (2.4s)
+✔ [536/1082] Built ImportGraph.Imports.ImportGraph:c.o (1.5s)
+✔ [537/1082] Built ImportGraph.Tools.RedundantImports:c.o (505ms)
+✔ [538/1082] Built Batteries.Tactic.Lint:c.o (143ms)
+✔ [539/1082] Built Mathlib.Tactic.Linter.Whitespace:c.o (1.8s)
+✔ [540/1082] Built Mathlib.Tactic.TacticAnalysis:c.o (1.9s)
+✔ [541/1082] Built ImportGraph.Tools.ImportDiff:c.o (964ms)
+✔ [542/1082] Built Mathlib.Data.Int.DivMod:c.o (130ms)
+✔ [543/1082] Built ImportGraph.Tools.MinImports:c.o (994ms)
+✔ [544/1082] Built Batteries.Tactic.Lint.TypeClass:c.o (675ms)
+✔ [545/1082] Built Batteries.Logic:c.o (97ms)
+✔ [546/1082] Built EvmSemantics.Data.UInt256 (3.2s)
+✔ [547/1082] Built Mathlib.Tactic.Linter.UnusedInstancesInType:c.o (2.4s)
+✔ [548/1082] Built Mathlib.Tactic.Linter.UnusedTactic:c.o (2.3s)
+✔ [549/1082] Built Mathlib.Init:c.o (311ms)
+✔ [550/1082] Built Batteries.Lean.TagAttribute:c.o (153ms)
+✔ [551/1082] Built Batteries.Linter:c.o (88ms)
+✔ [552/1082] Built ImportGraph.Tools.FindHome:c.o (1.6s)
+✔ [553/1082] Built Batteries.Tactic.Basic:c.o (89ms)
+✔ [554/1082] Built Batteries.Classes.Order:c.o (83ms)
+✔ [555/1082] Built Mathlib.Tactic.Attr.Register:c.o (624ms)
+✔ [556/1082] Built Mathlib.Data.Ordering.Basic:c.o (99ms)
+✔ [557/1082] Built Batteries.Lean.AttributeExtra:c.o (556ms)
+✔ [558/1082] Built Mathlib.Tactic.Linter.FlexibleLinter:c.o (3.6s)
+✔ [559/1082] Built Mathlib.Logic.Basic:c.o (851ms)
+✔ [560/1082] Built Batteries.Tactic.SeqFocus:c.o (706ms)
+✔ [561/1082] Built Mathlib.Tactic.Linter.Lint:c.o (1.3s)
+✔ [562/1082] Built Batteries.Tactic.Init:c.o (801ms)
+✔ [563/1082] Built Mathlib.Tactic.ExtendDoc:c.o (484ms)
+✔ [564/1082] Built Mathlib.Tactic.Translate.Attributes:c.o (153ms)
+✔ [565/1082] Built Batteries.Tactic.Alias:c.o (4.1s)
+✔ [566/1082] Built Mathlib.Lean.Expr.Basic:c.o (3.7s)
+✔ [567/1082] Built Mathlib.Lean.Meta.Simp:c.o (1.4s)
+✔ [568/1082] Built Mathlib.Tactic.Eqns:c.o (235ms)
+✔ [569/1082] Built Batteries.Tactic.HelpCmd:c.o (2.9s)
+✔ [570/1082] Built Mathlib.Data.String.Defs:c.o (245ms)
+✔ [571/1082] Built Mathlib.Tactic.ExtractGoal:c.o (3.2s)
+✔ [572/1082] Built Batteries.Lean.NameMapAttribute:c.o (705ms)
+✔ [573/1082] Built Batteries.Linter.UnreachableTactic:c.o (1.7s)
+✔ [574/1082] Built Batteries.Linter.UnnecessarySeqFocus:c.o (1.6s)
+✔ [575/1082] Built Mathlib.Tactic.Linter.Style:c.o (3.7s)
+✔ [576/1082] Built Mathlib.Tactic.Push.Attr:c.o (1.2s)
+✔ [577/1082] Built Batteries.Lean.Expr:c.o (787ms)
+✔ [578/1082] Built Mathlib.Tactic.ToDual:c.o (122ms)
+✔ [579/1082] Built Mathlib.Tactic.Linter.OverlappingInstances:c.o (4.1s)
+✔ [580/1082] Built Mathlib.Data.Bool.Basic:c.o (112ms)
+✔ [581/1082] Built ImportGraph.Imports.RequiredModules:c.o (3.7s)
+✔ [582/1082] Built Mathlib.Tactic.Simps.NotationClass:c.o (1.2s)
+✔ [583/1082] Built Mathlib.Order.Defs.PartialOrder:c.o (328ms)
+✔ [584/1082] Built Mathlib.Order.Defs.LinearOrder:c.o (319ms)
+✔ [585/1082] Built Mathlib.Logic.Function.Defs:c.o (244ms)
+✔ [586/1082] Built Mathlib.Logic.ExistsUnique:c.o (288ms)
+✔ [587/1082] Built Mathlib.Logic.Nonempty:c.o (121ms)
+✔ [588/1082] Built Mathlib.Logic.Nontrivial.Defs:c.o (119ms)
+✔ [589/1082] Built Mathlib.Tactic.MinImports:c.o (3.0s)
+✔ [590/1082] Built Mathlib.Tactic.Translate.ToDual:c.o (711ms)
+✔ [591/1082] Built Mathlib.Order.Defs.Unbundled:c.o (217ms)
+✔ [592/1082] Built Mathlib.Logic.Function.Basic:c.o (182ms)
+✔ [593/1082] Built Mathlib.Data.Nat.Notation:c.o (164ms)
+✔ [594/1082] Built Mathlib.Logic.Pairwise:c.o (110ms)
+✔ [595/1082] Built Mathlib.Tactic.TacticAnalysis.Declarations:c.o (3.0s)
+✔ [596/1082] Built Batteries.Tactic.Lint.Simp:c.o (3.0s)
+✔ [597/1082] Built Batteries.Util.ExtendedBinder:c.o (600ms)
+✔ [598/1082] Built Mathlib.Data.Set.Defs:c.o (540ms)
+✔ [599/1082] Built Mathlib.Data.Int.Notation:c.o (181ms)
+✔ [600/1082] Built Batteries.Data.Nat.Basic:c.o (328ms)
+✔ [601/1082] Built Batteries.Data.Nat.Lemmas:c.o (317ms)
+✔ [602/1082] Built Batteries.Lean.Except:c.o (229ms)
+✔ [603/1082] Built Mathlib.Data.Nat.Basic:c.o (140ms)
+✔ [604/1082] Built Mathlib.Tactic.Core:c.o (1.6s)
+✔ [605/1082] Built Mathlib.Tactic.SplitIfs:c.o (1.5s)
+✔ [606/1082] Built Mathlib.Data.Nat.Init:c.o (351ms)
+✔ [607/1082] Built Batteries.Tactic.Exact:c.o (272ms)
+✔ [608/1082] Built Mathlib.Data.Int.Order.Basic:c.o (157ms)
+✔ [609/1082] Built Mathlib.Logic.Function.Conjugate:c.o (148ms)
+✔ [610/1082] Built Mathlib.Logic.IsEmpty.Defs:c.o (86ms)
+✔ [611/1082] Built Mathlib.Tactic.Translate.TagUnfoldBoundary:c.o (1.1s)
+✔ [612/1082] Built Mathlib.Tactic.ByCases:c.o (262ms)
+✔ [613/1082] Built Mathlib.Logic.Function.Iterate:c.o (160ms)
+✔ [614/1082] Built Mathlib.Data.FunLike.Basic:c.o (88ms)
+✔ [615/1082] Built Mathlib.Data.FunLike.Embedding:c.o (83ms)
+✔ [616/1082] Built Mathlib.Data.FunLike.Equiv:c.o (107ms)
+✔ [617/1082] Built Batteries.Util.ProofWanted:c.o (4.1s)
+✔ [618/1082] Built Mathlib.Tactic.Translate.GuessName:c.o (1.5s)
+✔ [619/1082] Built Mathlib.Tactic.GCongr.ForwardAttr:c.o (511ms)
+✔ [620/1082] Built Batteries.Tactic.PermuteGoals:c.o (429ms)
+✔ [621/1082] Built Mathlib.Logic.Unique:c.o (264ms)
+✔ [622/1082] Built Mathlib.Logic.Relator:c.o (161ms)
+✔ [623/1082] Built Mathlib.Tactic.Inhabit:c.o (374ms)
+✔ [624/1082] Built Mathlib.Lean.Elab.Term:c.o (253ms)
+✔ [625/1082] Built Mathlib.Util.WithWeakNamespace:c.o (243ms)
+✔ [626/1082] Built Mathlib.Logic.Relation:c.o (304ms)
+✔ [627/1082] Built Mathlib.Data.Subtype:c.o (85ms)
+✔ [628/1082] Built Mathlib.Lean.Meta:c.o (681ms)
+✔ [629/1082] Built Mathlib.Tactic.Substs:c.o (334ms)
+✔ [630/1082] Built Mathlib.Lean.Name:c.o (791ms)
+✔ [631/1082] Built Mathlib.Data.Quot:c.o (581ms)
+✔ [632/1082] Built Mathlib.Util.AddRelatedDecl:c.o (2.0s)
+✔ [633/1082] Built Mathlib.Util.AtLocation:c.o (1.2s)
+✔ [634/1082] Built Mathlib.Tactic.SimpRw:c.o (899ms)
+✔ [635/1082] Built Mathlib.Tactic.Conv:c.o (1.4s)
+✔ [636/1082] Built Mathlib.Lean.PrettyPrinter.Delaborator:c.o (929ms)
+✔ [637/1082] Built Qq.ForLean.ToExpr:c.o (362ms)
+✔ [638/1082] Built Qq.Typ:c.o (318ms)
+✔ [639/1082] Built Qq.ForLean.ReduceEval:c.o (827ms)
+✔ [640/1082] Built Qq.Simp:c.o (228ms)
+✔ [641/1082] Built Qq.ForLean.Do:c.o (281ms)
+✔ [642/1082] Built Mathlib.Logic.Equiv.Defs:c.o (929ms)
+✔ [643/1082] Built Qq.SortLocalDecls:c.o (351ms)
+✔ [644/1082] Built Qq.MatchImpl:c.o (339ms)
+✔ [645/1082] Built Qq:c.o (127ms)
+✔ [646/1082] Built Qq.MetaM:c.o (647ms)
+✔ [647/1082] Built Mathlib.Tactic.Translate.UnfoldBoundary:c.o (3.0s)
+✔ [648/1082] Built Batteries.Tactic.Lint.Frontend:c.o (5.0s)
+✔ [649/1082] Built Mathlib.Order.Notation:c.o (800ms)
+✔ [650/1082] Built Mathlib.Tactic.Translate.Reorder:c.o (3.4s)
+✔ [651/1082] Built Qq.AssertInstancesCommute:c.o (1.2s)
+✔ [652/1082] Built Qq.Commands:c.o (1.0s)
+✔ [653/1082] Built Mathlib.Order.Compare:c.o (193ms)
+✔ [654/1082] Built Mathlib.Order.Max:c.o (125ms)
+✔ [655/1082] Built Qq.Delab:c.o (1.5s)
+✔ [656/1082] Built Mathlib.Order.OrderDual:c.o (465ms)
+✔ [657/1082] Built Mathlib.Data.Set.CoeSort:c.o (139ms)
+✔ [658/1082] Built Mathlib.Data.SProd:c.o (139ms)
+✔ [659/1082] Built Mathlib.Order.Basic:c.o (636ms)
+✔ [660/1082] Built Mathlib.Tactic.Spread:c.o (1.2s)
+✔ [661/1082] Built Aesop.Forward.LevelIndex:c.o (174ms)
+✔ [662/1082] Built Aesop.Forward.PremiseIndex:c.o (217ms)
+✔ [663/1082] Built Aesop.Nanos:c.o (206ms)
+✔ [664/1082] Built Batteries.Data.Array.Merge:c.o (347ms)
+✔ [665/1082] Built Aesop.Index.DiscrTreeConfig:c.o (198ms)
+✔ [666/1082] Built Batteries.Tactic.Trans:c.o (5.2s)
+✔ [667/1082] Built Mathlib.Tactic.Push:c.o (3.1s)
+✔ [668/1082] Built Mathlib.Tactic.Use:c.o (2.9s)
+✔ [669/1082] Built Mathlib.Tactic.ScopedNS:c.o (2.8s)
+✔ [670/1082] Built Aesop.Util.UnorderedArraySet:c.o (393ms)
+✔ [671/1082] Built Batteries.Lean.Meta.Expr:c.o (104ms)
+✔ [672/1082] Built Mathlib.Tactic.ToExpr:c.o (675ms)
+✔ [673/1082] Built Aesop.Util.OrderedHashSet:c.o (292ms)
+✔ [674/1082] Built Mathlib.Tactic.MkIffOfInductiveProp:c.o (2.0s)
+✔ [675/1082] Built Batteries.Lean.PersistentHashMap:c.o (191ms)
+✔ [676/1082] Built Batteries.Lean.Meta.DiscrTree:c.o (190ms)
+✔ [677/1082] Built Aesop.RulePattern.Cache:c.o (125ms)
+✔ [678/1082] Built Aesop.Index.Basic:c.o (645ms)
+✔ [679/1082] Built Aesop.BaseM:c.o (258ms)
+✔ [680/1082] Built Aesop.Percent:c.o (224ms)
+✔ [681/1082] Built Aesop.Options.Public:c.o (517ms)
+✔ [682/1082] Built Batteries.Control.Lemmas:c.o (168ms)
+✔ [683/1082] Built Aesop.Script.Tactic:c.o (189ms)
+✔ [684/1082] Built Batteries.Control.LawfulMonadState:c.o (189ms)
+✔ [685/1082] Built Batteries.Control.OptionT:c.o (131ms)
+✔ [686/1082] Built Mathlib.Util.CompileInductive:c.o (3.8s)
+✔ [687/1082] Built Aesop.Rule.Name:c.o (821ms)
+✔ [688/1082] Built Batteries.Control.AlternativeMonad:c.o (226ms)
+✔ [689/1082] Built Aesop.Script.GoalWithMVars:c.o (249ms)
+✔ [690/1082] Built Batteries.Lean.MonadBacktrack:c.o (106ms)
+✔ [691/1082] Built Aesop.Forward.Substitution:c.o (1.4s)
+✔ [692/1082] Built Aesop.Script.Util:c.o (224ms)
+✔ [693/1082] Built Batteries.Lean.Meta.SavedState:c.o (549ms)
+✔ [694/1082] Built Aesop.Options.Internal:c.o (174ms)
+✔ [695/1082] Built Aesop.Script.TacticState:c.o (694ms)
+✔ [696/1082] Built Aesop.Check:c.o (455ms)
+✔ [697/1082] Built Aesop.Forward.SlotIndex:c.o (200ms)
+✔ [698/1082] Built Mathlib.Lean.Meta.CongrTheorems:c.o (3.1s)
+✔ [699/1082] Built Batteries.Lean.Meta.Basic:c.o (1.1s)
+✔ [700/1082] Built Aesop.Util.UnionFind:c.o (341ms)
+✔ [701/1082] Built Batteries.Data.UInt:c.o (168ms)
+✔ [702/1082] Built Aesop.Index.RulePattern:c.o (1.7s)
+✔ [703/1082] Built Aesop.RuleTac.Basic:c.o (638ms)
+✔ [704/1082] Built Aesop.RuleTac.RuleTerm:c.o (191ms)
+✔ [705/1082] Built Aesop.Stats.Basic:c.o (1.0s)
+✔ [706/1082] Built Aesop.Rule.Forward:c.o (280ms)
+✔ [707/1082] Built Aesop.Forward.Match.Types:c.o (344ms)
+✔ [708/1082] Built Aesop.RuleTac.Descr:c.o (168ms)
+✔ [709/1082] Built Aesop.Tracing:c.o (2.3s)
+✔ [710/1082] Built Aesop.Rule.Basic:c.o (247ms)
+✔ [711/1082] Built Batteries.Lean.Meta.InstantiateMVars:c.o (335ms)
+✔ [712/1082] Built Batteries.Lean.PersistentHashSet:c.o (296ms)
+✔ [713/1082] Built Aesop.RuleSet.Name:c.o (171ms)
+✔ [714/1082] Built Aesop.Script.CtorNames:c.o (565ms)
+✔ [715/1082] Built Aesop.RulePattern:c.o (2.5s)
+✔ [716/1082] Built Aesop.RuleSet.Filter:c.o (378ms)
+✔ [717/1082] Built Aesop.RuleSet.Member:c.o (284ms)
+✔ [718/1082] Built Aesop.Script.Step:c.o (1.9s)
+✔ [719/1082] Built Aesop.ElabM:c.o (349ms)
+✔ [720/1082] Built Aesop.Rule:c.o (589ms)
+✔ [721/1082] Built Aesop.RuleTac.GoalDiff:c.o (2.7s)
+✔ [722/1082] Built Aesop.Util.Tactic:c.o (286ms)
+✔ [723/1082] Built Mathlib.Tactic.GCongr.Core:c.o (6.3s)
+✔ [724/1082] Built Aesop.Script.ScriptM:c.o (366ms)
+✔ [725/1082] Built Batteries.Data.Array.Basic:c.o (1.6s)
+✔ [726/1082] Built Aesop.Index.Forward:c.o (1.2s)
+✔ [727/1082] Built Aesop.RuleTac.ElabRuleTerm:c.o (796ms)
+✔ [728/1082] Built Aesop.Frontend.Extension.Init:c.o (177ms)
+✔ [729/1082] Built Mathlib.Tactic.Convert:c.o (4.0s)
+✔ [730/1082] Built Mathlib.Tactic.FastInstance:c.o (4.7s)
+✔ [731/1082] Built Mathlib.Tactic.FBinop:c.o (4.2s)
+✔ [732/1082] Built Aesop.Util.Tactic.Ext:c.o (949ms)
+✔ [733/1082] Built Batteries.Lean.Meta.UnusedNames:c.o (650ms)
+✔ [734/1082] Built Aesop.Util.Basic:c.o (4.1s)
+✔ [735/1082] Built Aesop.Forward.RuleInfo:c.o (2.1s)
+✔ [736/1082] Built Aesop.Tree.Data.ForwardRuleMatches:c.o (731ms)
+✔ [737/1082] Built Aesop.Builder.Basic:c.o (442ms)
+✔ [738/1082] Built Aesop.Util.Unfold:c.o (1.3s)
+✔ [739/1082] Built Aesop.RuleTac.Forward.Basic:c.o (1.1s)
+✔ [740/1082] Built Aesop.Builder.Cases:c.o (518ms)
+✔ [741/1082] Built Aesop.Builder.Constructors:c.o (403ms)
+✔ [742/1082] Built Aesop.Builder.NormSimp:c.o (540ms)
+✔ [743/1082] Built Aesop.Util.Tactic.Unfold:c.o (1.5s)
+✔ [744/1082] Built Aesop.RuleTac.Cases:c.o (957ms)
+✔ [745/1082] Built Aesop.Builder.Tactic:c.o (726ms)
+✔ [746/1082] Built Aesop.Builder.Apply:c.o (599ms)
+✔ [747/1082] Built Aesop.Builder.Default:c.o (600ms)
+✔ [748/1082] Built Aesop.Builder.Unfold:c.o (757ms)
+✔ [749/1082] Built Aesop.BuiltinRules.Rfl:c.o (197ms)
+✔ [750/1082] Built Qq.Match:c.o (6.5s)
+✔ [751/1082] Built Aesop.BuiltinRules.Split:c.o (379ms)
+✔ [752/1082] Built Aesop.BuiltinRules:c.o (165ms)
+✔ [753/1082] Built Aesop.BuiltinRules.Ext:c.o (618ms)
+✔ [754/1082] Built Aesop.BuiltinRules.Intros:c.o (549ms)
+✔ [755/1082] Built Aesop.Frontend.Extension:c.o (1.6s)
+✔ [756/1082] Built Aesop.BuiltinRules.ApplyHyps:c.o (1.1s)
+✔ [757/1082] Built Aesop.BuiltinRules.DestructProducts:c.o (922ms)
+✔ [758/1082] Built Aesop.Script.Check:c.o (311ms)
+✔ [759/1082] Built Aesop.Constants:c.o (89ms)
+✔ [760/1082] Built Aesop.Script.UScript:c.o (517ms)
+✔ [761/1082] Built Aesop.BuiltinRules.Subst:c.o (1.0s)
+✔ [762/1082] Built Aesop.Script.SScript:c.o (580ms)
+✔ [763/1082] Built Aesop.BuiltinRules.Assumption:c.o (1.6s)
+✔ [764/1082] Built Aesop.Tree.UnsafeQueue:c.o (410ms)
+✔ [765/1082] Built Aesop.Search.Queue.Class:c.o (148ms)
+✔ [766/1082] Built Aesop.Index:c.o (3.7s)
+✔ [767/1082] Built Aesop.Builder.Forward:c.o (1.9s)
+✔ [768/1082] Built Aesop.Frontend.Attribute:c.o (1.8s)
+✔ [769/1082] Built Aesop.Script.OptimizeSyntax:c.o (1.1s)
+✔ [770/1082] Built Aesop.Script.Main:c.o (818ms)
+✔ [771/1082] Built Aesop.Util.EqualUpToIds:c.o (5.1s)
+✔ [772/1082] Built Aesop.Tree.Traversal:c.o (421ms)
+✔ [773/1082] Built Aesop.Forward.State.Initial:c.o (654ms)
+✔ [774/1082] Built Aesop.Tree.RunMetaM:c.o (462ms)
+✔ [775/1082] Built Batteries.Lean.HashSet:c.o (401ms)
+✔ [776/1082] Built Aesop.Script.SpecificTactics:c.o (3.5s)
+✔ [777/1082] Built Aesop.Search.SearchM:c.o (649ms)
+✔ [778/1082] Built Aesop.RuleTac.Preprocess:c.o (166ms)
+✔ [779/1082] Built Aesop.RuleTac:c.o (149ms)
+✔ [780/1082] Built Aesop.Tree.State:c.o (873ms)
+✔ [781/1082] Built Aesop.Forward.State.ApplyGoalDiff:c.o (700ms)
+✔ [782/1082] Built Mathlib.Tactic.CongrExclamation:c.o (8.2s)
+✔ [783/1082] Built Aesop.Script.StructureStatic:c.o (1.8s)
+✔ [784/1082] Built Aesop.Tree.TreeM:c.o (1.2s)
+✔ [785/1082] Built Aesop.Search.Expansion.Basic:c.o (539ms)
+✔ [786/1082] Built Aesop.Script.UScriptToSScript:c.o (2.1s)
+✔ [787/1082] Built Aesop.Frontend.Tactic:c.o (2.5s)
+✔ [788/1082] Built Aesop.RuleTac.Tactic:c.o (803ms)
+✔ [789/1082] Built Aesop.Search.Expansion.Simp:c.o (674ms)
+✔ [790/1082] Built Aesop.Exception:c.o (254ms)
+✔ [791/1082] Built Aesop.Forward.Match:c.o (4.1s)
+✔ [792/1082] Built Aesop.RuleTac.Apply:c.o (962ms)
+✔ [793/1082] Built Aesop.Search.RuleSelection:c.o (653ms)
+✔ [794/1082] Built Aesop.Forward.State.UpdateGoal:c.o (541ms)
+✔ [795/1082] Built Batteries.Control.ForInStep.Basic:c.o (299ms)
+✔ [796/1082] Built Aesop.Tree.Free:c.o (270ms)
+✔ [797/1082] Built Aesop.EMap:c.o (2.4s)
+✔ [798/1082] Built Aesop.Search.Queue:c.o (439ms)
+✔ [799/1082] Built Aesop.Tree.Data:c.o (2.3s)
+✔ [800/1082] Built Aesop.Stats.Extension:c.o (331ms)
+✔ [801/1082] Built Aesop.Search.ExpandSafePrefix:c.o (971ms)
+✔ [802/1082] Built Aesop.Stats.File:c.o (344ms)
+✔ [803/1082] Built Aesop.Tree.Stats:c.o (654ms)
+✔ [804/1082] Built Mathlib.Data.Set.Operations:c.o (253ms)
+✔ [805/1082] Built Mathlib.Order.Monotone.Defs:c.o (184ms)
+✔ [806/1082] Built Mathlib.Logic.IsEmpty.Basic:c.o (81ms)
+✔ [807/1082] Built Aesop.Frontend.RuleExpr:c.o (4.3s)
+✔ [808/1082] Built Aesop.Script.StructureDynamic:c.o (3.2s)
+✔ [809/1082] Built Mathlib.Order.RelClasses:c.o (203ms)
+✔ [810/1082] Built Mathlib.Order.Monotone.Basic:c.o (151ms)
+✔ [811/1082] Built Mathlib.Logic.Function.ULift:c.o (188ms)
+✔ [812/1082] Built Mathlib.Order.ULift:c.o (144ms)
+✔ [813/1082] Built Mathlib.Tactic.Coe:c.o (720ms)
+✔ [814/1082] Built Aesop.Frontend.Basic:c.o (128ms)
+✔ [815/1082] Built Aesop.Tree.ExtractScript:c.o (1.5s)
+✔ [816/1082] Built Batteries.Data.BinomialHeap.Basic:c.o (1.8s)
+✔ [817/1082] Built Aesop.Tree.ExtractProof:c.o (1.9s)
+✔ [818/1082] Built Aesop.Frontend:c.o (115ms)
+✔ [819/1082] Built Mathlib.Tactic.Contrapose:c.o (1.1s)
+✔ [820/1082] Built Aesop:c.o (89ms)
+✔ [821/1082] Built Mathlib.Order.Lattice:c.o (940ms)
+✔ [822/1082] Built Mathlib.Util.Notation3:c.o (12s)
+✔ [823/1082] Built Aesop.Main:c.o (1.9s)
+✔ [824/1082] Built Aesop.Stats.Report:c.o (1.2s)
+✔ [825/1082] Built Aesop.Tree.Check:c.o (2.8s)
+✔ [826/1082] Built Plausible.Random:c.o (659ms)
+✔ [827/1082] Built Plausible.Shrinkable:c.o (498ms)
+✔ [828/1082] Built Aesop.Frontend.Saturate:c.o (1.3s)
+✔ [829/1082] Built Plausible.ArbitraryFueled:c.o (117ms)
+✔ [830/1082] Built Plausible.Arbitrary:c.o (834ms)
+✔ [831/1082] Built Plausible.Attr:c.o (202ms)
+✔ [832/1082] Built Qq.Macro:c.o (12s)
+✔ [833/1082] Built Mathlib.Tactic.CrossRefAttribute:c.o (2.0s)
+✔ [834/1082] Built Plausible.Functions:c.o (487ms)
+✔ [835/1082] Built Plausible:c.o (180ms)
+✔ [836/1082] Built Aesop.RuleTac.Forward:c.o (4.1s)
+✔ [837/1082] Built Plausible.Sampleable:c.o (741ms)
+✔ [838/1082] Built Aesop.Search.Expansion:c.o (3.7s)
+✔ [839/1082] Built Plausible.Gen:c.o (1.4s)
+✔ [840/1082] Built Plausible.Tactic:c.o (771ms)
+✔ [841/1082] Built Batteries.CodeAction:c.o (188ms)
+✔ [842/1082] Built Aesop.Tree.AddRapp:c.o (3.0s)
+✔ [843/1082] Built LeanSearchClient.Basic:c.o (258ms)
+✔ [844/1082] Built Batteries.CodeAction.Attr:c.o (767ms)
+✔ [845/1082] Built LeanSearchClient:c.o (129ms)
+✔ [846/1082] Built Batteries.CodeAction.Basic:c.o (872ms)
+✔ [847/1082] Built Mathlib.Tactic.Choose:c.o (2.0s)
+✔ [848/1082] Built Mathlib.Tactic.ApplyAt:c.o (482ms)
+✔ [849/1082] Built Mathlib.Tactic.ApplyCongr:c.o (743ms)
+✔ [850/1082] Built Mathlib.Tactic.Translate.Core:c.o (15s)
+✔ [851/1082] Built Aesop.Tree.Tracing:c.o (4.4s)
+✔ [852/1082] Built Plausible.DeriveShrinkable:c.o (1.7s)
+✔ [853/1082] Built Mathlib.Lean.Meta.Basic:c.o (718ms)
+✔ [854/1082] Built Aesop.Search.Main:c.o (4.2s)
+✔ [855/1082] Built Mathlib.Tactic.ApplyWith:c.o (870ms)
+✔ [856/1082] Built Mathlib.Tactic.ClearExclamation:c.o (261ms)
+✔ [857/1082] Built Mathlib.Tactic.ByContra:c.o (479ms)
+✔ [858/1082] Built Mathlib.Tactic.Clear_:c.o (443ms)
+✔ [859/1082] Built Aesop.Frontend.Command:c.o (3.6s)
+✔ [860/1082] Built Mathlib.Tactic.ClearExcept:c.o (615ms)
+✔ [861/1082] Built Mathlib.Tactic.CongrM:c.o (488ms)
+✔ [862/1082] Built Batteries.CodeAction.Match:c.o (2.1s)
+✔ [863/1082] Built Mathlib.Tactic.Constructor:c.o (487ms)
+✔ [864/1082] Built Mathlib.Lean.MessageData.Trace:c.o (341ms)
+✔ [865/1082] Built Plausible.DeriveArbitrary:c.o (2.8s)
+✔ [866/1082] Built Mathlib.Tactic.Basic:c.o (1.4s)
+✔ [867/1082] Built Mathlib.Tactic.Check:c.o (1.2s)
+✔ [868/1082] Built Mathlib.Tactic.DSimpPercent:c.o (328ms)
+✔ [869/1082] Built Mathlib.Tactic.ExistsI:c.o (197ms)
+✔ [870/1082] Built Aesop.Search.Expansion.Norm:c.o (6.4s)
+✔ [871/1082] Built Mathlib.Tactic.PPWithUniv:c.o (2.2s)
+✔ [872/1082] Built Batteries.CodeAction.Misc:c.o (3.2s)
+✔ [873/1082] Built LeanSearchClient.LoogleSyntax:c.o (2.6s)
+✔ [874/1082] Built Mathlib.Tactic.FailIfNoProgress:c.o (633ms)
+✔ [875/1082] Built Batteries.Tactic.Case:c.o (3.4s)
+✔ [876/1082] Built Mathlib.Tactic.CasesM:c.o (1.8s)
+✔ [877/1082] Built Batteries.Util.Cache:c.o (649ms)
+✔ [878/1082] Built Mathlib.Tactic.ErwQuestion:c.o (1.1s)
+✔ [879/1082] Built Mathlib.Tactic.Find:c.o (865ms)
+✔ [880/1082] Built Mathlib.Tactic.FunProp.Mor:c.o (775ms)
+✔ [881/1082] Built Mathlib.Tactic.FunProp.ToBatteries:c.o (858ms)
+✔ [882/1082] Built Mathlib.Tactic.FunProp.Types:c.o (752ms)
+✔ [883/1082] Built LeanSearchClient.Syntax:c.o (3.6s)
+✔ [884/1082] Built Mathlib.Tactic.FunProp:c.o (183ms)
+✔ [885/1082] Built Mathlib.Tactic.GCongr.CoreAttrs:c.o (187ms)
+✔ [886/1082] Built Batteries.Data.List.Basic:c.o (4.1s)
+✔ [887/1082] Built Mathlib.Tactic.DeprecateTo:c.o (2.1s)
+✔ [888/1082] Built Mathlib.Tactic.FunProp.Attr:c.o (820ms)
+✔ [889/1082] Built Mathlib.Tactic.GCongr:c.o (106ms)
+✔ [890/1082] Built Mathlib.Tactic.Simps.Basic:c.o (19s)
+✔ [891/1082] Built Mathlib.Tactic.DefEqAbuse:c.o (2.5s)
+✔ [892/1082] Built Mathlib.Lean.Meta.RefinedDiscrTree.Basic:c.o (1.3s)
+✔ [893/1082] Built Mathlib.Lean.Meta.RefinedDiscrTree.Initialize:c.o (1.3s)
+✔ [894/1082] Built Mathlib.Tactic.GRewrite:c.o (120ms)
+✔ [895/1082] Built Mathlib.Tactic.GuardGoalNums:c.o (317ms)
+✔ [896/1082] Built Mathlib.Tactic.DefEqTransformations:c.o (2.8s)
+✔ [897/1082] Built Mathlib.Lean.Meta.RefinedDiscrTree.Encode:c.o (1.7s)
+✔ [898/1082] Built Batteries.Control.Nondet.Basic:c.o (643ms)
+✔ [899/1082] Built Mathlib.Tactic.GuardHypNums:c.o (340ms)
+✔ [900/1082] Built Mathlib.Tactic.InferParam:c.o (373ms)
+✔ [901/1082] Built Mathlib.Tactic.FunProp.Theorems:c.o (1.7s)
+✔ [902/1082] Built Aesop.RuleSet:c.o (12s)
+✔ [903/1082] Built Plausible.Testable:c.o (5.0s)
+✔ [904/1082] Built Mathlib.Tactic.Linter:c.o (159ms)
+✔ [905/1082] Built Mathlib.Tactic.FunProp.Decl:c.o (2.8s)
+✔ [906/1082] Built Mathlib.Tactic.FunProp.FunctionData:c.o (2.6s)
+✔ [907/1082] Built Mathlib.Tactic.Linter.UpstreamableDecl:c.o (602ms)
+✔ [908/1082] Built Mathlib.Tactic.NthRewrite:c.o (373ms)
+✔ [909/1082] Built Mathlib.Tactic.OfNat:c.o (178ms)
+✔ [910/1082] Built Batteries.Data.MLList.Basic:c.o (1.6s)
+✔ [911/1082] Built Mathlib.Tactic.IrreducibleDef:c.o (1.1s)
+✔ [912/1082] Built Mathlib.Tactic.Linter.HaveLetLinter:c.o (1.0s)
+✔ [913/1082] Built Mathlib.Tactic.RSuffices:c.o (220ms)
+✔ [914/1082] Built Mathlib.Tactic.Observe:c.o (612ms)
+✔ [915/1082] Built Mathlib.Tactic.Relation.Rfl:c.o (282ms)
+✔ [916/1082] Built Aesop.Saturate:c.o (7.7s)
+✔ [917/1082] Built Mathlib.Tactic.Hint:c.o (1.9s)
+✔ [918/1082] Built Mathlib.Util.TermReduce:c.o (1.3s)
+✔ [919/1082] Built Mathlib.Tactic.Linter.PPRoundtrip:c.o (1.3s)
+✔ [920/1082] Built Mathlib.Util.Tactic:c.o (401ms)
+✔ [921/1082] Built Mathlib.Lean.Meta.RefinedDiscrTree.Lookup:c.o (3.0s)
+✔ [922/1082] Built Mathlib.Tactic.Rename:c.o (687ms)
+✔ [923/1082] Built Batteries.Tactic.GeneralizeProofs:c.o (6.6s)
+✔ [924/1082] Built Mathlib.Tactic.HigherOrder:c.o (1.0s)
+✔ [925/1082] Built Mathlib.Tactic.Lift:c.o (1.6s)
+✔ [926/1082] Built Mathlib.Tactic.Says:c.o (559ms)
+✔ [927/1082] Built Mathlib.Tactic.Set:c.o (569ms)
+✔ [928/1082] Built Mathlib.Tactic.ToLevel:c.o (165ms)
+✔ [929/1082] Built Mathlib.Tactic.Recover:c.o (973ms)
+✔ [930/1082] Built Mathlib.Tactic.SuccessIfFailWithMsg:c.o (606ms)
+✔ [931/1082] Built Mathlib.Tactic.SwapVar:c.o (523ms)
+✔ [932/1082] Built Mathlib.Tactic.Trace:c.o (279ms)
+✔ [933/1082] Built ProofWidgets.Compat:c.o (198ms)
+✔ [934/1082] Built Mathlib.Tactic.SudoSetOption:c.o (638ms)
+✔ [935/1082] Built Mathlib.Tactic.UnsetOption:c.o (359ms)
+✔ [936/1082] Built Mathlib.Tactic.Widget.SelectInsertParamsClass:c.o (332ms)
+✔ [937/1082] Built Mathlib.Tactic.ToFun:c.o (616ms)
+✔ [938/1082] Built Mathlib.Tactic.FunProp.Elab:c.o (3.1s)
+✔ [939/1082] Built Mathlib.Tactic.SimpIntro:c.o (992ms)
+✔ [940/1082] Built ProofWidgets.Component.MakeEditLink:c.o (348ms)
+✔ [941/1082] Built Mathlib.Tactic.TermCongr:c.o (5.5s)
+✔ [942/1082] Built Mathlib.Lean.GoalsLocation:c.o (174ms)
+✔ [943/1082] Built Mathlib.Tactic.RenameBVar:c.o (1.4s)
+✔ [944/1082] Built ProofWidgets.Component.Basic:c.o (781ms)
+✔ [945/1082] Built Mathlib.Lean.Meta.RefinedDiscrTree:c.o (348ms)
+✔ [946/1082] Built ProofWidgets.Component.OfRpcMethod:c.o (621ms)
+✔ [947/1082] Built ProofWidgets.Component.FilterDetails:c.o (202ms)
+✔ [948/1082] Built ProofWidgets.Util:c.o (832ms)
+✔ [949/1082] Built Mathlib.Tactic.Widget.CongrM:c.o (825ms)
+✔ [950/1082] Built Mathlib.Tactic.Linter.MinImports:c.o (2.9s)
+✔ [951/1082] Built ProofWidgets.Cancellable:c.o (1.1s)
+✔ [952/1082] Built Mathlib.Tactic.GRewrite.Elab:c.o (3.5s)
+✔ [953/1082] Built Mathlib.Tactic.Subsingleton:c.o (1.8s)
+✔ [954/1082] Built Mathlib.Util.TransImports:c.o (577ms)
+✔ [955/1082] Built Mathlib.Tactic.Common:c.o (465ms)
+✔ [956/1082] Built Batteries.Data.Fin.Basic:c.o (369ms)
+✔ [957/1082] Built EvmSemantics.Crypto.EC:c.o (140ms)
+✔ [958/1082] Built Mathlib.Data.Fin.Basic:c.o (285ms)
+✔ [959/1082] Built EvmSemantics.Data.Bytes:c.o (256ms)
+✔ [960/1082] Built EvmSemantics.Crypto.FF:c.o (225ms)
+✔ [962/1087] Built Mathlib.Tactic.Widget.SelectPanelUtils:c.o (1.5s)
+✔ [963/1087] Built Mathlib.Tactic.WLOG:c.o (957ms)
+✔ [964/1087] Built Mathlib.Lean.Meta.KAbstractPositions:c.o (1.3s)
+✔ [965/1087] Built EvmSemantics.EVM.Exception:c.o (261ms)
+✔ [966/1087] Built EvmSemantics.Crypto.Bytes:c.o (339ms)
+✔ [967/1087] Built Mathlib.Util.WhatsNew:c.o (1.1s)
+✔ [968/1087] Built EvmSemantics.EVM.Fork:c.o (511ms)
+✔ [969/1087] Built EvmSemantics.Crypto.Ripemd160:c.o (514ms)
+✔ [970/1087] Built Mathlib.Tactic.Widget.Calc:c.o (1.9s)
+✔ [971/1087] Built EvmSemantics.Data.UInt256:c.o (569ms)
+✔ [972/1087] Built EvmSemantics.Crypto.Sha256:c.o (710ms)
+✔ [973/1087] Built EvmSemantics.Crypto.Blake2f:c.o (610ms)
+✔ [974/1087] Built EvmSemantics.Crypto.Weierstrass (677ms)
+✔ [975/1087] Built Mathlib.Tactic.Widget.Conv:c.o (2.0s)
+✔ [976/1087] Built EvmSemantics.Crypto.Fp2 (778ms)
+✔ [977/1087] Built Mathlib.Tactic.Variable:c.o (2.6s)
+✔ [978/1087] Built Mathlib.Util.CountHeartbeats:c.o (1.9s)
+✔ [979/1087] Built EvmSemantics.Crypto.Weierstrass:c.o (318ms)
+✔ [980/1087] Built ProofWidgets.Data.Html:c.o (2.7s)
+✔ [981/1087] Built Mathlib.Util.PrintSorries:c.o (2.0s)
+✔ [982/1087] Built EvmSemantics.Crypto.Secp256k1 (572ms)
+✔ [983/1087] Built EvmSemantics.Crypto.Secp256r1 (602ms)
+✔ [984/1087] Built Mathlib.Tactic.GRewrite.Core:c.o (5.3s)
+✔ [985/1087] Built Mathlib.Tactic.Simproc.ExistsAndEq:c.o (3.6s)
+✔ [986/1087] Built EvmSemantics.Crypto.Secp256k1:c.o (181ms)
+✔ [987/1087] Built EvmSemantics.Crypto.Fp2:c.o (602ms)
+✔ [988/1087] Built EvmSemantics.Crypto.Secp256r1:c.o (130ms)
+✔ [989/1087] Built EvmSemantics.Crypto.G2 (745ms)
+✔ [990/1087] Built EvmSemantics.Machine.MachineState (1.6s)
+✔ [991/1087] Built EvmSemantics.State.Account (1.5s)
+✔ [992/1087] Built EvmSemantics.Crypto.Keccak256 (1.7s)
+✔ [993/1087] Built EvmSemantics.Crypto.Fp6 (882ms)
+✔ [994/1087] Built EvmSemantics.Crypto.P256Verify (383ms)
+✔ [995/1087] Built EvmSemantics.Crypto.G2:c.o (259ms)
+✔ [996/1087] Built EvmSemantics.Crypto.P256Verify:c.o (155ms)
+✔ [997/1087] Built EvmSemantics.Machine.MachineState:c.o (272ms)
+✔ [998/1087] Built EvmSemantics.State.Account:c.o (349ms)
+✔ [999/1087] Built Mathlib.Tactic.Tauto:c.o (4.2s)
+✔ [1000/1087] Built Mathlib.Tactic.FunProp.Core:c.o (6.6s)
+✔ [1001/1087] Built EvmSemantics.Crypto.Fp6:c.o (602ms)
+✔ [1002/1087] Built EvmSemantics.EVM.Operation (2.4s)
+✔ [1003/1087] Built EvmSemantics.Crypto.Fp12 (710ms)
+✔ [1004/1087] Built EvmSemantics.Crypto.Keccak256:c.o (664ms)
+✔ [1005/1087] Built EvmSemantics.Data.Hex (950ms)
+✔ [1006/1087] Built EvmSemantics.State.BlockHeader (1.0s)
+✔ [1007/1087] Built EvmSemantics.State.Substate (1.0s)
+✔ [1008/1087] Built EvmSemantics.Crypto.Ecrecover (1.1s)
+✔ [1009/1087] Built EvmSemantics.Crypto.Bls12381.Curve (473ms)
+✔ [1010/1087] Built EvmSemantics.State.BlockHeader:c.o (118ms)
+✔ [1011/1087] Built EvmSemantics.Crypto.Bn254.Curve (535ms)
+✔ [1012/1087] Built EvmSemantics.State.Substate:c.o (156ms)
+✔ [1013/1087] Built EvmSemantics.Data.Hex:c.o (225ms)
+✔ [1014/1087] Built Aesop.Forward.State:c.o (15s)
+✔ [1015/1087] Built EvmSemantics.Crypto.Ecrecover:c.o (246ms)
+✔ [1016/1087] Built EvmSemantics.Crypto.Bls12381.Curve:c.o (154ms)
+✔ [1017/1087] Built EvmSemantics.Crypto.Fp12:c.o (781ms)
+✔ [1018/1087] Built EvmSemantics.Crypto.Bn254.Curve:c.o (171ms)
+✔ [1019/1087] Built EvmSemantics.Crypto.Bn254.Ecadd (394ms)
+✔ [1020/1087] Built EvmSemantics.Crypto.Bls12381.Codec (472ms)
+✔ [1021/1087] Built EvmSemantics.Crypto.Bn254.Ecadd:c.o (128ms)
+✔ [1022/1087] Built EvmSemantics.Crypto.Bls12381.Codec:c.o (122ms)
+✔ [1023/1087] Built EvmSemantics.State.ExecutionEnv (773ms)
+✔ [1024/1087] Built EvmSemantics.Crypto.Bls12381.Pairing (693ms)
+✔ [1025/1087] Built Mathlib.Tactic.DepRewrite:c.o (9.4s)
+✔ [1026/1087] Built EvmSemantics.Crypto.Bn254.Pairing (705ms)
+✔ [1027/1087] Built EvmSemantics.State.ExecutionEnv:c.o (71ms)
+✔ [1028/1087] Built EvmSemantics.EVM.Decode (1.3s)
+✔ [1029/1087] Built EvmSemantics.Crypto.Bn254.Ecmul (353ms)
+✔ [1030/1087] Built EvmSemantics.Crypto.Bls12381.G1Add (359ms)
+✔ [1031/1087] Built EvmSemantics.Crypto.Bls12381.G2Add (396ms)
+✔ [1032/1087] Built EvmSemantics.Crypto.Bn254.Ecmul:c.o (90ms)
+✔ [1033/1087] Built EvmSemantics.Data.Rlp (2.1s)
+✔ [1034/1087] Built EvmSemantics.Crypto.Bls12381.G1Add:c.o (96ms)
+✔ [1035/1087] Built EvmSemantics.EVM.Operation:c.o (1.5s)
+✔ [1036/1087] Built EvmSemantics.EVM.Decode:c.o (210ms)
+✔ [1037/1087] Built EvmSemantics.Crypto.Bls12381.G2Add:c.o (168ms)
+✔ [1038/1087] Built Mathlib.Tactic.Widget.LibraryRewrite:c.o (5.1s)
+✔ [1039/1087] Built EvmSemantics.Data.Rlp:c.o (245ms)
+✔ [1040/1087] Built EvmSemantics.Crypto.Bn254.Ecpairing (445ms)
+✔ [1041/1087] Built EvmSemantics.Crypto.Bls12381.G1Msm (395ms)
+✔ [1042/1087] Built EvmSemantics.Crypto.Bls12381.G2Msm (434ms)
+✔ [1043/1087] Built EvmSemantics.Crypto.Bls12381.PairingCheck (376ms)
+✔ [1044/1087] Built EvmSemantics.Crypto.Bls12381.MapFpToG1 (395ms)
+✔ [1045/1087] Built EvmSemantics.Machine.SharedState (697ms)
+✔ [1046/1087] Built EvmSemantics.Machine.SharedState:c.o (62ms)
+✔ [1047/1087] Built EvmSemantics.Crypto.Bn254.Ecpairing:c.o (190ms)
+✔ [1048/1087] Built EvmSemantics.Crypto.Bls12381.G1Msm:c.o (152ms)
+✔ [1049/1087] Built EvmSemantics.Crypto.Bls12381.PairingCheck:c.o (159ms)
+✔ [1050/1087] Built EvmSemantics.Crypto.Bls12381.MapFp2ToG2 (603ms)
+✔ [1051/1087] Built EvmSemantics.Crypto.Bls12381.G2Msm:c.o (179ms)
+✔ [1052/1087] Built EvmSemantics.Crypto.Bls12381.MapFpToG1:c.o (386ms)
+✔ [1053/1087] Built EvmSemantics.Data.RlpDecode (800ms)
+✔ [1054/1087] Built EvmSemantics.Crypto.Bls12381.Kzg (401ms)
+✔ [1055/1087] Built EvmSemantics.Data.RlpDecode:c.o (153ms)
+✔ [1056/1087] Built EvmSemantics.Data.Mpt (1.0s)
+✔ [1057/1087] Built EvmSemantics.Crypto.Bls12381.MapFp2ToG2:c.o (450ms)
+✔ [1058/1087] Built EvmSemantics.Crypto.Bls12381.Kzg:c.o (277ms)
+✔ [1059/1087] Built EvmSemantics.Data.Mpt:c.o (367ms)
+✔ [1060/1087] Built EvmSemantics.EVM.State (1.0s)
+✔ [1061/1087] Built EvmSemantics.EVM.Precompile (964ms)
+✔ [1062/1087] Built EvmSemantics.EVM.Halted (640ms)
+✔ [1063/1087] Built EvmSemantics.EVM.State:c.o (616ms)
+✔ [1064/1087] Built EvmSemantics.Crypto.Bn254.Pairing:c.o (2.2s)
+✔ [1065/1087] Built EvmSemantics.EVM.Halted:c.o (74ms)
+✔ [1066/1087] Built EvmSemantics.Crypto.Bls12381.Pairing:c.o (2.5s)
+✔ [1067/1087] Built EvmSemantics.EVM.Precompile:c.o (422ms)
+✔ [1068/1087] Built EvmSemantics.EVM.Gas (3.5s)
+✔ [1069/1087] Built EvmSemantics.EVM.Gas:c.o (1.6s)
+✔ [1070/1087] Built EvmSemantics.EVM.Step (2.3s)
+✔ [1071/1087] Built EvmSemantics.EVM.Step:c.o (98ms)
+✔ [1072/1087] Built EvmSemantics.EVM.BigStep (585ms)
+✔ [1073/1087] Built EvmSemantics.EVM.BigStep:c.o (65ms)
+✔ [1074/1087] Built EvmSemantics.EVM.StepF (1.2s)
+✔ [1075/1087] Built EvmSemantics.Tx (1.4s)
+✔ [1076/1087] Built EvmSemantics.EVM.StepF:c.o (2.4s)
+✔ [1077/1087] Built EvmSemantics.Tx:c.o (1.3s)
+✖ [1078/1087] Building EvmSemantics.EVM.Equiv (14s)
+trace: .> LEAN_PATH=/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/Cli/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/batteries/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/Qq/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/aesop/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/importGraph/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/plausible/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/mathlib/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/lib/lean /home/leo/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/EvmSemantics/EVM/Equiv.lean -o /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/lib/lean/EvmSemantics/EVM/Equiv.olean -i /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/lib/lean/EvmSemantics/EVM/Equiv.ilean -c /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/ir/EvmSemantics/EVM/Equiv.c --setup /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/ir/EvmSemantics/EVM/Equiv.setup.json --json
+error: EvmSemantics/EVM/Equiv.lean:115:13: Type mismatch
+  StepRunning.stop s h_dec
+has type
+  s.stack.length + Operation.STOP.pushArity ≤ 1024 + Operation.STOP.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable, activeWords := s.activeWords, memory := s.memory, returnData := s.returnData,
+        hReturn := ByteArray.empty, accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv,
+        pc := s.pc, stack := s.stack, execLength := s.execLength, halt := HaltKind.Success, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable, activeWords := s.activeWords, memory := s.memory, returnData := s.returnData,
+      hReturn := ByteArray.empty, accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv,
+      pc := s.pc, stack := s.stack, execLength := s.execLength, halt := HaltKind.Success, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:118:36: Type mismatch
+  StepRunning.add s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.ADD.pushArity ≤ 1024 + Operation.ADD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.ADD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := (a + b) :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.ADD)) h_gas).replaceStackAndIncrPC
+      ((a + b) :: rest))
+error: EvmSemantics/EVM/Equiv.lean:123:36: Type mismatch
+  StepRunning.mul s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.MUL.pushArity ≤ 1024 + Operation.MUL.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.MUL, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a * b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.MUL)) h_gas).replaceStackAndIncrPC
+      (a * b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:128:36: Type mismatch
+  StepRunning.sub s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SUB.pushArity ≤ 1024 + Operation.SUB.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SUB, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := (a - b) :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.SUB)) h_gas).replaceStackAndIncrPC
+      ((a - b) :: rest))
+error: EvmSemantics/EVM/Equiv.lean:133:36: Type mismatch
+  StepRunning.div s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.DIV.pushArity ≤ 1024 + Operation.DIV.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.DIV, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a / b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.DIV)) h_gas).replaceStackAndIncrPC
+      (a / b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:138:36: Type mismatch
+  StepRunning.sdiv s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SDIV.pushArity ≤ 1024 + Operation.SDIV.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SDIV, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.sdiv b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.SDIV)) h_gas).replaceStackAndIncrPC
+      (a.sdiv b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:143:36: Type mismatch
+  StepRunning.mod s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.MOD.pushArity ≤ 1024 + Operation.MOD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.MOD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a % b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.MOD)) h_gas).replaceStackAndIncrPC
+      (a % b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:148:36: Type mismatch
+  StepRunning.smod s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SMOD.pushArity ≤ 1024 + Operation.SMOD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SMOD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.smod b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.SMOD)) h_gas).replaceStackAndIncrPC
+      (a.smod b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:154:15: Type mismatch
+  StepRunning.addmod s a b n rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.ADDMOD.pushArity ≤ 1024 + Operation.ADDMOD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.ADDMOD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.addMod b n :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.ADDMOD))
+          h_gas).replaceStackAndIncrPC
+      (a.addMod b n :: rest))
+error: EvmSemantics/EVM/Equiv.lean:161:15: Type mismatch
+  StepRunning.mulmod s a b n rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.MULMOD.pushArity ≤ 1024 + Operation.MULMOD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.MULMOD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.mulMod b n :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.MULMOD))
+          h_gas).replaceStackAndIncrPC
+      (a.mulMod b n :: rest))
+error: EvmSemantics/EVM/Equiv.lean:185:10: Type mismatch
+  StepRunning.exp s a b rest h_dec h_total h_stack
+has type
+  s.stack.length + Operation.EXP.pushArity ≤ 1024 + Operation.EXP.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.EXP - Gas.expByteCost s.fork b,
+        activeWords := s.activeWords, memory := s.memory, returnData := s.returnData, hReturn := s.hReturn,
+        accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ,
+        stack := a.exp b :: rest, execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    (((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.EXP)) h_gas).consumeGas
+          (Gas.expByteCost s.fork b) ⋯).replaceStackAndIncrPC
+      (a.exp b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:192:15: Type mismatch
+  StepRunning.signextend s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SIGNEXTEND.pushArity ≤ 1024 + Operation.SIGNEXTEND.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SIGNEXTEND, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.signExtend b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StopArith Operation.StopArithOps.SIGNEXTEND))
+          h_gas).replaceStackAndIncrPC
+      (a.signExtend b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:206:36: Type mismatch
+  StepRunning.lt s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.LT.pushArity ≤ 1024 + Operation.LT.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.LT, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.lt b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.LT)) h_gas).replaceStackAndIncrPC
+      (a.lt b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:211:36: Type mismatch
+  StepRunning.gt s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.GT.pushArity ≤ 1024 + Operation.GT.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.GT, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.gt b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.GT)) h_gas).replaceStackAndIncrPC
+      (a.gt b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:216:36: Type mismatch
+  StepRunning.slt s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SLT.pushArity ≤ 1024 + Operation.SLT.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SLT, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.slt b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.SLT))
+          h_gas).replaceStackAndIncrPC
+      (a.slt b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:221:36: Type mismatch
+  StepRunning.sgt s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SGT.pushArity ≤ 1024 + Operation.SGT.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SGT, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.sgt b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.SGT))
+          h_gas).replaceStackAndIncrPC
+      (a.sgt b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:226:36: Type mismatch
+  StepRunning.eq s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.EQ.pushArity ≤ 1024 + Operation.EQ.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.EQ, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.eq b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.EQ)) h_gas).replaceStackAndIncrPC
+      (a.eq b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:231:31: Type mismatch
+  StepRunning.iszero s a rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.ISZERO.pushArity ≤ 1024 + Operation.ISZERO.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.ISZERO, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.isZero :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.ISZERO))
+          h_gas).replaceStackAndIncrPC
+      (a.isZero :: rest))
+error: EvmSemantics/EVM/Equiv.lean:235:36: Type mismatch
+  StepRunning.and s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.AND.pushArity ≤ 1024 + Operation.AND.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.AND, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.land b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.AND))
+          h_gas).replaceStackAndIncrPC
+      (a.land b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:240:36: Type mismatch
+  StepRunning.or s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.OR.pushArity ≤ 1024 + Operation.OR.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.OR, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.lor b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.OR)) h_gas).replaceStackAndIncrPC
+      (a.lor b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:245:36: Type mismatch
+  StepRunning.xor_ s a b rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.XOR.pushArity ≤ 1024 + Operation.XOR.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.XOR, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.xor b :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.XOR))
+          h_gas).replaceStackAndIncrPC
+      (a.xor b :: rest))
+error: EvmSemantics/EVM/Equiv.lean:250:31: Type mismatch
+  StepRunning.not s a rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.NOT.pushArity ≤ 1024 + Operation.NOT.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.NOT, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.lnot :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.NOT))
+          h_gas).replaceStackAndIncrPC
+      (a.lnot :: rest))
+error: EvmSemantics/EVM/Equiv.lean:254:36: Type mismatch
+  StepRunning.byte_ s i x rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.BYTE.pushArity ≤ 1024 + Operation.BYTE.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.BYTE, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := i.byteAt x :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.BYTE))
+          h_gas).replaceStackAndIncrPC
+      (i.byteAt x :: rest))
+error: EvmSemantics/EVM/Equiv.lean:259:37: Type mismatch
+  StepRunning.shl s sh v rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SHL.pushArity ≤ 1024 + Operation.SHL.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SHL, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := v.shiftLeft sh :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.SHL))
+          h_gas).replaceStackAndIncrPC
+      (v.shiftLeft sh :: rest))
+error: EvmSemantics/EVM/Equiv.lean:264:37: Type mismatch
+  StepRunning.shr s sh v rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SHR.pushArity ≤ 1024 + Operation.SHR.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SHR, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := v.shiftRight sh :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.SHR))
+          h_gas).replaceStackAndIncrPC
+      (v.shiftRight sh :: rest))
+error: EvmSemantics/EVM/Equiv.lean:269:37: Type mismatch
+  StepRunning.sar s sh v rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.SAR.pushArity ≤ 1024 + Operation.SAR.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.SAR, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := v.sar sh :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.SAR))
+          h_gas).replaceStackAndIncrPC
+      (v.sar sh :: rest))
+error: EvmSemantics/EVM/Equiv.lean:274:31: Type mismatch
+  StepRunning.clz s a rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.CLZ.pushArity ≤ 1024 + Operation.CLZ.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.CLZ, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := a.clz :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.CompBit Operation.CompareBitwiseOps.CLZ))
+          h_gas).replaceStackAndIncrPC
+      (a.clz :: rest))
+error: EvmSemantics/EVM/Equiv.lean:335:10: Type mismatch
+  StepRunning.keccak256 s offset size rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.KECCAK256.pushArity ≤ 1024 + Operation.KECCAK256.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.keccakTotal s offset size,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ,
+        stack := keccak256 (MachineState.readPadded s.memory offset.toNat size.toNat) :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.keccakTotal s offset size,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory, returnData := s.returnData,
+      hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := keccak256 (MachineState.readPadded s.memory offset.toNat size.toNat) :: rest,
+      execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:353:31: Type mismatch
+  StepRunning.blockhash s n rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.BLOCKHASH.pushArity ≤ 1024 + Operation.BLOCKHASH.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.BLOCKHASH, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ,
+        stack := s.executionEnv.header.blockHash n :: rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.Block Operation.BlockOps.BLOCKHASH)) h_gas).replaceStackAndIncrPC
+      (s.executionEnv.header.blockHash n :: rest))
+error: EvmSemantics/EVM/Equiv.lean:371:8: Type mismatch
+  StepRunning.blobhash s i rest bh h_dec h_gas h_stack h_lookup
+has type
+  s.stack.length + Operation.BLOBHASH.pushArity ≤ 1024 + Operation.BLOBHASH.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.BLOBHASH, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := bh :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.Block Operation.BlockOps.BLOBHASH)) h_gas).replaceStackAndIncrPC
+      (bh :: rest))
+error: EvmSemantics/EVM/Equiv.lean:374:8: Type mismatch
+  StepRunning.blobhash_oob s i rest h_dec h_gas h_stack h_lookup
+has type
+  s.stack.length + Operation.BLOBHASH.pushArity ≤ 1024 + Operation.BLOBHASH.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.BLOBHASH, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := { val := 0 } :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.Block Operation.BlockOps.BLOBHASH)) h_gas).replaceStackAndIncrPC
+      ({ val := 0 } :: rest))
+error: EvmSemantics/EVM/Equiv.lean:419:8: Type mismatch
+  StepRunning.return_ s offset size rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.RETURN.pushArity ≤ 1024 + Operation.RETURN.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.returnTotal s offset size,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+        returnData := s.returnData, hReturn := MachineState.readPadded s.memory offset.toNat size.toNat,
+        accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := rest,
+        execLength := s.execLength, halt := HaltKind.Returned, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.returnTotal s offset size,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory, returnData := s.returnData,
+      hReturn := MachineState.readPadded s.memory offset.toNat size.toNat, accountMap := s.accountMap,
+      substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := rest, execLength := s.execLength,
+      halt := HaltKind.Returned, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:457:8: Type mismatch
+  StepRunning.revert s offset size rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.REVERT.pushArity ≤ 1024 + Operation.REVERT.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.revertTotal s offset size,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+        returnData := s.returnData, hReturn := MachineState.readPadded s.memory offset.toNat size.toNat,
+        accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := rest,
+        execLength := s.execLength, halt := HaltKind.Reverted, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.revertTotal s offset size,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory, returnData := s.returnData,
+      hReturn := MachineState.readPadded s.memory offset.toNat size.toNat, accountMap := s.accountMap,
+      substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := rest, execLength := s.execLength,
+      halt := HaltKind.Reverted, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:585:16: Type mismatch
+  StepRunning.callFail s gasArg toArg value argsOff argsLen retOff retLen rest h_dec h_stack h_static' h_committed
+    h_afford h_fail'
+has type
+  s.stack.length + Operation.CALL.pushArity ≤ 1024 + Operation.CALL.popArity →
+    StepRunning s
+      {
+        gasAvailable :=
+          s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg +
+            bif value.toNat != 0 then Gas.callStipend else 0,
+        activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+        memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    {
+      gasAvailable :=
+        s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg +
+          bif value.toNat != 0 then Gas.callStipend else 0,
+      activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+      memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+      substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:662:16: Type mismatch
+  StepRunning.call s gasArg toArg value argsOff argsLen retOff retLen rest
+    (Gas.forwardGas s.executionEnv.fork (s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+      gasArg.toNat)
+    h_dec h_stack h_static' h_committed h_take' rfl h_afford
+has type
+  s.stack.length + Operation.CALL.pushArity ≤ 1024 + Operation.CALL.popArity →
+    StepRunning s
+      ({
+            gasAvailable :=
+              s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg -
+                Gas.forwardGas s.executionEnv.fork
+                  (s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg) gasArg.toNat,
+            activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+            memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+            substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+            execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCall
+        rest (AccountAddress.ofUInt256 toArg) (AccountAddress.ofUInt256 toArg) value
+        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+        (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+        (Gas.forwardGas s.executionEnv.fork
+            (s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg) gasArg.toNat +
+          bif value.toNat != 0 then Gas.callStipend else 0)
+        retOff.toNat retLen.toNat)
+but is expected to have type
+  StepRunning s
+    ({
+          gasAvailable :=
+            s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg -
+              Gas.forwardGas s.fork (s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+                gasArg.toNat,
+          activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+          memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCall
+      rest (AccountAddress.ofUInt256 toArg) (AccountAddress.ofUInt256 toArg) value
+      (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat) (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+      (Gas.forwardGas s.fork (s.gasAvailable - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+          gasArg.toNat +
+        bif value.toNat != 0 then Gas.callStipend else 0)
+      retOff.toNat retLen.toNat)
+error: EvmSemantics/EVM/Equiv.lean:775:14: Type mismatch
+  StepRunning.callcodeFail s gasArg toArg value argsOff argsLen retOff retLen rest h_dec h_stack h_committed h_afford
+    h_fail'
+has type
+  s.stack.length + Operation.CALLCODE.pushArity ≤ 1024 + Operation.CALLCODE.popArity →
+    StepRunning s
+      {
+        gasAvailable :=
+          s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg +
+            bif value.toNat != 0 then Gas.callStipend else 0,
+        activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+        memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    {
+      gasAvailable :=
+        s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg +
+          bif value.toNat != 0 then Gas.callStipend else 0,
+      activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+      memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+      substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:874:14: Type mismatch
+  StepRunning.callcode s gasArg toArg value argsOff argsLen retOff retLen rest
+    (Gas.forwardGas s.executionEnv.fork
+      (s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg) gasArg.toNat)
+    h_dec h_stack h_committed h_take' rfl h_afford
+has type
+  s.stack.length + Operation.CALLCODE.pushArity ≤ 1024 + Operation.CALLCODE.popArity →
+    StepRunning s
+      ({
+            gasAvailable :=
+              s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg -
+                Gas.forwardGas s.executionEnv.fork
+                  (s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg) gasArg.toNat,
+            activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+            memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+            substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+            execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCall
+        rest s.executionEnv.address (AccountAddress.ofUInt256 toArg) value
+        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+        (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+        (Gas.forwardGas s.executionEnv.fork
+            (s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg) gasArg.toNat +
+          bif value.toNat != 0 then Gas.callStipend else 0)
+        retOff.toNat retLen.toNat)
+but is expected to have type
+  StepRunning s
+    ({
+          gasAvailable :=
+            s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg -
+              Gas.forwardGas s.fork (s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
+                gasArg.toNat,
+          activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+          memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCall
+      rest s.executionEnv.address (AccountAddress.ofUInt256 toArg) value
+      (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat) (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+      (Gas.forwardGas s.fork (s.gasAvailable - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
+          gasArg.toNat +
+        bif value.toNat != 0 then Gas.callStipend else 0)
+      retOff.toNat retLen.toNat)
+error: EvmSemantics/EVM/Equiv.lean:964:14: Type mismatch
+  StepRunning.delegatecallFail s gasArg toArg argsOff argsLen retOff retLen rest h_dec h_stack h_committed h_afford
+    h_fail'
+has type
+  s.stack.length + Operation.DELEGATECALL.pushArity ≤ 1024 + Operation.DELEGATECALL.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg,
+        activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+        memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg,
+      activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+      memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+      substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1037:14: Type mismatch
+  StepRunning.delegatecall s gasArg toArg argsOff argsLen retOff retLen rest
+    (Gas.forwardGas s.executionEnv.fork
+      (s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg) gasArg.toNat)
+    h_dec h_stack h_committed h_take' rfl h_afford
+has type
+  s.stack.length + Operation.DELEGATECALL.pushArity ≤ 1024 + Operation.DELEGATECALL.popArity →
+    StepRunning s
+      ({
+            gasAvailable :=
+              s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg -
+                Gas.forwardGas s.executionEnv.fork
+                  (s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg) gasArg.toNat,
+            activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+            memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+            substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+            execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCallFor
+        CallKind.DelegateCall rest (AccountAddress.ofUInt256 toArg) { val := 0 }
+        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+        (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+        (Gas.forwardGas s.executionEnv.fork
+          (s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg) gasArg.toNat)
+        retOff.toNat retLen.toNat)
+but is expected to have type
+  StepRunning s
+    ({
+          gasAvailable :=
+            s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg -
+              Gas.forwardGas s.fork (s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+                gasArg.toNat,
+          activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+          memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCallFor
+      CallKind.DelegateCall rest (AccountAddress.ofUInt256 toArg) { val := 0 }
+      (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat) (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+      (Gas.forwardGas s.fork (s.gasAvailable - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+        gasArg.toNat)
+      retOff.toNat retLen.toNat)
+error: EvmSemantics/EVM/Equiv.lean:1126:14: Type mismatch
+  StepRunning.staticcallFail s gasArg toArg argsOff argsLen retOff retLen rest h_dec h_stack h_committed h_afford
+    h_fail'
+has type
+  s.stack.length + Operation.STATICCALL.pushArity ≤ 1024 + Operation.STATICCALL.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg,
+        activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+        memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg,
+      activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+      memory := s.memory, returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap,
+      substate := s.warmCallTarget s.substate (AccountAddress.ofUInt256 toArg), executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1199:14: Type mismatch
+  StepRunning.staticcall s gasArg toArg argsOff argsLen retOff retLen rest
+    (Gas.forwardGas s.executionEnv.fork (s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+      gasArg.toNat)
+    h_dec h_stack h_committed h_take' rfl h_afford
+has type
+  s.stack.length + Operation.STATICCALL.pushArity ≤ 1024 + Operation.STATICCALL.popArity →
+    StepRunning s
+      ({
+            gasAvailable :=
+              s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg -
+                Gas.forwardGas s.executionEnv.fork
+                  (s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg) gasArg.toNat,
+            activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+            memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+            substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+            execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCallFor
+        CallKind.StaticCall rest (AccountAddress.ofUInt256 toArg) { val := 0 }
+        (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat)
+        (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+        (Gas.forwardGas s.executionEnv.fork
+          (s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg) gasArg.toNat)
+        retOff.toNat retLen.toNat)
+but is expected to have type
+  StepRunning s
+    ({
+          gasAvailable :=
+            s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg -
+              Gas.forwardGas s.fork (s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+                gasArg.toNat,
+          activeWords := s.activeWordsAfterUInt256_2 argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat,
+          memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }.enterCallFor
+      CallKind.StaticCall rest (AccountAddress.ofUInt256 toArg) { val := 0 }
+      (MachineState.readPadded s.memory argsOff.toNat argsLen.toNat) (s.callTargetCode (AccountAddress.ofUInt256 toArg))
+      (Gas.forwardGas s.fork (s.gasAvailable - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+        gasArg.toNat)
+      retOff.toNat retLen.toNat)
+error: EvmSemantics/EVM/Equiv.lean:1244:10: Type mismatch
+  StepRunning.selfDestruct s beneficiary rest h_dec h_stack h_perm' h_total
+has type
+  s.stack.length + Operation.SELFDESTRUCT.pushArity ≤ 1024 + Operation.SELFDESTRUCT.popArity →
+    StepRunning s
+      ({ gasAvailable := s.gasAvailable - Gas.selfDestructTotal s beneficiary, activeWords := s.activeWords,
+            memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+            substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+            execLength := s.execLength, halt := s.halt, callStack := s.callStack }.selfDestructTo
+        (AccountAddress.ofUInt256 beneficiary))
+but is expected to have type
+  StepRunning s
+    ({ gasAvailable := s.gasAvailable - Gas.selfDestructTotal s beneficiary, activeWords := s.activeWords,
+          memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc, stack := s.stack,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }.selfDestructTo
+      (AccountAddress.ofUInt256 beneficiary))
+error: EvmSemantics/EVM/Equiv.lean:1300:14: Type mismatch
+  StepRunning.createFail s value offset size rest h_dec h_stack h_perm' h_committed h_fail'
+has type
+  Gas.initCodeTooLarge s.fork size.toNat = false →
+    s.stack.length + Operation.CREATE.pushArity ≤ 1024 + Operation.CREATE.popArity →
+      StepRunning s
+        { gasAvailable := s.gasAvailable - Gas.createCommitted s offset size,
+          activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+          returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+          executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength,
+          halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.createCommitted s offset size,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+      returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength,
+      halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1366:18: Type mismatch
+  StepRunning.createCollision s value offset size rest
+    (Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.createCommitted s offset size)) h_dec h_stack
+    h_perm' h_committed h_take' rfl h_coll'
+has type
+  Gas.initCodeTooLarge s.fork size.toNat = false →
+    s.stack.length + Operation.CREATE.pushArity ≤ 1024 + Operation.CREATE.popArity →
+      StepRunning s
+        {
+          gasAvailable :=
+            s.gasAvailable - Gas.createCommitted s offset size -
+              Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.createCommitted s offset size),
+          activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+          returnData := ByteArray.empty, hReturn := s.hReturn,
+          accountMap :=
+            s.accountMap.set s.executionEnv.address
+              (let __src := s.accountMap.get s.executionEnv.address;
+              { nonce := (s.accountMap.get s.executionEnv.address).nonce + { val := 1 }, balance := __src.balance,
+                code := __src.code, storage := __src.storage, tstorage := __src.tstorage }),
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    {
+      gasAvailable :=
+        s.gasAvailable - Gas.createCommitted s offset size -
+          Gas.allButOneSixtyFourth s.fork (s.gasAvailable - Gas.createCommitted s offset size),
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+      returnData := ByteArray.empty, hReturn := s.hReturn,
+      accountMap :=
+        s.accountMap.set s.executionEnv.address
+          (let __src := s.accountMap.get s.executionEnv.address;
+          { nonce := (s.accountMap.get s.executionEnv.address).nonce + { val := 1 }, balance := __src.balance,
+            code := __src.code, storage := __src.storage, tstorage := __src.tstorage }),
+      substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest,
+      execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1404:18: Type mismatch
+  StepRunning.create s value offset size rest
+    (Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.createCommitted s offset size)) h_dec h_stack
+    h_perm' h_committed h_take' rfl h_nocoll'
+has type
+  Gas.initCodeTooLarge s.fork size.toNat = false →
+    s.stack.length + Operation.CREATE.pushArity ≤ 1024 + Operation.CREATE.popArity →
+      StepRunning s
+        ({
+              gasAvailable :=
+                s.gasAvailable - Gas.createCommitted s offset size -
+                  Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.createCommitted s offset size),
+              activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+              returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+              executionEnv := s.executionEnv, pc := s.pc, stack := s.stack, execLength := s.execLength, halt := s.halt,
+              callStack := s.callStack }.enterCreate
+          rest (createAddress s.executionEnv.address (s.accountMap.get s.executionEnv.address).nonce) value
+          (MachineState.readPadded s.memory offset.toNat size.toNat)
+          (Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.createCommitted s offset size)))
+but is expected to have type
+  StepRunning s
+    ({
+          gasAvailable :=
+            s.gasAvailable - Gas.createCommitted s offset size -
+              Gas.allButOneSixtyFourth s.fork (s.gasAvailable - Gas.createCommitted s offset size),
+          activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+          returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+          executionEnv := s.executionEnv, pc := s.pc, stack := s.stack, execLength := s.execLength, halt := s.halt,
+          callStack := s.callStack }.enterCreate
+      rest (createAddress s.executionEnv.address (s.accountMap.get s.executionEnv.address).nonce) value
+      (MachineState.readPadded s.memory offset.toNat size.toNat)
+      (Gas.allButOneSixtyFourth s.fork (s.gasAvailable - Gas.createCommitted s offset size)))
+error: EvmSemantics/EVM/Equiv.lean:1468:14: Type mismatch
+  StepRunning.create2Fail s value offset size salt rest h_dec h_stack h_perm' h_committed h_fail'
+has type
+  Gas.initCodeTooLarge s.fork size.toNat = false →
+    s.stack.length + Operation.CREATE2.pushArity ≤ 1024 + Operation.CREATE2.popArity →
+      StepRunning s
+        { gasAvailable := s.gasAvailable - Gas.create2Committed s offset size,
+          activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+          returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+          executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength,
+          halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.create2Committed s offset size,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+      returnData := ByteArray.empty, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest, execLength := s.execLength,
+      halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1522:18: Type mismatch
+  StepRunning.create2Collision s value offset size salt rest
+    (Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.create2Committed s offset size)) h_dec h_stack
+    h_perm' h_committed h_take' rfl h_coll'
+has type
+  Gas.initCodeTooLarge s.fork size.toNat = false →
+    s.stack.length + Operation.CREATE2.pushArity ≤ 1024 + Operation.CREATE2.popArity →
+      StepRunning s
+        {
+          gasAvailable :=
+            s.gasAvailable - Gas.create2Committed s offset size -
+              Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.create2Committed s offset size),
+          activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+          returnData := ByteArray.empty, hReturn := s.hReturn,
+          accountMap :=
+            s.accountMap.set s.executionEnv.address
+              (let __src := s.accountMap.get s.executionEnv.address;
+              { nonce := (s.accountMap.get s.executionEnv.address).nonce + { val := 1 }, balance := __src.balance,
+                code := __src.code, storage := __src.storage, tstorage := __src.tstorage }),
+          substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest,
+          execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    {
+      gasAvailable :=
+        s.gasAvailable - Gas.create2Committed s offset size -
+          Gas.allButOneSixtyFourth s.fork (s.gasAvailable - Gas.create2Committed s offset size),
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+      returnData := ByteArray.empty, hReturn := s.hReturn,
+      accountMap :=
+        s.accountMap.set s.executionEnv.address
+          (let __src := s.accountMap.get s.executionEnv.address;
+          { nonce := (s.accountMap.get s.executionEnv.address).nonce + { val := 1 }, balance := __src.balance,
+            code := __src.code, storage := __src.storage, tstorage := __src.tstorage }),
+      substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := UInt256.ofNat 0 :: rest,
+      execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1559:18: Type mismatch
+  StepRunning.create2 s value offset size salt rest
+    (Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.create2Committed s offset size)) h_dec h_stack
+    h_perm' h_committed h_take' rfl h_nocoll'
+has type
+  Gas.initCodeTooLarge s.fork size.toNat = false →
+    s.stack.length + Operation.CREATE2.pushArity ≤ 1024 + Operation.CREATE2.popArity →
+      StepRunning s
+        ({
+              gasAvailable :=
+                s.gasAvailable - Gas.create2Committed s offset size -
+                  Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.create2Committed s offset size),
+              activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+              returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+              executionEnv := s.executionEnv, pc := s.pc, stack := s.stack, execLength := s.execLength, halt := s.halt,
+              callStack := s.callStack }.enterCreate
+          rest (create2Address s.executionEnv.address salt (MachineState.readPadded s.memory offset.toNat size.toNat))
+          value (MachineState.readPadded s.memory offset.toNat size.toNat)
+          (Gas.allButOneSixtyFourth s.executionEnv.fork (s.gasAvailable - Gas.create2Committed s offset size)))
+but is expected to have type
+  StepRunning s
+    ({
+          gasAvailable :=
+            s.gasAvailable - Gas.create2Committed s offset size -
+              Gas.allButOneSixtyFourth s.fork (s.gasAvailable - Gas.create2Committed s offset size),
+          activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+          returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+          executionEnv := s.executionEnv, pc := s.pc, stack := s.stack, execLength := s.execLength, halt := s.halt,
+          callStack := s.callStack }.enterCreate
+      rest (create2Address s.executionEnv.address salt (MachineState.readPadded s.memory offset.toNat size.toNat)) value
+      (MachineState.readPadded s.memory offset.toNat size.toNat)
+      (Gas.allButOneSixtyFourth s.fork (s.gasAvailable - Gas.create2Committed s offset size)))
+error: EvmSemantics/EVM/Equiv.lean:1594:20: Type mismatch
+  StepRunning.swap s idx stk' h_dec h_gas h_ex
+has type
+  s.stack.length + (Operation.Swap { idx := idx }).pushArity ≤ 1024 + (Operation.Swap { idx := idx }).popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork (Operation.Swap { idx := idx }),
+        activeWords := s.activeWords, memory := s.memory, returnData := s.returnData, hReturn := s.hReturn,
+        accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ,
+        stack := stk', execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s ((s.consumeGas (Gas.baseCost s.fork (Operation.Swap { idx := idx })) h_gas).replaceStackAndIncrPC stk')
+error: EvmSemantics/EVM/Equiv.lean:1622:20: Type mismatch
+  StepRunning.swapN s n stk' h_dec h_gas h_ex
+has type
+  s.stack.length + (Operation.SwapN { n := n }).pushArity ≤ 1024 + (Operation.SwapN { n := n }).popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork (Operation.SwapN { n := n }), activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc + UInt256.ofNat 2, stack := stk',
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s ((s.consumeGas (Gas.baseCost s.fork (Operation.SwapN { n := n })) h_gas).replaceStackAndIncrPC stk' 2)
+error: EvmSemantics/EVM/Equiv.lean:1635:20: Type mismatch
+  StepRunning.exchange s b stk' h_dec h_gas h_ex
+has type
+  s.stack.length + (Operation.Exchange { packed := b }).pushArity ≤
+      1024 + (Operation.Exchange { packed := b }).popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork (Operation.Exchange { packed := b }),
+        activeWords := s.activeWords, memory := s.memory, returnData := s.returnData, hReturn := s.hReturn,
+        accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv,
+        pc := s.pc + UInt256.ofNat 2, stack := stk', execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.Exchange { packed := b })) h_gas).replaceStackAndIncrPC stk' 2)
+error: EvmSemantics/EVM/Equiv.lean:1662:8: Type mismatch
+  StepRunning.balance s a rest h_dec h_total h_stack
+has type
+  s.stack.length + Operation.BALANCE.pushArity ≤ 1024 + Operation.BALANCE.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.balanceTotal s a, activeWords := s.activeWords, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := (s.accountMap.get (AccountAddress.ofUInt256 a)).balance :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ({ toMachineState := (s.consumeGas (Gas.balanceTotal s a) ⋯).toMachineState,
+          accountMap := (s.consumeGas (Gas.balanceTotal s a) ⋯).accountMap,
+          substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a),
+          executionEnv := (s.consumeGas (Gas.balanceTotal s a) ⋯).executionEnv,
+          pc := (s.consumeGas (Gas.balanceTotal s a) ⋯).pc, stack := (s.consumeGas (Gas.balanceTotal s a) ⋯).stack,
+          execLength := (s.consumeGas (Gas.balanceTotal s a) ⋯).execLength,
+          halt := (s.consumeGas (Gas.balanceTotal s a) ⋯).halt,
+          callStack := (s.consumeGas (Gas.balanceTotal s a) ⋯).callStack }.replaceStackAndIncrPC
+      ((s.accountMap.get (AccountAddress.ofUInt256 a)).balance :: rest))
+error: EvmSemantics/EVM/Equiv.lean:1667:31: Type mismatch
+  StepRunning.calldataload s i rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.CALLDATALOAD.pushArity ≤ 1024 + Operation.CALLDATALOAD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.CALLDATALOAD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ,
+        stack := MachineState.readWord s.executionEnv.calldata i.toNat :: rest, execLength := s.execLength,
+        halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.Env Operation.EnvOps.CALLDATALOAD)) h_gas).replaceStackAndIncrPC
+      (UInt256.ofNat (Data.Bytes.bytesToBigEndianNat (MachineState.readPadded s.executionEnv.calldata i.toNat 32)) ::
+        rest))
+error: EvmSemantics/EVM/Equiv.lean:1675:8: Type mismatch
+  StepRunning.extcodesize s a rest h_dec h_total h_stack
+has type
+  s.stack.length + Operation.EXTCODESIZE.pushArity ≤ 1024 + Operation.EXTCODESIZE.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.extcodesizeTotal s a, activeWords := s.activeWords, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := UInt256.ofNat (s.accountMap.get (AccountAddress.ofUInt256 a)).code.size :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ({ toMachineState := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).toMachineState,
+          accountMap := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).accountMap,
+          substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a),
+          executionEnv := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).executionEnv,
+          pc := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).pc,
+          stack := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).stack,
+          execLength := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).execLength,
+          halt := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).halt,
+          callStack := (s.consumeGas (Gas.extcodesizeTotal s a) ⋯).callStack }.replaceStackAndIncrPC
+      (UInt256.ofNat (s.accountMap.get (AccountAddress.ofUInt256 a)).code.size :: rest))
+error: EvmSemantics/EVM/Equiv.lean:1684:8: Type mismatch
+  StepRunning.extcodehash s a rest h_dec h_total h_stack
+has type
+  s.stack.length + Operation.EXTCODEHASH.pushArity ≤ 1024 + Operation.EXTCODEHASH.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.extcodehashTotal s a, activeWords := s.activeWords, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := (s.accountMap.get (AccountAddress.ofUInt256 a)).codeHash :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ({ toMachineState := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).toMachineState,
+          accountMap := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).accountMap,
+          substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a),
+          executionEnv := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).executionEnv,
+          pc := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).pc,
+          stack := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).stack,
+          execLength := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).execLength,
+          halt := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).halt,
+          callStack := (s.consumeGas (Gas.extcodehashTotal s a) ⋯).callStack }.replaceStackAndIncrPC
+      ((s.accountMap.get (AccountAddress.ofUInt256 a)).codeHash :: rest))
+error: EvmSemantics/EVM/Equiv.lean:1733:10: Type mismatch
+  StepRunning.calldatacopy s dOff sOff sz rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.CALLDATACOPY.pushArity ≤ 1024 + Operation.CALLDATACOPY.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.calldatacopyTotal s dOff sz,
+        activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+        memory :=
+          MachineState.writeBytes s.memory (MachineState.readPadded s.executionEnv.calldata sOff.toNat sz.toNat)
+            dOff.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.calldatacopyTotal s dOff sz,
+      activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+      memory :=
+        MachineState.writeBytes s.memory (MachineState.readPadded s.executionEnv.calldata sOff.toNat sz.toNat)
+          dOff.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1785:10: Type mismatch
+  StepRunning.codecopy s dOff sOff sz rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.CODECOPY.pushArity ≤ 1024 + Operation.CODECOPY.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.codecopyTotal s dOff sz,
+        activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+        memory :=
+          MachineState.writeBytes s.memory (MachineState.readPadded s.executionEnv.code sOff.toNat sz.toNat) dOff.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.codecopyTotal s dOff sz,
+      activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+      memory :=
+        MachineState.writeBytes s.memory (MachineState.readPadded s.executionEnv.code sOff.toNat sz.toNat) dOff.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1847:10: Type mismatch
+  StepRunning.extcodecopy s a dOff sOff sz rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.EXTCODECOPY.pushArity ≤ 1024 + Operation.EXTCODECOPY.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s a dOff sz,
+        activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+        memory :=
+          MachineState.writeBytes s.memory
+            (MachineState.readPadded (s.accountMap.get (AccountAddress.ofUInt256 a)).code sOff.toNat sz.toNat)
+            dOff.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.extcodecopyTotal s a dOff sz,
+      activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+      memory :=
+        MachineState.writeBytes s.memory
+          (MachineState.readPadded (s.accountMap.get (AccountAddress.ofUInt256 a)).code sOff.toNat sz.toNat) dOff.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+      substate := s.substate.addAccessedAccount (AccountAddress.ofUInt256 a), executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1903:12: Type mismatch
+  StepRunning.returndatacopy s dOff sOff sz rest h_dec h_stack (Nat.le_of_not_lt h_oob) h_total
+has type
+  s.stack.length + Operation.RETURNDATACOPY.pushArity ≤ 1024 + Operation.RETURNDATACOPY.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.returndatacopyTotal s dOff sz,
+        activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+        memory :=
+          MachineState.writeBytes s.memory (MachineState.readPadded s.returnData sOff.toNat sz.toNat) dOff.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.returndatacopyTotal s dOff sz,
+      activeWords := s.activeWordsAfterUInt256 dOff.toNat sz.toNat,
+      memory := MachineState.writeBytes s.memory (MachineState.readPadded s.returnData sOff.toNat sz.toNat) dOff.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:1924:31: Type mismatch
+  StepRunning.pop s a rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.POP.pushArity ≤ 1024 + Operation.POP.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.POP, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.POP))
+          h_gas).replaceStackAndIncrPC
+      rest)
+error: EvmSemantics/EVM/Equiv.lean:1975:10: Type mismatch
+  StepRunning.mload s offset rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.MLOAD.pushArity ≤ 1024 + Operation.MLOAD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.mloadTotal s offset,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat 32, memory := s.memory, returnData := s.returnData,
+        hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := MachineState.readWord s.memory offset.toNat :: rest, execLength := s.execLength,
+        halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.mloadTotal s offset,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat 32, memory := s.memory, returnData := s.returnData,
+      hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate, executionEnv := s.executionEnv,
+      pc := s.pc.succ, stack := MachineState.readWord s.memory offset.toNat :: rest, execLength := s.execLength,
+      halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:2014:8: Type mismatch
+  StepRunning.mstore s offset value rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.MSTORE.pushArity ≤ 1024 + Operation.MSTORE.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.mstoreTotal s offset,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat 32,
+        memory := MachineState.writeBytes s.memory (Data.Bytes.natToBytesPadded value.toNat 32) offset.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.mstoreTotal s offset,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat 32,
+      memory := MachineState.writeBytes s.memory (Data.Bytes.natToBytesPadded value.toNat 32) offset.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:2054:8: Type mismatch
+  StepRunning.mstore8 s offset value rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.MSTORE8.pushArity ≤ 1024 + Operation.MSTORE8.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.mstore8Total s offset,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat 1,
+        memory := MachineState.writeBytes s.memory { data := #[UInt8.ofNat (value.toNat % 256)] } offset.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.mstore8Total s offset,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat 1,
+      memory := MachineState.writeBytes s.memory { data := #[UInt8.ofNat (value.toNat % 256)] } offset.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:2064:8: Type mismatch
+  StepRunning.sload s key rest h_dec h_total h_stack
+has type
+  s.stack.length + Operation.SLOAD.pushArity ≤ 1024 + Operation.SLOAD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.sloadTotal s key, activeWords := s.activeWords, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate.addAccessedStorageKey (s.executionEnv.address, key), executionEnv := s.executionEnv,
+        pc := s.pc.succ, stack := (s.accountMap.get s.executionEnv.address).storage.get key :: rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ({ toMachineState := (s.consumeGas (Gas.sloadTotal s key) ⋯).toMachineState,
+          accountMap := (s.consumeGas (Gas.sloadTotal s key) ⋯).accountMap,
+          substate := s.substate.addAccessedStorageKey (s.executionEnv.address, key),
+          executionEnv := (s.consumeGas (Gas.sloadTotal s key) ⋯).executionEnv,
+          pc := (s.consumeGas (Gas.sloadTotal s key) ⋯).pc, stack := (s.consumeGas (Gas.sloadTotal s key) ⋯).stack,
+          execLength := (s.consumeGas (Gas.sloadTotal s key) ⋯).execLength,
+          halt := (s.consumeGas (Gas.sloadTotal s key) ⋯).halt,
+          callStack := (s.consumeGas (Gas.sloadTotal s key) ⋯).callStack }.replaceStackAndIncrPC
+      ((s.accountMap.get s.executionEnv.address).storage.get key :: rest))
+error: EvmSemantics/EVM/Equiv.lean:2131:12: Type mismatch
+  StepRunning.sstore s key value rest h_dec h_perm' h_stack h_sentry h_total
+has type
+  s.stack.length + Operation.SSTORE.pushArity ≤ 1024 + Operation.SSTORE.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.sstoreTotal s key value, activeWords := s.activeWords, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn,
+        accountMap :=
+          s.accountMap.set s.executionEnv.address
+            (let __src := s.accountMap.get s.executionEnv.address;
+            { nonce := __src.nonce, balance := __src.balance, code := __src.code,
+              storage := (s.accountMap.get s.executionEnv.address).storage.set key value, tstorage := __src.tstorage }),
+        substate :=
+          let __src := s.substate.addAccessedStorageKey (s.executionEnv.address, key);
+          { selfDestructSet := __src.selfDestructSet, selfDestructList := __src.selfDestructList,
+            touchedAccounts := __src.touchedAccounts,
+            refundBalance :=
+              let δ :=
+                Gas.sstoreRefund s.fork (s.substate.originalStorage s.executionEnv.address key)
+                  ((s.accountMap.get s.executionEnv.address).storage.get key) value;
+              let rb := ↑s.substate.refundBalance.toNat + δ;
+              UInt256.ofNat (if rb < 0 then 0 else rb.toNat),
+            accessedAccounts := __src.accessedAccounts, accessedStorageKeys := __src.accessedStorageKeys,
+            logSeries := __src.logSeries, originalAccountMap := __src.originalAccountMap },
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.sstoreTotal s key value, activeWords := s.activeWords, memory := s.memory,
+      returnData := s.returnData, hReturn := s.hReturn,
+      accountMap :=
+        s.accountMap.set s.executionEnv.address
+          (let __src := s.accountMap.get s.executionEnv.address;
+          { nonce := __src.nonce, balance := __src.balance, code := __src.code,
+            storage := (s.accountMap.get s.executionEnv.address).storage.set key value, tstorage := __src.tstorage }),
+      substate := sub', executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength,
+      halt := s.halt, callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:2142:8: Type mismatch
+  StepRunning.jump s dest rest h_dec h_gas h_stack h_valid
+has type
+  s.stack.length + Operation.JUMP.pushArity ≤ 1024 + Operation.JUMP.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.JUMP, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := dest, stack := rest, execLength := s.execLength,
+        halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    {
+      toSharedState :=
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMP))
+            h_gas).toSharedState,
+      pc := dest, stack := rest,
+      execLength :=
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMP)) h_gas).execLength,
+      halt := (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMP)) h_gas).halt,
+      callStack :=
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMP)) h_gas).callStack }
+error: EvmSemantics/EVM/Equiv.lean:2149:6: unsolved goals
+case pos.refl.h_cap
+s : State
+h_dec : s.decodedOp = some (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)
+h_gas : Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI) ≤ s.gasAvailable
+h_cap :
+  s.stack.length + (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI).pushArity ≤
+    1024 + (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI).popArity
+dest cond : UInt256
+rest : List UInt256
+h_stack : s.stack = dest :: cond :: rest
+h_cond : cond.toNat = 0
+h :
+  (match Operation.StackMemFlowOps.JUMPI with
+    | Operation.StackMemFlowOps.POP =>
+      match s.stack with
+      | head :: rest =>
+        Except.ok
+          ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                h_gas).replaceStackAndIncrPC
+            rest)
+      | x => underflow
+    | Operation.StackMemFlowOps.MLOAD =>
+      match s.stack with
+      | offset :: rest =>
+        match
+          chargeMem (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            offset.toNat 32 with
+        | Except.ok s'' =>
+          match s''.mload offset with
+          | (v, μ') =>
+            Except.ok
+              ({ toMachineState := μ', accountMap := s''.accountMap, substate := s''.substate,
+                    executionEnv := s''.executionEnv, pc := s''.pc, stack := s''.stack, execLength := s''.execLength,
+                    halt := s''.halt, callStack := s''.callStack }.replaceStackAndIncrPC
+                (v :: rest))
+        | Except.error e => Except.error e
+      | x => underflow
+    | Operation.StackMemFlowOps.MSTORE =>
+      match s.stack with
+      | offset :: value :: rest =>
+        match
+          chargeMem (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            offset.toNat 32 with
+        | Except.ok s'' =>
+          have μ' := s''.mstore offset value;
+          Except.ok
+            ({ toMachineState := μ', accountMap := s''.accountMap, substate := s''.substate,
+                  executionEnv := s''.executionEnv, pc := s''.pc, stack := s''.stack, execLength := s''.execLength,
+                  halt := s''.halt, callStack := s''.callStack }.replaceStackAndIncrPC
+              rest)
+        | Except.error e => Except.error e
+      | x => underflow
+    | Operation.StackMemFlowOps.MSTORE8 =>
+      match s.stack with
+      | offset :: value :: rest =>
+        match
+          chargeMem (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            offset.toNat 1 with
+        | Except.ok s'' =>
+          have μ' := s''.mstore8 offset value;
+          Except.ok
+            ({ toMachineState := μ', accountMap := s''.accountMap, substate := s''.substate,
+                  executionEnv := s''.executionEnv, pc := s''.pc, stack := s''.stack, execLength := s''.execLength,
+                  halt := s''.halt, callStack := s''.callStack }.replaceStackAndIncrPC
+              rest)
+        | Except.error e => Except.error e
+      | x => underflow
+    | Operation.StackMemFlowOps.SLOAD =>
+      match s.stack with
+      | key :: rest =>
+        if h : Gas.sloadTotal s key ≤ s.gasAvailable then
+          Except.ok
+            ((have __src := s.consumeGas (Gas.sloadTotal s key) h;
+                { toMachineState := __src.toMachineState, accountMap := __src.accountMap,
+                  substate := s.substate.addAccessedStorageKey (s.executionEnv.address, key),
+                  executionEnv := __src.executionEnv, pc := __src.pc, stack := __src.stack,
+                  execLength := __src.execLength, halt := __src.halt,
+                  callStack := __src.callStack }).replaceStackAndIncrPC
+              ((s.accountMap.get s.executionEnv.address).storage.get key :: rest))
+        else Except.error ExecutionException.OutOfGas
+      | x => underflow
+    | Operation.StackMemFlowOps.SSTORE =>
+      if ¬s.executionEnv.permitStateMutation = true then static
+      else
+        if
+            Gas.sstoreSentry s.fork
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).gasAvailable =
+              true then
+          Except.error ExecutionException.OutOfGas
+        else
+          match s.stack with
+          | key :: value :: rest =>
+            have addr := s.executionEnv.address;
+            have acc := s.accountMap.get addr;
+            have current := acc.storage.get key;
+            have original := s.substate.originalStorage addr key;
+            have cost := Gas.sstoreCost s.fork original current value + Gas.sstoreColdSurcharge s key;
+            if h :
+                cost ≤
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).gasAvailable then
+              have acc' :=
+                { nonce := acc.nonce, balance := acc.balance, code := acc.code, storage := acc.storage.set key value,
+                  tstorage := acc.tstorage };
+              have σ' := s.accountMap.set addr acc';
+              have refDelta := Gas.sstoreRefund s.fork original current value;
+              have rb := ↑s.substate.refundBalance.toNat + refDelta;
+              have rb' := if rb < 0 then 0 else rb.toNat;
+              have sub' :=
+                have __src := s.substate.addAccessedStorageKey (addr, key);
+                { selfDestructSet := __src.selfDestructSet, selfDestructList := __src.selfDestructList,
+                  touchedAccounts := __src.touchedAccounts, refundBalance := UInt256.ofNat rb',
+                  accessedAccounts := __src.accessedAccounts, accessedStorageKeys := __src.accessedStorageKeys,
+                  logSeries := __src.logSeries, originalAccountMap := __src.originalAccountMap };
+              Except.ok
+                ((have __src :=
+                      (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                            h_gas).consumeGas
+                        cost h;
+                    { toMachineState := __src.toMachineState, accountMap := σ', substate := sub',
+                      executionEnv := __src.executionEnv, pc := __src.pc, stack := __src.stack,
+                      execLength := __src.execLength, halt := __src.halt,
+                      callStack := __src.callStack }).replaceStackAndIncrPC
+                  rest)
+            else Except.error ExecutionException.OutOfGas
+          | x => underflow
+    | Operation.StackMemFlowOps.JUMP =>
+      match s.stack with
+      | dest :: rest =>
+        if Decode.isValidJumpDest s.executionEnv.code dest.toNat = true then
+          Except.ok
+            {
+              toSharedState :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).toSharedState,
+              pc := dest, stack := rest,
+              execLength :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).execLength,
+              halt :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).halt,
+              callStack :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).callStack }
+        else Except.error ExecutionException.BadJumpDestination
+      | x => underflow
+    | Operation.StackMemFlowOps.JUMPI =>
+      match s.stack with
+      | dest :: cond :: rest =>
+        if cond.toNat = 0 then
+          Except.ok
+            ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                  h_gas).replaceStackAndIncrPC
+              rest)
+        else
+          if Decode.isValidJumpDest s.executionEnv.code dest.toNat = true then
+            Except.ok
+              {
+                toSharedState :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).toSharedState,
+                pc := dest, stack := rest,
+                execLength :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).execLength,
+                halt :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).halt,
+                callStack :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).callStack }
+          else Except.error ExecutionException.BadJumpDestination
+      | x => underflow
+    | Operation.StackMemFlowOps.PC =>
+      Except.ok
+        ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+              h_gas).replaceStackAndIncrPC
+          (s.pc :: s.stack))
+    | Operation.StackMemFlowOps.JUMPDEST =>
+      Except.ok
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas).incrPC
+    | Operation.StackMemFlowOps.MSIZE =>
+      Except.ok
+        ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+              h_gas).replaceStackAndIncrPC
+          (s.msize :: s.stack))
+    | Operation.StackMemFlowOps.GAS =>
+      Except.ok
+        ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+              h_gas).replaceStackAndIncrPC
+          (UInt256.ofNat
+              (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                  h_gas).gasAvailable ::
+            s.stack))
+    | Operation.StackMemFlowOps.TLOAD =>
+      match s.stack with
+      | key :: rest =>
+        Except.ok
+          ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                h_gas).replaceStackAndIncrPC
+            ((s.accountMap.get s.executionEnv.address).tstorage.get key :: rest))
+      | x => underflow
+    | Operation.StackMemFlowOps.TSTORE =>
+      if ¬s.executionEnv.permitStateMutation = true then static
+      else
+        match s.stack with
+        | key :: value :: rest =>
+          have addr := s.executionEnv.address;
+          have acc := s.accountMap.get addr;
+          have acc' :=
+            { nonce := acc.nonce, balance := acc.balance, code := acc.code, storage := acc.storage,
+              tstorage := acc.tstorage.set key value };
+          have σ' := s.accountMap.set addr acc';
+          Except.ok
+            ({
+                  toMachineState :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).toMachineState,
+                  accountMap := σ',
+                  substate :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).substate,
+                  executionEnv :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).executionEnv,
+                  pc :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).pc,
+                  stack :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).stack,
+                  execLength :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).execLength,
+                  halt :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).halt,
+                  callStack :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).callStack }.replaceStackAndIncrPC
+              rest)
+        | x => underflow
+    | Operation.StackMemFlowOps.MCOPY =>
+      match s.stack with
+      | destOff :: srcOff :: sz :: rest =>
+        match
+          chargeMem2 (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            destOff.toNat sz.toNat srcOff.toNat sz.toNat with
+        | Except.ok s'' =>
+          have dyn := Gas.copyWordCost sz;
+          if h : dyn ≤ s''.gasAvailable then
+            have s''' := s''.consumeGas dyn h;
+            have μ' := s'''.mcopy destOff srcOff sz;
+            Except.ok
+              ({ toMachineState := μ', accountMap := s'''.accountMap, substate := s'''.substate,
+                    executionEnv := s'''.executionEnv, pc := s'''.pc, stack := s'''.stack,
+                    execLength := s'''.execLength, halt := s'''.halt,
+                    callStack := s'''.callStack }.replaceStackAndIncrPC
+                rest)
+          else Except.error ExecutionException.OutOfGas
+        | Except.error e => Except.error e
+      | x => underflow) =
+    Except.ok
+      ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+            h_gas).replaceStackAndIncrPC
+        rest)
+⊢ s.stack.length + Operation.JUMPI.pushArity ≤ 1024 + Operation.JUMPI.popArity
+error: EvmSemantics/EVM/Equiv.lean:2160:10: Type mismatch
+  StepRunning.jumpi_taken s dest cond rest h_dec h_gas h_stack h_cond h_valid
+has type
+  s.stack.length + Operation.JUMPI.pushArity ≤ 1024 + Operation.JUMPI.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.JUMPI, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := dest, stack := rest, execLength := s.execLength,
+        halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    {
+      toSharedState :=
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+            h_gas).toSharedState,
+      pc := dest, stack := rest,
+      execLength :=
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas).execLength,
+      halt := (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas).halt,
+      callStack :=
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas).callStack }
+error: EvmSemantics/EVM/Equiv.lean:2165:25: Type mismatch
+  StepRunning.jumpdest s h_dec h_gas
+has type
+  s.stack.length + Operation.JUMPDEST.pushArity ≤ 1024 + Operation.JUMPDEST.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.JUMPDEST, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := s.stack,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPDEST)) h_gas).incrPC
+error: EvmSemantics/EVM/Equiv.lean:2170:33: Type mismatch
+  StepRunning.tload s key rest h_dec h_gas h_stack
+has type
+  s.stack.length + Operation.TLOAD.pushArity ≤ 1024 + Operation.TLOAD.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.TLOAD, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ,
+        stack := (s.accountMap.get s.executionEnv.address).tstorage.get key :: rest, execLength := s.execLength,
+        halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TLOAD))
+          h_gas).replaceStackAndIncrPC
+      ((s.accountMap.get s.executionEnv.address).tstorage.get key :: rest))
+error: EvmSemantics/EVM/Equiv.lean:2180:8: Type mismatch
+  StepRunning.tstore s key value rest h_dec
+    (Eq.mp
+      (Eq.trans (congrArg Not (Bool.not_eq_true s.executionEnv.permitStateMutation))
+        (Bool.not_eq_false s.executionEnv.permitStateMutation))
+      h_perm)
+    h_gas h_stack
+has type
+  s.stack.length + Operation.TSTORE.pushArity ≤ 1024 + Operation.TSTORE.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.baseCost s.fork Operation.TSTORE, activeWords := s.activeWords,
+        memory := s.memory, returnData := s.returnData, hReturn := s.hReturn,
+        accountMap :=
+          s.accountMap.set s.executionEnv.address
+            (let __src := s.accountMap.get s.executionEnv.address;
+            { nonce := __src.nonce, balance := __src.balance, code := __src.code, storage := __src.storage,
+              tstorage := (s.accountMap.get s.executionEnv.address).tstorage.set key value }),
+        substate := s.substate, executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest,
+        execLength := s.execLength, halt := s.halt, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    ({
+          toMachineState :=
+            (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE))
+                h_gas).toMachineState,
+          accountMap :=
+            s.accountMap.set s.executionEnv.address
+              { nonce := (s.accountMap.get s.executionEnv.address).nonce,
+                balance := (s.accountMap.get s.executionEnv.address).balance,
+                code := (s.accountMap.get s.executionEnv.address).code,
+                storage := (s.accountMap.get s.executionEnv.address).storage,
+                tstorage := (s.accountMap.get s.executionEnv.address).tstorage.set key value },
+          substate :=
+            (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE))
+                h_gas).substate,
+          executionEnv :=
+            (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE))
+                h_gas).executionEnv,
+          pc := (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE)) h_gas).pc,
+          stack := key :: value :: rest,
+          execLength :=
+            (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE))
+                h_gas).execLength,
+          halt :=
+            (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE)) h_gas).halt,
+          callStack :=
+            (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.TSTORE))
+                h_gas).callStack }.replaceStackAndIncrPC
+      rest)
+error: EvmSemantics/EVM/Equiv.lean:2232:10: Type mismatch
+  StepRunning.mcopy s dOff sOff sz rest h_dec h_stack h_total
+has type
+  s.stack.length + Operation.MCOPY.pushArity ≤ 1024 + Operation.MCOPY.popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.mcopyTotal s dOff sOff sz,
+        activeWords := s.activeWordsAfterUInt256_2 dOff.toNat sz.toNat sOff.toNat sz.toNat,
+        memory := MachineState.writeBytes s.memory (MachineState.readPadded s.memory sOff.toNat sz.toNat) dOff.toNat,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.mcopyTotal s dOff sOff sz,
+      activeWords := s.activeWordsAfterUInt256_2 dOff.toNat sz.toNat sOff.toNat sz.toNat,
+      memory := MachineState.writeBytes s.memory (MachineState.readPadded s.memory sOff.toNat sz.toNat) dOff.toNat,
+      returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap, substate := s.substate,
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest, execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:2339:12: Type mismatch
+  StepRunning.log s n offset size topics rest' h_dec h_perm' h_len h_stack' h_total
+has type
+  s.stack.length + (Operation.Log { topics := n }).pushArity ≤ 1024 + (Operation.Log { topics := n }).popArity →
+    StepRunning s
+      { gasAvailable := s.gasAvailable - Gas.logTotal s n offset size,
+        activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory,
+        returnData := s.returnData, hReturn := s.hReturn, accountMap := s.accountMap,
+        substate :=
+          s.substate.appendLog
+            { address := s.executionEnv.address, topics := topics.toArray,
+              data := MachineState.readPadded s.memory offset.toNat size.toNat },
+        executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest', execLength := s.execLength, halt := s.halt,
+        callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    { gasAvailable := s.gasAvailable - Gas.logTotal s n offset size,
+      activeWords := s.activeWordsAfterUInt256 offset.toNat size.toNat, memory := s.memory, returnData := s.returnData,
+      hReturn := s.hReturn, accountMap := s.accountMap,
+      substate :=
+        s.substate.appendLog
+          { address := s.executionEnv.address, topics := topics.toArray,
+            data := MachineState.readPadded s.memory offset.toNat size.toNat },
+      executionEnv := s.executionEnv, pc := s.pc.succ, stack := rest', execLength := s.execLength, halt := s.halt,
+      callStack := s.callStack }
+error: EvmSemantics/EVM/Equiv.lean:2540:46: Application type mismatch: The argument
+  h_under
+has type
+  s.stack.length < op.popArity
+but is expected to have type
+  s.stack.length + op.pushArity ≤ 1024 + op.popArity
+in the application
+  StepRunning.stackUnderflow s op h_dec h_under
+error: EvmSemantics/EVM/Equiv.lean:2554:45: Application type mismatch: The argument
+  h_ub
+has type
+  cost ≤ Gas.totalCost s op
+but is expected to have type
+  s.stack.length + op.pushArity ≤ 1024 + op.popArity
+in the application
+  StepRunning.outOfGas s op cost h_dec h_ub
+error: EvmSemantics/EVM/Equiv.lean:2570:8: Application type mismatch: The argument
+  h_stack_pat
+has type
+  s.stack = value :: offset :: size :: rest
+but is expected to have type
+  s.stack.length + op.pushArity ≤ 1024 + op.popArity
+in the application
+  StepRunning.initCodeSizeOog s op value offset size rest h_dec h_create h_stack_pat
+error: EvmSemantics/EVM/Equiv.lean:2581:57: Application type mismatch: The argument
+  h_perm
+has type
+  s.executionEnv.permitStateMutation = false
+but is expected to have type
+  s.stack.length + op.pushArity ≤ 1024 + op.popArity
+in the application
+  StepRunning.staticModeViolation s op h_dec h_mut h_perm
+error: EvmSemantics/EVM/Equiv.lean:2630:2: Type mismatch
+  StepRunning.callStatic s gasArg toArg value argsOff argsLen retOff retLen rest h_dec h_stack_pat h_perm h_value
+has type
+  Gas.baseCost s.fork Operation.CALL ≤ s.gasAvailable →
+    s.stack.length + Operation.CALL.pushArity ≤ 1024 + Operation.CALL.popArity →
+      StepRunning s
+        { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength,
+          halt := HaltKind.Exception ExecutionException.StaticModeViolation, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    (let __SharedState := s.toSharedState;
+    { toSharedState := __SharedState, pc := s.pc, stack := s.stack, execLength := s.execLength,
+      halt := HaltKind.Exception ExecutionException.StaticModeViolation, callStack := s.callStack })
+error: EvmSemantics/EVM/Equiv.lean:2645:50: Application type mismatch: The argument
+  h_gas
+has type
+  Gas.baseCost s.fork Operation.JUMP ≤ s.gasAvailable
+but is expected to have type
+  s.stack.length + Operation.JUMP.pushArity ≤ 1024 + Operation.JUMP.popArity
+in the application
+  StepRunning.jumpBadDest s dest rest h_dec h_gas
+error: EvmSemantics/EVM/Equiv.lean:2660:56: Application type mismatch: The argument
+  h_gas
+has type
+  Gas.baseCost s.fork Operation.JUMPI ≤ s.gasAvailable
+but is expected to have type
+  s.stack.length + Operation.JUMPI.pushArity ≤ 1024 + Operation.JUMPI.popArity
+in the application
+  StepRunning.jumpiBadDest s dest cond rest h_dec h_gas
+error: EvmSemantics/EVM/Equiv.lean:2675:69: Application type mismatch: The argument
+  h_gas_op
+has type
+  Gas.baseCost s.fork Operation.RETURNDATACOPY ≤ s.gasAvailable
+but is expected to have type
+  s.stack.length + Operation.RETURNDATACOPY.pushArity ≤ 1024 + Operation.RETURNDATACOPY.popArity
+in the application
+  StepRunning.returndatacopyOob s destOff srcOff sz rest h_dec h_gas_op
+error: EvmSemantics/EVM/Equiv.lean:2685:2: Type mismatch
+  StepRunning.invalidOpcode s h_dec
+has type
+  s.stack.length + Operation.INVALID.pushArity ≤ 1024 + Operation.INVALID.popArity →
+    StepRunning s
+      { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength,
+        halt := HaltKind.Exception ExecutionException.InvalidInstruction, callStack := s.callStack }
+but is expected to have type
+  StepRunning s
+    (let __SharedState := s.toSharedState;
+    { toSharedState := __SharedState, pc := s.pc, stack := s.stack, execLength := s.execLength,
+      halt := HaltKind.Exception ExecutionException.InvalidInstruction, callStack := s.callStack })
+error: EvmSemantics/EVM/Equiv.lean:4765:42: Application type mismatch: The argument
+  Gas.baseCost_le_totalCost s op
+has type
+  Gas.baseCost s.executionEnv.fork op ≤ Gas.totalCost s op
+but is expected to have type
+  s.stack.length + op.pushArity ≤ 1024 + op.popArity
+in the application
+  StepRunning.outOfGas s op (Gas.baseCost s.fork op) (State.decoded_to_op h_dec) (Gas.baseCost_le_totalCost s op)
+info: EvmSemantics/EVM/Equiv.lean:4831:0: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+error: EvmSemantics/EVM/Equiv.lean:4830:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, Classical.choice,
+- Quot.sound]
++ info: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+info: EvmSemantics/EVM/Equiv.lean:4836:0: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+error: EvmSemantics/EVM/Equiv.lean:4835:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, Classical.choice,
+- Quot.sound]
++ info: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+error: Lean exited with code 1
+Some required targets logged failures:
+- EvmSemantics.EVM.Equiv
+error: build failed

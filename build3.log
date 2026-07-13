@@ -1,0 +1,11 @@
+✔ [1078/1087] Built EvmSemantics.EVM.Equiv (16s)
+✔ [1079/1087] Built EvmSemantics (536ms)
+✔ [1080/1087] Built EvmSemantics:c.o (76ms)
+✔ [1081/1087] Built Main (582ms)
+✔ [1082/1087] Built Main:c.o (184ms)
+✔ [1083/1087] Built EvmSemantics.EVM.Equiv:c.o (1.4s)
+✔ [1084/1087] Built tests.VMRunner (1.1s)
+✔ [1085/1087] Built evm_semantics:exe (585ms)
+✔ [1086/1087] Built tests.VMRunner:c.o (732ms)
+✔ [1087/1087] Built vmtests:exe (613ms)
+Build completed successfully (1087 jobs).

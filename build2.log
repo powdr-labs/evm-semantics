@@ -1,0 +1,288 @@
+✖ [1078/1087] Building EvmSemantics.EVM.Equiv (14s)
+trace: .> LEAN_PATH=/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/Cli/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/batteries/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/Qq/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/aesop/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/proofwidgets/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/importGraph/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/LeanSearchClient/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/plausible/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/packages/mathlib/.lake/build/lib/lean:/home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/lib/lean /home/leo/.elan/toolchains/leanprover--lean4---v4.31.0/bin/lean /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/EvmSemantics/EVM/Equiv.lean -o /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/lib/lean/EvmSemantics/EVM/Equiv.olean -i /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/lib/lean/EvmSemantics/EVM/Equiv.ilean -c /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/ir/EvmSemantics/EVM/Equiv.c --setup /home/leo/devel/evm-semantics/.claude/worktrees/step-determinism-fix/.lake/build/ir/EvmSemantics/EVM/Equiv.setup.json --json
+error: EvmSemantics/EVM/Equiv.lean:2169:6: unsolved goals
+case pos.refl.h_cap
+s : State
+h_dec : s.decodedOp = some (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)
+h_gas : Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI) ≤ s.gasAvailable
+h_cap :
+  s.stack.length + (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI).pushArity ≤
+    1024 + (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI).popArity
+dest cond : UInt256
+rest : List UInt256
+h_stack : s.stack = dest :: cond :: rest
+h_cond : cond.toNat = 0
+h :
+  (match Operation.StackMemFlowOps.JUMPI with
+    | Operation.StackMemFlowOps.POP =>
+      match s.stack with
+      | head :: rest =>
+        Except.ok
+          ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                h_gas).replaceStackAndIncrPC
+            rest)
+      | x => underflow
+    | Operation.StackMemFlowOps.MLOAD =>
+      match s.stack with
+      | offset :: rest =>
+        match
+          chargeMem (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            offset.toNat 32 with
+        | Except.ok s'' =>
+          match s''.mload offset with
+          | (v, μ') =>
+            Except.ok
+              ({ toMachineState := μ', accountMap := s''.accountMap, substate := s''.substate,
+                    executionEnv := s''.executionEnv, pc := s''.pc, stack := s''.stack, execLength := s''.execLength,
+                    halt := s''.halt, callStack := s''.callStack }.replaceStackAndIncrPC
+                (v :: rest))
+        | Except.error e => Except.error e
+      | x => underflow
+    | Operation.StackMemFlowOps.MSTORE =>
+      match s.stack with
+      | offset :: value :: rest =>
+        match
+          chargeMem (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            offset.toNat 32 with
+        | Except.ok s'' =>
+          have μ' := s''.mstore offset value;
+          Except.ok
+            ({ toMachineState := μ', accountMap := s''.accountMap, substate := s''.substate,
+                  executionEnv := s''.executionEnv, pc := s''.pc, stack := s''.stack, execLength := s''.execLength,
+                  halt := s''.halt, callStack := s''.callStack }.replaceStackAndIncrPC
+              rest)
+        | Except.error e => Except.error e
+      | x => underflow
+    | Operation.StackMemFlowOps.MSTORE8 =>
+      match s.stack with
+      | offset :: value :: rest =>
+        match
+          chargeMem (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            offset.toNat 1 with
+        | Except.ok s'' =>
+          have μ' := s''.mstore8 offset value;
+          Except.ok
+            ({ toMachineState := μ', accountMap := s''.accountMap, substate := s''.substate,
+                  executionEnv := s''.executionEnv, pc := s''.pc, stack := s''.stack, execLength := s''.execLength,
+                  halt := s''.halt, callStack := s''.callStack }.replaceStackAndIncrPC
+              rest)
+        | Except.error e => Except.error e
+      | x => underflow
+    | Operation.StackMemFlowOps.SLOAD =>
+      match s.stack with
+      | key :: rest =>
+        if h : Gas.sloadTotal s key ≤ s.gasAvailable then
+          Except.ok
+            ((have __src := s.consumeGas (Gas.sloadTotal s key) h;
+                { toMachineState := __src.toMachineState, accountMap := __src.accountMap,
+                  substate := s.substate.addAccessedStorageKey (s.executionEnv.address, key),
+                  executionEnv := __src.executionEnv, pc := __src.pc, stack := __src.stack,
+                  execLength := __src.execLength, halt := __src.halt,
+                  callStack := __src.callStack }).replaceStackAndIncrPC
+              ((s.accountMap.get s.executionEnv.address).storage.get key :: rest))
+        else Except.error ExecutionException.OutOfGas
+      | x => underflow
+    | Operation.StackMemFlowOps.SSTORE =>
+      if ¬s.executionEnv.permitStateMutation = true then static
+      else
+        if
+            Gas.sstoreSentry s.fork
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).gasAvailable =
+              true then
+          Except.error ExecutionException.OutOfGas
+        else
+          match s.stack with
+          | key :: value :: rest =>
+            have addr := s.executionEnv.address;
+            have acc := s.accountMap.get addr;
+            have current := acc.storage.get key;
+            have original := s.substate.originalStorage addr key;
+            have cost := Gas.sstoreCost s.fork original current value + Gas.sstoreColdSurcharge s key;
+            if h :
+                cost ≤
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).gasAvailable then
+              have acc' :=
+                { nonce := acc.nonce, balance := acc.balance, code := acc.code, storage := acc.storage.set key value,
+                  tstorage := acc.tstorage };
+              have σ' := s.accountMap.set addr acc';
+              have refDelta := Gas.sstoreRefund s.fork original current value;
+              have rb := ↑s.substate.refundBalance.toNat + refDelta;
+              have rb' := if rb < 0 then 0 else rb.toNat;
+              have sub' :=
+                have __src := s.substate.addAccessedStorageKey (addr, key);
+                { selfDestructSet := __src.selfDestructSet, selfDestructList := __src.selfDestructList,
+                  touchedAccounts := __src.touchedAccounts, refundBalance := UInt256.ofNat rb',
+                  accessedAccounts := __src.accessedAccounts, accessedStorageKeys := __src.accessedStorageKeys,
+                  logSeries := __src.logSeries, originalAccountMap := __src.originalAccountMap };
+              Except.ok
+                ((have __src :=
+                      (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                            h_gas).consumeGas
+                        cost h;
+                    { toMachineState := __src.toMachineState, accountMap := σ', substate := sub',
+                      executionEnv := __src.executionEnv, pc := __src.pc, stack := __src.stack,
+                      execLength := __src.execLength, halt := __src.halt,
+                      callStack := __src.callStack }).replaceStackAndIncrPC
+                  rest)
+            else Except.error ExecutionException.OutOfGas
+          | x => underflow
+    | Operation.StackMemFlowOps.JUMP =>
+      match s.stack with
+      | dest :: rest =>
+        if Decode.isValidJumpDest s.executionEnv.code dest.toNat = true then
+          Except.ok
+            {
+              toSharedState :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).toSharedState,
+              pc := dest, stack := rest,
+              execLength :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).execLength,
+              halt :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).halt,
+              callStack :=
+                (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                    h_gas).callStack }
+        else Except.error ExecutionException.BadJumpDestination
+      | x => underflow
+    | Operation.StackMemFlowOps.JUMPI =>
+      match s.stack with
+      | dest :: cond :: rest =>
+        if cond.toNat = 0 then
+          Except.ok
+            ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                  h_gas).replaceStackAndIncrPC
+              rest)
+        else
+          if Decode.isValidJumpDest s.executionEnv.code dest.toNat = true then
+            Except.ok
+              {
+                toSharedState :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).toSharedState,
+                pc := dest, stack := rest,
+                execLength :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).execLength,
+                halt :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).halt,
+                callStack :=
+                  (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                      h_gas).callStack }
+          else Except.error ExecutionException.BadJumpDestination
+      | x => underflow
+    | Operation.StackMemFlowOps.PC =>
+      Except.ok
+        ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+              h_gas).replaceStackAndIncrPC
+          (s.pc :: s.stack))
+    | Operation.StackMemFlowOps.JUMPDEST =>
+      Except.ok
+        (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas).incrPC
+    | Operation.StackMemFlowOps.MSIZE =>
+      Except.ok
+        ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+              h_gas).replaceStackAndIncrPC
+          (s.msize :: s.stack))
+    | Operation.StackMemFlowOps.GAS =>
+      Except.ok
+        ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+              h_gas).replaceStackAndIncrPC
+          (UInt256.ofNat
+              (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                  h_gas).gasAvailable ::
+            s.stack))
+    | Operation.StackMemFlowOps.TLOAD =>
+      match s.stack with
+      | key :: rest =>
+        Except.ok
+          ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                h_gas).replaceStackAndIncrPC
+            ((s.accountMap.get s.executionEnv.address).tstorage.get key :: rest))
+      | x => underflow
+    | Operation.StackMemFlowOps.TSTORE =>
+      if ¬s.executionEnv.permitStateMutation = true then static
+      else
+        match s.stack with
+        | key :: value :: rest =>
+          have addr := s.executionEnv.address;
+          have acc := s.accountMap.get addr;
+          have acc' :=
+            { nonce := acc.nonce, balance := acc.balance, code := acc.code, storage := acc.storage,
+              tstorage := acc.tstorage.set key value };
+          have σ' := s.accountMap.set addr acc';
+          Except.ok
+            ({
+                  toMachineState :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).toMachineState,
+                  accountMap := σ',
+                  substate :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).substate,
+                  executionEnv :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).executionEnv,
+                  pc :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).pc,
+                  stack :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).stack,
+                  execLength :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).execLength,
+                  halt :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).halt,
+                  callStack :=
+                    (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+                        h_gas).callStack }.replaceStackAndIncrPC
+              rest)
+        | x => underflow
+    | Operation.StackMemFlowOps.MCOPY =>
+      match s.stack with
+      | destOff :: srcOff :: sz :: rest =>
+        match
+          chargeMem2 (s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI)) h_gas)
+            destOff.toNat sz.toNat srcOff.toNat sz.toNat with
+        | Except.ok s'' =>
+          have dyn := Gas.copyWordCost sz;
+          if h : dyn ≤ s''.gasAvailable then
+            have s''' := s''.consumeGas dyn h;
+            have μ' := s'''.mcopy destOff srcOff sz;
+            Except.ok
+              ({ toMachineState := μ', accountMap := s'''.accountMap, substate := s'''.substate,
+                    executionEnv := s'''.executionEnv, pc := s'''.pc, stack := s'''.stack,
+                    execLength := s'''.execLength, halt := s'''.halt,
+                    callStack := s'''.callStack }.replaceStackAndIncrPC
+                rest)
+          else Except.error ExecutionException.OutOfGas
+        | Except.error e => Except.error e
+      | x => underflow) =
+    Except.ok
+      ((s.consumeGas (Gas.baseCost s.fork (Operation.StackMemFlow Operation.StackMemFlowOps.JUMPI))
+            h_gas).replaceStackAndIncrPC
+        rest)
+⊢ s.stack.length + Operation.JUMPI.pushArity ≤ 1024 + Operation.JUMPI.popArity
+info: EvmSemantics/EVM/Equiv.lean:5120:0: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+error: EvmSemantics/EVM/Equiv.lean:5119:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, Classical.choice,
+- Quot.sound]
++ info: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+info: EvmSemantics/EVM/Equiv.lean:5125:0: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+error: EvmSemantics/EVM/Equiv.lean:5124:0: ❌️ Docstring on `#guard_msgs` does not match generated message:
+
+- info: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, Classical.choice,
+- Quot.sound]
++ info: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, sorryAx, Classical.choice, Quot.sound]
+error: Lean exited with code 1
+Some required targets logged failures:
+- EvmSemantics.EVM.Equiv
+error: build failed
