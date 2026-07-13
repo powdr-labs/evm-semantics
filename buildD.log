@@ -1,9 +1,0 @@
-✔ [1070/1087] Built EvmSemantics.EVM.Step (2.7s)
-✔ [1072/1087] Built EvmSemantics.EVM.BigStep (674ms)
-✔ [1074/1087] Built EvmSemantics.EVM.StepF (1.5s)
-✔ [1076/1087] Built EvmSemantics.Tx (1.2s)
-✔ [1078/1087] Built EvmSemantics.EVM.Equiv (20s)
-✔ [1080/1087] Built EvmSemantics (564ms)
-✔ [1082/1087] Built Main (707ms)
-✔ [1085/1087] Built tests.VMRunner (1.3s)
-Build completed successfully (1087 jobs).
