@@ -15,6 +15,22 @@ namespace EvmSemantics
 namespace EVM
 namespace StepComplete
 
+private theorem popN_go_append (topics rest acc : List UInt256) :
+    stepF.popN.go (topics ++ rest) topics.length acc
+      = some (acc.reverse ++ topics, rest) := by
+  induction topics generalizing acc with
+  | nil => simp [stepF.popN.go]
+  | cons t ts ih =>
+    simp only [List.cons_append, List.length_cons, stepF.popN.go, Nat.succ_sub_one]
+    rw [ih]
+    simp
+
+private theorem popN_append (topics rest : List UInt256) :
+    stepF.popN (topics ++ rest) topics.length = some (topics, rest) := by
+  unfold stepF.popN
+  rw [popN_go_append]
+  simp
+
 /-- Completeness for `StepRunning.push0`. -/
 theorem complete_push0 (s : State)
         (h_op      : s.decodedOp = some (.Push ⟨0, by decide⟩))
@@ -29,7 +45,12 @@ theorem complete_push0 (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.Push ⟨0, by decide⟩) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec
+        (by simp only [Operation.pushArity, Operation.popArity]; omega) h_gas]
+  simp only [stepF.push]
+  rfl
 
 /-- Completeness for `StepRunning.pushN`. -/
 theorem complete_pushN (s : State) (k : Fin 33) (data : UInt256) (immWidth : Nat)
@@ -46,7 +67,17 @@ theorem complete_pushN (s : State) (k : Fin 33) (data : UInt256) (immWidth : Nat
               pc           := s.pc + UInt256.ofNat (immWidth + 1)
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.Push ⟨k, k.isLt⟩) }
     := by
-  sorry
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_op
+        (by simp only [Operation.pushArity, Operation.popArity]; omega) h_gas]
+  simp only [stepF.push]
+  split
+  · omega
+  · next _ _ _ _ _ _ hsome =>
+      obtain ⟨rfl, rfl⟩ := Option.some.inj hsome
+      rfl
+  · rename_i heq
+    simp at heq
 
 /-- Completeness for `StepRunning.dup`. -/
 theorem complete_dup (s : State) (n : Fin 16) (v : UInt256)
@@ -63,7 +94,12 @@ theorem complete_dup (s : State) (n : Fin 16) (v : UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.Dup ⟨n⟩) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec
+        (by simp only [Operation.pushArity, Operation.popArity]; omega) h_gas]
+  simp only [stepF.dup, h_get]
+  rfl
 
 /-- Completeness for `StepRunning.swap`. -/
 theorem complete_swap (s : State) (n : Fin 16) (stk' : List UInt256)
@@ -81,7 +117,11 @@ theorem complete_swap (s : State) (n : Fin 16) (stk' : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.Swap ⟨n⟩) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.swap, h_swap]
+  rfl
 
 /-- Completeness for `StepRunning.jump`. -/
 theorem complete_jump (s : State) (dest : UInt256) (rest : List UInt256)
@@ -100,7 +140,12 @@ theorem complete_jump (s : State) (dest : UInt256) (rest : List UInt256)
               pc           := dest
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .JUMP }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stackMemFlow, h_stack]
+  rw [if_pos h_valid]
+  rfl
 
 /-- Completeness for `StepRunning.jumpi_taken`. -/
 theorem complete_jumpi_taken (s : State) (dest cond : UInt256) (rest : List UInt256)
@@ -120,7 +165,12 @@ theorem complete_jumpi_taken (s : State) (dest cond : UInt256) (rest : List UInt
               pc           := dest
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .JUMPI }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stackMemFlow, h_stack]
+  rw [if_neg h_cond, if_pos h_valid]
+  rfl
 
 /-- Completeness for `StepRunning.jumpi_notTaken`. -/
 theorem complete_jumpi_notTaken (s : State) (dest cond : UInt256) (rest : List UInt256)
@@ -139,7 +189,12 @@ theorem complete_jumpi_notTaken (s : State) (dest cond : UInt256) (rest : List U
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .JUMPI }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stackMemFlow, h_stack]
+  rw [if_pos (not_not.mp h_cond)]
+  rfl
 
 /-- Completeness for `StepRunning.pc`. -/
 theorem complete_pc (s : State)
@@ -155,7 +210,12 @@ theorem complete_pc (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .PC }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec
+        (by simp only [Operation.pushArity, Operation.popArity]; omega) h_gas]
+  simp only [stepF.stackMemFlow]
+  rfl
 
 /-- Completeness for `StepRunning.gas`. -/
 theorem complete_gas (s : State)
@@ -172,7 +232,12 @@ theorem complete_gas (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .GAS }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec
+        (by simp only [Operation.pushArity, Operation.popArity]; omega) h_gas]
+  simp only [stepF.stackMemFlow]
+  rfl
 
 /-- Completeness for `StepRunning.jumpdest`. -/
 theorem complete_jumpdest (s : State)
@@ -188,7 +253,11 @@ theorem complete_jumpdest (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .JUMPDEST }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stackMemFlow]
+  rfl
 
 /-- Completeness for `StepRunning.log`. -/
 theorem complete_log (s : State) (n : Fin 5) (offset size : UInt256)
@@ -215,7 +284,35 @@ theorem complete_log (s : State) (n : Fin 5) (offset size : UInt256)
                                   data    := MachineState.readPadded s.memory
                                                offset.toNat size.toNat } }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hL : Gas.logTotal s n offset size
+      = Gas.baseCost s.fork (.Log ⟨n⟩)
+        + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+        + Gas.logDataCost size := rfl
+  have h_base : Gas.baseCost s.fork (.Log ⟨n⟩) ≤ s.gasAvailable := by
+    rw [hL] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.log, h_perm, not_true, if_false, h_stack, List.cons_append]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork (.Log ⟨n⟩)) h_base).canExpandMemory
+                 offset.toNat size.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]
+    rw [hL] at h_gas; omega
+  simp only [chargeMem, dif_pos h_mem]
+  have h_dyn : Gas.logDataCost size ≤
+      ((s.consumeGas (Gas.baseCost s.fork (.Log ⟨n⟩)) h_base).consumeMemExp
+        offset.toNat size.toNat h_mem).gasAvailable := by
+    simp only [State.consumeMemExp, State.consumeGas]
+    rw [hL] at h_gas
+    simp only [MachineState.memExpansionDelta] at h_gas h_mem ⊢
+    omega
+  simp only [dif_pos h_dyn]
+  rw [← h_topics_n, popN_append]
+  simp only [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+    State.activeWordsAfterUInt256, Gas.logTotal, UInt256.succ,
+    MachineState.memExpansionDelta,
+    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.dupN`. -/
 theorem complete_dupN (s : State) (n : Fin 256) (v : UInt256)
@@ -232,7 +329,12 @@ theorem complete_dupN (s : State) (n : Fin 256) (v : UInt256)
               pc           := s.pc + UInt256.ofNat 2
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.DupN ⟨n⟩) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec
+        (by simp only [Operation.pushArity, Operation.popArity]; omega) h_gas]
+  simp only [stepF.dupN, h_get]
+  rfl
 
 /-- Completeness for `StepRunning.swapN`. -/
 theorem complete_swapN (s : State) (n : Fin 256) (stk' : List UInt256)
@@ -250,7 +352,11 @@ theorem complete_swapN (s : State) (n : Fin 256) (stk' : List UInt256)
               pc           := s.pc + UInt256.ofNat 2
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.SwapN ⟨n⟩) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.swapN, h_swap]
+  rfl
 
 /-- Completeness for `StepRunning.exchange`. -/
 theorem complete_exchange (s : State) (b : Fin 256) (stk' : List UInt256)
@@ -270,7 +376,11 @@ theorem complete_exchange (s : State) (b : Fin 256) (stk' : List UInt256)
               pc           := s.pc + UInt256.ofNat 2
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork (.Exchange ⟨b⟩) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.exchange, Operation.ExchangeOp.n, Operation.ExchangeOp.m, h_swap]
+  rfl
 
 end StepComplete
 end EVM

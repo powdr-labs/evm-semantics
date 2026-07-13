@@ -81,7 +81,30 @@ theorem complete_calldatacopy (s : State) (destOff srcOff sz : UInt256) (rest : 
                                   srcOff.toNat sz.toNat)
                                 destOff.toNat }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hg : Gas.baseCost s.fork .CALLDATACOPY
+      + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+      + Gas.copyWordCost sz ≤ s.gasAvailable := h_gas
+  have h_base : Gas.baseCost s.fork .CALLDATACOPY ≤ s.gasAvailable := by omega
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .CALLDATACOPY) h_base).canExpandMemory
+      destOff.toNat sz.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]; omega
+  have h_dyn : Gas.copyWordCost sz ≤
+      ((s.consumeGas (Gas.baseCost s.fork .CALLDATACOPY) h_base).consumeMemExp
+        destOff.toNat sz.toNat h_mem).gasAvailable := by
+    simp only [MachineState.memExpansionDelta] at hg
+    simp only [State.consumeMemExp, State.consumeGas]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  unfold chargeMem
+  simp only [dif_pos h_mem, dif_pos h_dyn]
+  simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+        State.activeWordsAfterUInt256, Gas.calldatacopyTotal, UInt256.succ,
+        MachineState.memExpansionDelta,
+        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.codecopy`. -/
 theorem complete_codecopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
@@ -104,7 +127,30 @@ theorem complete_codecopy (s : State) (destOff srcOff sz : UInt256) (rest : List
                                   srcOff.toNat sz.toNat)
                                 destOff.toNat }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hg : Gas.baseCost s.fork .CODECOPY
+      + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+      + Gas.copyWordCost sz ≤ s.gasAvailable := h_gas
+  have h_base : Gas.baseCost s.fork .CODECOPY ≤ s.gasAvailable := by omega
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .CODECOPY) h_base).canExpandMemory
+      destOff.toNat sz.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]; omega
+  have h_dyn : Gas.copyWordCost sz ≤
+      ((s.consumeGas (Gas.baseCost s.fork .CODECOPY) h_base).consumeMemExp
+        destOff.toNat sz.toNat h_mem).gasAvailable := by
+    simp only [MachineState.memExpansionDelta] at hg
+    simp only [State.consumeMemExp, State.consumeGas]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  unfold chargeMem
+  simp only [dif_pos h_mem, dif_pos h_dyn]
+  simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+        State.activeWordsAfterUInt256, Gas.codecopyTotal, UInt256.succ,
+        MachineState.memExpansionDelta,
+        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.extcodecopy`. -/
 theorem complete_extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (rest : List UInt256)
@@ -130,7 +176,33 @@ theorem complete_extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (res
               substate     := s.substate.addAccessedAccount
                                 (AccountAddress.ofUInt256 addr) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hg : Gas.baseCost s.fork .EXTCODECOPY
+      + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+      + (Gas.copyWordCost sz
+         + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr)) ≤ s.gasAvailable :=
+    h_gas
+  have h_base : Gas.baseCost s.fork .EXTCODECOPY ≤ s.gasAvailable := by omega
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .EXTCODECOPY) h_base).canExpandMemory
+      destOff.toNat sz.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]; omega
+  have h_dyn : Gas.copyWordCost sz
+        + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 addr) ≤
+      ((s.consumeGas (Gas.baseCost s.fork .EXTCODECOPY) h_base).consumeMemExp
+        destOff.toNat sz.toNat h_mem).gasAvailable := by
+    simp only [MachineState.memExpansionDelta] at hg
+    simp only [State.consumeMemExp, State.consumeGas]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  unfold chargeMem
+  simp only [dif_pos h_mem, dif_pos h_dyn]
+  simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+        State.activeWordsAfterUInt256, Gas.extcodecopyTotal, UInt256.succ,
+        MachineState.memExpansionDelta,
+        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.returndatacopy`. -/
 theorem complete_returndatacopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
@@ -154,7 +226,31 @@ theorem complete_returndatacopy (s : State) (destOff srcOff sz : UInt256) (rest 
                                   srcOff.toNat sz.toNat)
                                 destOff.toNat }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hg : Gas.baseCost s.fork .RETURNDATACOPY
+      + MachineState.memExpansionDelta s.activeWords.toNat destOff.toNat sz.toNat
+      + Gas.copyWordCost sz ≤ s.gasAvailable := h_gas
+  have h_base : Gas.baseCost s.fork .RETURNDATACOPY ≤ s.gasAvailable := by omega
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .RETURNDATACOPY) h_base).canExpandMemory
+      destOff.toNat sz.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]; omega
+  have h_dyn : Gas.copyWordCost sz ≤
+      ((s.consumeGas (Gas.baseCost s.fork .RETURNDATACOPY) h_base).consumeMemExp
+        destOff.toNat sz.toNat h_mem).gasAvailable := by
+    simp only [MachineState.memExpansionDelta] at hg
+    simp only [State.consumeMemExp, State.consumeGas]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  rw [if_neg (by omega)]
+  unfold chargeMem
+  simp only [dif_pos h_mem, dif_pos h_dyn]
+  simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+        State.activeWordsAfterUInt256, Gas.returndatacopyTotal, UInt256.succ,
+        MachineState.memExpansionDelta,
+        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 end StepComplete
 end EVM
