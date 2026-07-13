@@ -15,6 +15,15 @@ namespace EvmSemantics
 namespace EVM
 namespace StepComplete
 
+/-- Massage the `h_cap : s.stack.length < 1024` premise of the net-pushing
+    rules into the `stepFE_dispatch` stack-cap guard: every zero-pop read
+    pushes exactly one word, so `h1`/`h0` are `rfl` at each use site. -/
+private theorem cap_push1 {s : State} {op : Operation}
+    (h : s.stack.length < 1024)
+    (h1 : op.pushArity = 1) (h0 : op.popArity = 0) :
+    s.stack.length + op.pushArity ≤ 1024 + op.popArity := by
+  omega
+
 /-- Completeness for `StepRunning.address`. -/
 theorem complete_address (s : State)
         (h_op      : s.decodedOp = some .ADDRESS)
@@ -29,7 +38,11 @@ theorem complete_address (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .ADDRESS }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.balance`. -/
 theorem complete_balance (s : State) (addr : UInt256) (rest : List UInt256)
@@ -49,7 +62,16 @@ theorem complete_balance (s : State) (addr : UInt256) (rest : List UInt256)
               substate     := s.substate.addAccessedAccount
                                 (AccountAddress.ofUInt256 addr) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_base : Gas.baseCost s.fork .BALANCE ≤ s.gasAvailable := by
+    unfold Gas.balanceTotal at h_gas
+    simp only [State.fork]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  rw [dif_pos h_gas]
+  rfl
 
 /-- Completeness for `StepRunning.origin`. -/
 theorem complete_origin (s : State)
@@ -65,7 +87,11 @@ theorem complete_origin (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .ORIGIN }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.caller`. -/
 theorem complete_caller (s : State)
@@ -81,7 +107,11 @@ theorem complete_caller (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CALLER }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.callvalue`. -/
 theorem complete_callvalue (s : State)
@@ -97,7 +127,11 @@ theorem complete_callvalue (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CALLVALUE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.calldataload`. -/
 theorem complete_calldataload (s : State) (i : UInt256) (rest : List UInt256)
@@ -115,7 +149,11 @@ theorem complete_calldataload (s : State) (i : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CALLDATALOAD }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.env, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.calldatasize`. -/
 theorem complete_calldatasize (s : State)
@@ -131,7 +169,11 @@ theorem complete_calldatasize (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CALLDATASIZE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.codesize`. -/
 theorem complete_codesize (s : State)
@@ -147,7 +189,11 @@ theorem complete_codesize (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CODESIZE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.gasprice`. -/
 theorem complete_gasprice (s : State)
@@ -163,7 +209,11 @@ theorem complete_gasprice (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .GASPRICE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.extcodesize`. -/
 theorem complete_extcodesize (s : State) (addr : UInt256) (rest : List UInt256)
@@ -185,7 +235,16 @@ theorem complete_extcodesize (s : State) (addr : UInt256) (rest : List UInt256)
               substate     := s.substate.addAccessedAccount
                                 (AccountAddress.ofUInt256 addr) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_base : Gas.baseCost s.fork .EXTCODESIZE ≤ s.gasAvailable := by
+    unfold Gas.extcodesizeTotal at h_gas
+    simp only [State.fork]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  rw [dif_pos h_gas]
+  rfl
 
 /-- Completeness for `StepRunning.returndatasize`. -/
 theorem complete_returndatasize (s : State)
@@ -201,7 +260,11 @@ theorem complete_returndatasize (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .RETURNDATASIZE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_push1 h_cap rfl rfl) h_gas]
+  simp only [stepF.env]
+  rfl
 
 /-- Completeness for `StepRunning.extcodehash`. -/
 theorem complete_extcodehash (s : State) (addr : UInt256) (rest : List UInt256)
@@ -221,7 +284,16 @@ theorem complete_extcodehash (s : State) (addr : UInt256) (rest : List UInt256)
               substate     := s.substate.addAccessedAccount
                                 (AccountAddress.ofUInt256 addr) }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_base : Gas.baseCost s.fork .EXTCODEHASH ≤ s.gasAvailable := by
+    unfold Gas.extcodehashTotal at h_gas
+    simp only [State.fork]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.env, h_stack]
+  rw [dif_pos h_gas]
+  rfl
 
 end StepComplete
 end EVM

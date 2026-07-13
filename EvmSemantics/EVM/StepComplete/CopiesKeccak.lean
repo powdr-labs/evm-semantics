@@ -34,7 +34,31 @@ theorem complete_keccak256 (s : State) (offset size : UInt256) (rest : List UInt
               gasAvailable := s.gasAvailable - Gas.keccakTotal s offset size
               activeWords  := s.activeWordsAfterUInt256 offset.toNat size.toNat }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hg : Gas.baseCost s.fork (.Keccak .KECCAK256)
+      + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+      + Gas.keccakWordCost size ≤ s.gasAvailable := h_gas
+  have h_base : Gas.baseCost s.fork (.Keccak .KECCAK256) ≤ s.gasAvailable := by omega
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork (.Keccak .KECCAK256))
+      h_base).canExpandMemory offset.toNat size.toNat := by
+    simp only [State.canExpandMemory, State.consumeGas]
+    omega
+  have h_dyn : Gas.keccakWordCost size ≤
+      ((s.consumeGas (Gas.baseCost s.fork (.Keccak .KECCAK256)) h_base).consumeMemExp
+        offset.toNat size.toNat h_mem).gasAvailable := by
+    simp only [MachineState.memExpansionDelta] at hg
+    simp only [State.consumeMemExp, State.consumeGas]
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.keccak, h_stack]
+  unfold chargeMem
+  simp only [dif_pos h_mem, dif_pos h_dyn]
+  simp [State.consumeGas, State.consumeMemExp, State.replaceStackAndIncrPC,
+        State.activeWordsAfterUInt256, Gas.keccakTotal, UInt256.succ,
+        MachineState.memExpansionDelta,
+        show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.calldatacopy`. -/
 theorem complete_calldatacopy (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)

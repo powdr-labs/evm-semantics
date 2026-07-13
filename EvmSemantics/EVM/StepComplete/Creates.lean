@@ -33,7 +33,26 @@ theorem complete_return_ (s : State) (offset size : UInt256) (rest : List UInt25
               gasAvailable := s.gasAvailable - Gas.returnTotal s offset size
               activeWords  := s.activeWordsAfterUInt256 offset.toNat size.toNat }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_gas' : Gas.baseCost s.fork (.System .RETURN)
+      + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+      ≤ s.gasAvailable := h_gas
+  have h_base : Gas.baseCost s.fork (.System .RETURN) ≤ s.gasAvailable :=
+    le_trans (Nat.le_add_right _ _) h_gas'
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork (.System .RETURN))
+      h_base).canExpandMemory offset.toNat size.toNat := by
+    show MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
+      ≤ s.gasAvailable - Gas.baseCost s.fork (.System .RETURN)
+    omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  unfold chargeMem
+  rw [dif_pos h_mem]
+  simp only [Except.ok.injEq]
+  simp [State.consumeGas, State.consumeMemExp, State.activeWordsAfterUInt256,
+        Gas.returnTotal, MachineState.memExpansionDelta, State.fork]
+  grind
 
 /-- Completeness for `StepRunning.revert`. -/
 theorem complete_revert (s : State) (offset size : UInt256) (rest : List UInt256)

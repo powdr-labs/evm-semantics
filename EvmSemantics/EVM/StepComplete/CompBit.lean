@@ -31,7 +31,11 @@ theorem complete_lt (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .LT }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.gt`. -/
 theorem complete_gt (s : State) (a b : UInt256) (rest : List UInt256)
@@ -49,7 +53,11 @@ theorem complete_gt (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .GT }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.slt`. -/
 theorem complete_slt (s : State) (a b : UInt256) (rest : List UInt256)
@@ -67,7 +75,11 @@ theorem complete_slt (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SLT }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.sgt`. -/
 theorem complete_sgt (s : State) (a b : UInt256) (rest : List UInt256)
@@ -85,7 +97,11 @@ theorem complete_sgt (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SGT }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.eq`. -/
 theorem complete_eq (s : State) (a b : UInt256) (rest : List UInt256)
@@ -103,7 +119,11 @@ theorem complete_eq (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EQ }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.iszero`. -/
 theorem complete_iszero (s : State) (a : UInt256) (rest : List UInt256)
@@ -121,7 +141,11 @@ theorem complete_iszero (s : State) (a : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .ISZERO }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.and`. -/
 theorem complete_and (s : State) (a b : UInt256) (rest : List UInt256)
@@ -139,7 +163,11 @@ theorem complete_and (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .AND }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.or`. -/
 theorem complete_or (s : State) (a b : UInt256) (rest : List UInt256)
@@ -157,7 +185,11 @@ theorem complete_or (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .OR }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.xor_`. -/
 theorem complete_xor_ (s : State) (a b : UInt256) (rest : List UInt256)
@@ -175,7 +207,11 @@ theorem complete_xor_ (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .XOR }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.not`. -/
 theorem complete_not (s : State) (a : UInt256) (rest : List UInt256)
@@ -193,7 +229,11 @@ theorem complete_not (s : State) (a : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .NOT }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.clz`. -/
 theorem complete_clz (s : State) (a : UInt256) (rest : List UInt256)
@@ -211,7 +251,11 @@ theorem complete_clz (s : State) (a : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CLZ }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.byte_`. -/
 theorem complete_byte_ (s : State) (i x : UInt256) (rest : List UInt256)
@@ -229,7 +273,11 @@ theorem complete_byte_ (s : State) (i x : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BYTE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.shl`. -/
 theorem complete_shl (s : State) (shift v : UInt256) (rest : List UInt256)
@@ -247,7 +295,11 @@ theorem complete_shl (s : State) (shift v : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SHL }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.shr`. -/
 theorem complete_shr (s : State) (shift v : UInt256) (rest : List UInt256)
@@ -265,7 +317,11 @@ theorem complete_shr (s : State) (shift v : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SHR }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.sar`. -/
 theorem complete_sar (s : State) (shift v : UInt256) (rest : List UInt256)
@@ -283,7 +339,11 @@ theorem complete_sar (s : State) (shift v : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SAR }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.compBit, h_stack]
+  rfl
 
 end StepComplete
 end EVM

@@ -15,6 +15,14 @@ namespace EvmSemantics
 namespace EVM
 namespace StepComplete
 
+/-- Converse of `Equiv.lean`'s `cap_lt`: a pure-push op (`α = δ + 1`)
+    respects the overflow guard exactly when the stack is short of 1024. -/
+private theorem cap_of_lt {s : State} {op : Operation}
+    (h : s.stack.length < 1024)
+    (hpush : op.pushArity = op.popArity + 1) :
+    s.stack.length + op.pushArity ≤ 1024 + op.popArity := by
+  omega
+
 /-- Completeness for `StepRunning.blockhash`. -/
 theorem complete_blockhash (s : State) (n : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .BLOCKHASH)
@@ -31,7 +39,11 @@ theorem complete_blockhash (s : State) (n : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BLOCKHASH }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.block, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.coinbase`. -/
 theorem complete_coinbase (s : State)
@@ -47,7 +59,11 @@ theorem complete_coinbase (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .COINBASE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.timestamp`. -/
 theorem complete_timestamp (s : State)
@@ -63,7 +79,11 @@ theorem complete_timestamp (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .TIMESTAMP }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.number`. -/
 theorem complete_number (s : State)
@@ -79,7 +99,11 @@ theorem complete_number (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .NUMBER }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.prevrandao`. -/
 theorem complete_prevrandao (s : State)
@@ -95,7 +119,11 @@ theorem complete_prevrandao (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .PREVRANDAO }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.gaslimit`. -/
 theorem complete_gaslimit (s : State)
@@ -111,7 +139,11 @@ theorem complete_gaslimit (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .GASLIMIT }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.chainid`. -/
 theorem complete_chainid (s : State)
@@ -127,7 +159,11 @@ theorem complete_chainid (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .CHAINID }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.selfbalance`. -/
 theorem complete_selfbalance (s : State)
@@ -143,7 +179,11 @@ theorem complete_selfbalance (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SELFBALANCE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.basefee`. -/
 theorem complete_basefee (s : State)
@@ -159,7 +199,11 @@ theorem complete_basefee (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BASEFEE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 /-- Completeness for `StepRunning.blobhash`. -/
 theorem complete_blobhash (s : State) (i : UInt256) (rest : List UInt256) (h : UInt256)
@@ -178,7 +222,11 @@ theorem complete_blobhash (s : State) (i : UInt256) (rest : List UInt256) (h : U
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BLOBHASH }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.block, h_stack, h_get, Option.getD_some]
+  rfl
 
 /-- Completeness for `StepRunning.blobhash_oob`. -/
 theorem complete_blobhash_oob (s : State) (i : UInt256) (rest : List UInt256)
@@ -197,7 +245,11 @@ theorem complete_blobhash_oob (s : State) (i : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BLOBHASH }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.block, h_stack, h_oob, Option.getD_none]
+  rfl
 
 /-- Completeness for `StepRunning.blobbasefee`. -/
 theorem complete_blobbasefee (s : State)
@@ -213,7 +265,11 @@ theorem complete_blobbasefee (s : State)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .BLOBBASEFEE }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec (cap_of_lt h_cap rfl) h_gas]
+  simp only [stepF.block]
+  rfl
 
 end StepComplete
 end EVM

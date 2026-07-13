@@ -23,7 +23,7 @@ theorem complete_decodeFailure (s : State)
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .InvalidInstruction })
     := by
-  sorry
+  exact stepF_eq_error (stepFE_decodeNone h_run h_np h_none)
 
 /-- Completeness for `StepRunning.invalidOpcode`. -/
 theorem complete_invalidOpcode (s : State)

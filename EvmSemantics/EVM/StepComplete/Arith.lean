@@ -31,7 +31,11 @@ theorem complete_add (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .ADD }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.mul`. -/
 theorem complete_mul (s : State) (a b : UInt256) (rest : List UInt256)
@@ -49,7 +53,11 @@ theorem complete_mul (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .MUL }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.sub`. -/
 theorem complete_sub (s : State) (a b : UInt256) (rest : List UInt256)
@@ -67,7 +75,11 @@ theorem complete_sub (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SUB }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.div`. -/
 theorem complete_div (s : State) (a b : UInt256) (rest : List UInt256)
@@ -85,7 +97,11 @@ theorem complete_div (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .DIV }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.sdiv`. -/
 theorem complete_sdiv (s : State) (a b : UInt256) (rest : List UInt256)
@@ -103,7 +119,11 @@ theorem complete_sdiv (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SDIV }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.mod`. -/
 theorem complete_mod (s : State) (a b : UInt256) (rest : List UInt256)
@@ -121,7 +141,11 @@ theorem complete_mod (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .MOD }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.smod`. -/
 theorem complete_smod (s : State) (a b : UInt256) (rest : List UInt256)
@@ -139,7 +163,11 @@ theorem complete_smod (s : State) (a b : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SMOD }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.addmod`. -/
 theorem complete_addmod (s : State) (a b n : UInt256) (rest : List UInt256)
@@ -157,7 +185,11 @@ theorem complete_addmod (s : State) (a b n : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .ADDMOD }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.mulmod`. -/
 theorem complete_mulmod (s : State) (a b n : UInt256) (rest : List UInt256)
@@ -175,7 +207,11 @@ theorem complete_mulmod (s : State) (a b n : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .MULMOD }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.exp`. -/
 theorem complete_exp (s : State) (a b : UInt256) (rest : List UInt256)
@@ -194,7 +230,18 @@ theorem complete_exp (s : State) (a b : UInt256) (rest : List UInt256)
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .EXP
                               - Gas.expByteCost s.fork b }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have h_gas' : Gas.baseCost s.fork (.StopArith .EXP) + Gas.expByteCost s.fork b
+      ≤ s.gasAvailable := h_gas
+  have h_base : Gas.baseCost s.fork (.StopArith .EXP) ≤ s.gasAvailable := by omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.stopArith, h_stack]
+  rw [dif_pos (show Gas.expByteCost s.fork b ≤
+        (s.consumeGas (Gas.baseCost s.fork (.StopArith .EXP)) h_base).gasAvailable by
+      simp only [State.consumeGas]; omega)]
+  rw [UInt256.expFast_eq_exp]
+  rfl
 
 /-- Completeness for `StepRunning.signextend`. -/
 theorem complete_signextend (s : State) (b x : UInt256) (rest : List UInt256)
@@ -212,7 +259,11 @@ theorem complete_signextend (s : State) (b x : UInt256) (rest : List UInt256)
               pc           := s.pc.succ
               gasAvailable := s.gasAvailable - Gas.baseCost s.fork .SIGNEXTEND }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.stopArith, h_stack]
+  rfl
 
 /-- Completeness for `StepRunning.stop`. -/
 theorem complete_stop (s : State)
@@ -224,7 +275,10 @@ theorem complete_stop (s : State)
                   s.executionEnv.codeAddr = false) :
     stepF s = { s with halt := .Success, hReturn := .empty }
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap (Nat.zero_le _)]
+  rfl
 
 end StepComplete
 end EVM
