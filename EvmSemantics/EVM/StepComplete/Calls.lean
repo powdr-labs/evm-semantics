@@ -32,7 +32,12 @@ theorem complete_callStatic (s : State)
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  refine stepF_eq_error ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
+  simp only [stepF.system, h_stack]
+  rw [if_pos ⟨by simp [h_perm], h_value⟩]
+  rfl
 
 /-- Completeness for `StepRunning.call`. -/
 theorem complete_call (s : State)
@@ -78,7 +83,55 @@ theorem complete_call (s : State)
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
              retOff.toNat retLen.toNat)
     := by
-  sorry
+  apply Eq.symm; exact (by
+    have h_base : Gas.baseCost s.fork .CALL ≤ s.gasAvailable := by
+      have h := h_gas; unfold Gas.callCommitted at h; simp only [State.fork] at h ⊢; omega
+    obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+    rw [stepF_eq_ok]
+    rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+    simp +decide [h_stack] ;
+    rw [ stepF.system ] ; simp +decide [ h_stack ] ;
+    rw [ chargeMem2 ];
+    split_ifs <;> simp_all +decide [ State.canExpandMemory2, State.consumeGas ];
+    · rw [ if_pos ];
+      · rw [ if_pos ];
+        · rw [ if_neg ];
+          · simp +decide [ State.consumeGas, State.consumeMemExp2,
+              State.activeWordsAfterUInt256_2, Gas.callCommitted,
+              MachineState.memExpansionDelta2, State.callTargetCode, State.delegateOf ];
+            congr! 1; all_goals grind;
+          · simp +decide [ State.consumeMemExp2, State.consumeGas ] at * ; omega;
+        · simp +decide [ State.consumeMemExp2, State.consumeGas ] at *;
+          unfold Gas.callCommitted at *; simp_all +decide [ Nat.sub_sub ] ;
+          simp only [State.fork, MachineState.memExpansionDelta2] at h_afford ⊢
+          exact h_afford;
+      · simp +decide [ State.consumeMemExp2, State.consumeGas ] at *;
+        simp +decide [ Gas.callCommitted ] at *;
+        simp +decide [ MachineState.memExpansionDelta2 ] at *;
+        grind;
+    · rw [ if_pos ];
+      · rw [ if_pos ];
+        · rw [ if_neg ];
+          · simp +decide [ State.consumeGas, State.consumeMemExp2,
+              State.activeWordsAfterUInt256_2, Gas.callCommitted,
+              MachineState.memExpansionDelta2, State.callTargetCode, State.delegateOf ];
+            congr! 1;
+            · grind;
+            · grind;
+          · simp +decide [ State.consumeMemExp2, State.consumeGas ] at * ; omega;
+        · convert h_afford using 1;
+          · unfold Gas.callCommitted; simp +decide [ State.consumeGas, State.consumeMemExp2 ] ;
+            unfold MachineState.memExpansionDelta2; simp +decide [ Nat.sub_sub ] ;
+          · simp +decide [ State.consumeMemExp2, Gas.callCommitted ];
+            simp +decide [ State.consumeGas, MachineState.memExpansionDelta2 ];
+            grind +splitImp;
+      · simp +decide [ State.consumeMemExp2, State.consumeGas ] at *;
+        simp +decide [ Gas.callCommitted ] at *;
+        simp +decide [ MachineState.memExpansionDelta2 ] at *;
+        grind;
+    · unfold Gas.callCommitted at *;
+      grind +splitImp
+  )
 
 /-- Completeness for `StepRunning.callFail`. -/
 theorem complete_callFail (s : State)
@@ -126,7 +179,44 @@ theorem complete_callFail (s : State)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.callCommitted s value argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .CALL
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.callSurcharge s.fork (value.toNat != 0)
+              (Gas.callTargetIsNew s.fork s.accountMap (AccountAddress.ofUInt256 toArg))
+            + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .CALL ≤ s.gasAvailable := by rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  rw [if_neg (by rintro ⟨hp, hv⟩; rcases h_static with h | h; exacts [hp h, hv h])]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .CALL) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.CALL] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.CALL] at *
+        unfold Gas.callCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.CALL] at h_afford ⊢
+        exact h_afford)]
+  rw [if_pos (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_fail)]
+  by_cases h_vnz : value.toNat != 0 <;>
+    simp [h_vnz, State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
+      State.activeWordsAfterUInt256_2, Gas.callCommitted, MachineState.memExpansionDelta2,
+      State.warmCallTarget, Substate.addAccessedAccount, Substate.addAccessedAccountOpt,
+      State.fork, UInt256.succ,
+      show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl] <;>
+    grind
 
 /-- Completeness for `StepRunning.callcode`. -/
 theorem complete_callcode (s : State)
@@ -164,7 +254,41 @@ theorem complete_callcode (s : State)
              (forwarded + (bif (value.toNat != 0) then Gas.callStipend else 0))
              retOff.toNat retLen.toNat)
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .CALLCODE
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.callSurcharge s.fork (value.toNat != 0) false
+            + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .CALLCODE ≤ s.gasAvailable := by
+    rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .CALLCODE) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.CALLCODE] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.CALLCODE] at *
+        unfold Gas.callcodeCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.CALLCODE]
+          at h_afford ⊢
+        exact h_afford)]
+  rw [if_neg (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_take)]
+  simp only [State.consumeGas, State.consumeMemExp2,
+    State.enterCall, State.activeWordsAfterUInt256_2, State.callTargetCode,
+    State.delegateOf, MachineState.memExpansionDelta2, hC, State.fork, h_fwd]
+  grind
 
 /-- Completeness for `StepRunning.callcodeFail`. -/
 theorem complete_callcodeFail (s : State)
@@ -204,7 +328,43 @@ theorem complete_callcodeFail (s : State)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .CALLCODE
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.callSurcharge s.fork (value.toNat != 0) false
+            + Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .CALLCODE ≤ s.gasAvailable := by rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .CALLCODE) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.CALLCODE] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.CALLCODE] at *
+        unfold Gas.callcodeCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.CALLCODE]
+          at h_afford ⊢
+        exact h_afford)]
+  rw [if_pos (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_fail)]
+  by_cases h_vnz : value.toNat != 0 <;>
+    simp [h_vnz, State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
+      State.activeWordsAfterUInt256_2, Gas.callcodeCommitted, MachineState.memExpansionDelta2,
+      State.warmCallTarget, Substate.addAccessedAccount, Substate.addAccessedAccountOpt,
+      State.fork, UInt256.succ,
+      show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl] <;>
+    grind
 
 /-- Completeness for `StepRunning.delegatecall`. -/
 theorem complete_delegatecall (s : State)
@@ -240,7 +400,40 @@ theorem complete_delegatecall (s : State)
              (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
              forwarded retOff.toNat retLen.toNat)
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .DELEGATECALL
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .DELEGATECALL ≤ s.gasAvailable := by
+    rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .DELEGATECALL) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.DELEGATECALL] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.DELEGATECALL] at *
+        unfold Gas.delegatecallCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.DELEGATECALL]
+          at h_afford ⊢
+        exact h_afford)]
+  rw [if_neg (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_take)]
+  simp only [State.consumeGas, State.consumeMemExp2,
+    State.enterCallFor, State.activeWordsAfterUInt256_2, State.callTargetCode,
+    State.delegateOf, MachineState.memExpansionDelta2, hC, State.fork, h_fwd]
+  grind
 
 /-- Completeness for `StepRunning.delegatecallFail`. -/
 theorem complete_delegatecallFail (s : State)
@@ -279,7 +472,41 @@ theorem complete_delegatecallFail (s : State)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .DELEGATECALL
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .DELEGATECALL ≤ s.gasAvailable := by rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .DELEGATECALL) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.DELEGATECALL] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.DELEGATECALL] at *
+        unfold Gas.delegatecallCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.DELEGATECALL]
+          at h_afford ⊢
+        exact h_afford)]
+  rw [if_pos (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_fail)]
+  simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
+    State.activeWordsAfterUInt256_2, Gas.delegatecallCommitted, MachineState.memExpansionDelta2,
+    State.warmCallTarget, Substate.addAccessedAccount, Substate.addAccessedAccountOpt,
+    State.fork, UInt256.succ,
+    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 /-- Completeness for `StepRunning.staticcall`. -/
 theorem complete_staticcall (s : State)
@@ -315,7 +542,40 @@ theorem complete_staticcall (s : State)
              (State.callTargetCode s (AccountAddress.ofUInt256 toArg))
              forwarded retOff.toNat retLen.toNat)
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .STATICCALL
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .STATICCALL ≤ s.gasAvailable := by
+    rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .STATICCALL) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.STATICCALL] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.STATICCALL] at *
+        unfold Gas.staticcallCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.STATICCALL]
+          at h_afford ⊢
+        exact h_afford)]
+  rw [if_neg (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_take)]
+  simp only [State.consumeGas, State.consumeMemExp2,
+    State.enterCallFor, State.activeWordsAfterUInt256_2, State.callTargetCode,
+    State.delegateOf, MachineState.memExpansionDelta2, hC, State.fork, h_fwd]
+  grind
 
 /-- Completeness for `StepRunning.staticcallFail`. -/
 theorem complete_staticcallFail (s : State)
@@ -354,7 +614,41 @@ theorem complete_staticcallFail (s : State)
               stack        := UInt256.ofNat 0 :: rest
               pc           := s.pc.succ })
     := by
-  sorry
+  obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
+  have hC : Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg
+      = Gas.baseCost s.fork .STATICCALL
+        + MachineState.memExpansionDelta2 s.activeWords.toNat
+            argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat
+        + (Gas.accountColdSurcharge s (AccountAddress.ofUInt256 toArg)
+            + Gas.delegationAccessCost s (AccountAddress.ofUInt256 toArg)) := rfl
+  have h_base : Gas.baseCost s.fork .STATICCALL ≤ s.gasAvailable := by rw [hC] at h_gas; omega
+  refine stepF_eq_ok ?_
+  rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
+  simp only [stepF.system, h_stack]
+  have h_mem : (s.consumeGas (Gas.baseCost s.fork .STATICCALL) h_base).canExpandMemory2
+      argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
+    simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
+  simp only [chargeMem2, dif_pos h_mem]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas]
+        rw [hC] at h_gas
+        simp only [MachineState.memExpansionDelta2, Operation.STATICCALL] at h_gas ⊢
+        omega)]
+  rw [dif_pos (by
+        simp only [State.consumeMemExp2, State.consumeGas, Operation.STATICCALL] at *
+        unfold Gas.staticcallCommitted at *
+        simp_all only [Nat.sub_sub]
+        simp only [State.fork, MachineState.memExpansionDelta2, Operation.STATICCALL]
+          at h_afford ⊢
+        exact h_afford)]
+  rw [if_pos (by
+        simpa only [State.consumeGas, State.consumeMemExp2] using h_fail)]
+  simp [State.consumeGas, State.consumeMemExp2, State.replaceStackAndIncrPC,
+    State.activeWordsAfterUInt256_2, Gas.staticcallCommitted, MachineState.memExpansionDelta2,
+    State.warmCallTarget, Substate.addAccessedAccount, Substate.addAccessedAccountOpt,
+    State.fork, UInt256.succ,
+    show ∀ (a b : UInt256), a + b = a.add b from fun _ _ => rfl]
+  grind
 
 end StepComplete
 end EVM
