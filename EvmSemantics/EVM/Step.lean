@@ -11,8 +11,12 @@ public import EvmSemantics.Data.Rlp
 `Step` — the small-step relation, split across three inductives.
 
 * **`StepRunning : State → State → Prop`** holds the per-opcode logic:
-  one success constructor per opcode (81) plus generic exception
-  constructors parametric over `op` (9). Its constructors do **not**
+  one success constructor per opcode plus exception constructors
+  parametric over `op` where possible. Every rule carries priority
+  premises mirroring `stepF`'s check order (see the exception-rules
+  section comment and `State.oogReach`/`underflowReach`/`staticReach`),
+  which makes the relation **deterministic** — proven in
+  `StepDeterminism.lean`. Its constructors do **not**
   carry a `s.halt = .Running` premise — they are meant to be invoked
   only when the caller has separately established that the frame is
   running. The running guard lives on the wrapper `Step.running`
@@ -184,6 +188,99 @@ theorem decoded_to_op {s : State} {op : Operation} {imm : Option (UInt256 × Nat
     (h : s.decoded = some (op, imm)) : s.decodedOp = some op := by
   simp [decodedOp, h]
 
+/-!
+### Exception-priority predicates
+
+`stepF` runs its checks in a fixed order (decode → stack-overflow →
+base gas → per-op helper, which itself orders stack-match / static-mode /
+op-specific guards / dynamic-gas charges per opcode). To make the
+relational `Step` **deterministic**, each exception rule carries premises
+asserting that every check `stepF` performs *earlier* passes — so for any
+state at most one exception *kind* is derivable, and it is exactly the
+kind `stepF` reports. The three predicates below capture the per-opcode
+portion of that priority ordering; the uniform parts (the stack-overflow
+guard and the base-gas check) appear directly as `h_cap` / `h_gas`
+premises on the rules.
+-/
+
+/-- The per-opcode checks `stepF` performs *before* its first
+    beyond-base gas charge for `op` all pass. This guards the
+    beyond-base disjunct of the `StepRunning.outOfGas` rule: an
+    `OutOfGas` whose failing stage lies past the static base fee is
+    only reachable in `stepF` once the operation's stack shape, static
+    permission, and (for `RETURNDATACOPY`) the return-data bound have
+    been checked.
+
+    Arms mirror `stepF`'s per-op check order:
+    * `SSTORE` — only the static check precedes the EIP-2200 sentry
+      (which is itself an OOG and fires before the stack match; the
+      short-stack arm of `Gas.totalCost` keeps the sentry floor, so no
+      stack-shape condition is needed here).
+    * `LOG` — static check, then the 2-element stack match, precede the
+      memory/data charges (the topic pops come *after* them).
+    * `RETURNDATACOPY` — the full 3-element match and the spec-mandated
+      return-data bound precede the memory/copy charges.
+    * `CALL` — the 7-element match and the value-in-static-frame check
+      precede the memory/surcharge/forwarding charges.
+    * `SELFDESTRUCT`, `CREATE`, `CREATE2` — stack match, then static
+      check, precede the surcharge/committed charges.
+    * default — the stack match precedes any dynamic charge. (For ops
+      whose total charge is just the base fee this arm is vacuous:
+      `gasAvailable < Gas.totalCost` already implies the base-fee
+      disjunct.) -/
+def oogReach (s : State) : Operation → Prop
+  | .StackMemFlow .SSTORE => s.executionEnv.permitStateMutation = true
+  | .Log _ => s.executionEnv.permitStateMutation = true ∧ 2 ≤ s.stack.length
+  | .Env .RETURNDATACOPY =>
+      match s.stack with
+      | _ :: srcOff :: sz :: _ => srcOff.toNat + sz.toNat ≤ s.returnData.size
+      | _ => False
+  | .System .CALL =>
+      match s.stack with
+      | _ :: _ :: value :: _ :: _ :: _ :: _ :: _ =>
+          s.executionEnv.permitStateMutation = true ∨ value.toNat = 0
+      | _ => False
+  | .System .SELFDESTRUCT =>
+      s.executionEnv.permitStateMutation = true ∧ 1 ≤ s.stack.length
+  | .System .CREATE =>
+      s.executionEnv.permitStateMutation = true ∧ 3 ≤ s.stack.length
+  | .System .CREATE2 =>
+      s.executionEnv.permitStateMutation = true ∧ 4 ≤ s.stack.length
+  | op => op.popArity ≤ s.stack.length
+
+/-- The per-opcode checks `stepF` performs *before* reporting
+    `StackUnderflow` for `op` all pass. For most operations the stack
+    match is the first thing the per-op helper does, so this is `True`;
+    the exceptions are the three op families whose helpers check the
+    static flag (and for `SSTORE` the EIP-2200 sentry) *before* looking
+    at the stack. `LOG`'s topic pops happen *after* its memory/data
+    charges, so a topics-underflow (stack length ≥ 2 but < 2 + topics)
+    additionally requires the full charge to have been affordable. -/
+def underflowReach (s : State) : Operation → Prop
+  | .StackMemFlow .SSTORE =>
+      s.executionEnv.permitStateMutation = true ∧
+      Gas.sstoreSentry s.executionEnv.fork
+        (s.gasAvailable - Gas.baseCost s.executionEnv.fork (.StackMemFlow .SSTORE)) = false
+  | .StackMemFlow .TSTORE => s.executionEnv.permitStateMutation = true
+  | .Log l =>
+      s.executionEnv.permitStateMutation = true ∧
+      (s.stack.length < 2 ∨ Gas.totalCost s (.Log l) ≤ s.gasAvailable)
+  | _ => True
+
+/-- The per-opcode checks `stepF` performs *before* reporting
+    `StaticModeViolation` for `op` all pass. `SSTORE`/`TSTORE`/`LOG`
+    check the static flag before anything else in their helpers, so no
+    condition is needed; `CREATE`/`CREATE2`/`SELFDESTRUCT` match their
+    stack arguments first, so a static violation is only reachable when
+    the stack is deep enough. (`CALL`'s value-in-static-frame rejection
+    is the dedicated `StepRunning.callStatic` rule, not the generic
+    `staticModeViolation` one — `CALL` is not `isStateMutating`.) -/
+def staticReach (s : State) : Operation → Prop
+  | .System .CREATE => 3 ≤ s.stack.length
+  | .System .CREATE2 => 4 ≤ s.stack.length
+  | .System .SELFDESTRUCT => 1 ≤ s.stack.length
+  | _ => True
+
 end State
 
 /-- Per-opcode small-step logic. One constructor per opcode for the
@@ -202,6 +299,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .ADD)
         (h_gas     : Gas.baseCost s.fork .ADD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .ADD
+                     ≤ 1024 + Operation.popArity .ADD)
       : StepRunning s
           { s with
               stack        := (a + b) :: rest
@@ -213,6 +312,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .MUL)
         (h_gas     : Gas.baseCost s.fork .MUL ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .MUL
+                     ≤ 1024 + Operation.popArity .MUL)
       : StepRunning s
           { s with
               stack        := (a * b) :: rest
@@ -224,6 +325,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SUB)
         (h_gas     : Gas.baseCost s.fork .SUB ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SUB
+                     ≤ 1024 + Operation.popArity .SUB)
       : StepRunning s
           { s with
               stack        := (a - b) :: rest
@@ -235,6 +338,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .DIV)
         (h_gas     : Gas.baseCost s.fork .DIV ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .DIV
+                     ≤ 1024 + Operation.popArity .DIV)
       : StepRunning s
           { s with
               stack        := (a / b) :: rest
@@ -246,6 +351,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SDIV)
         (h_gas     : Gas.baseCost s.fork .SDIV ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SDIV
+                     ≤ 1024 + Operation.popArity .SDIV)
       : StepRunning s
           { s with
               stack        := UInt256.sdiv a b :: rest
@@ -257,6 +364,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .MOD)
         (h_gas     : Gas.baseCost s.fork .MOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .MOD
+                     ≤ 1024 + Operation.popArity .MOD)
       : StepRunning s
           { s with
               stack        := (a % b) :: rest
@@ -268,6 +377,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SMOD)
         (h_gas     : Gas.baseCost s.fork .SMOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SMOD
+                     ≤ 1024 + Operation.popArity .SMOD)
       : StepRunning s
           { s with
               stack        := UInt256.smod a b :: rest
@@ -279,6 +390,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .ADDMOD)
         (h_gas     : Gas.baseCost s.fork .ADDMOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: n :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .ADDMOD
+                     ≤ 1024 + Operation.popArity .ADDMOD)
       : StepRunning s
           { s with
               stack        := UInt256.addMod a b n :: rest
@@ -290,6 +403,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .MULMOD)
         (h_gas     : Gas.baseCost s.fork .MULMOD ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: n :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .MULMOD
+                     ≤ 1024 + Operation.popArity .MULMOD)
       : StepRunning s
           { s with
               stack        := UInt256.mulMod a b n :: rest
@@ -303,6 +418,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .EXP)
         (h_gas   : Gas.baseCost s.fork .EXP + Gas.expByteCost s.fork b ≤ s.gasAvailable)
         (h_stack : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .EXP
+                     ≤ 1024 + Operation.popArity .EXP)
       : StepRunning s
           { s with
               stack        := UInt256.exp a b :: rest
@@ -315,6 +432,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SIGNEXTEND)
         (h_gas     : Gas.baseCost s.fork .SIGNEXTEND ≤ s.gasAvailable)
         (h_stack   : s.stack = b :: x :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SIGNEXTEND
+                     ≤ 1024 + Operation.popArity .SIGNEXTEND)
       : StepRunning s
           { s with
               stack        := UInt256.signExtend b x :: rest
@@ -329,6 +448,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .LT)
         (h_gas     : Gas.baseCost s.fork .LT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .LT
+                     ≤ 1024 + Operation.popArity .LT)
       : StepRunning s
           { s with
               stack        := UInt256.lt a b :: rest
@@ -339,6 +460,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .GT)
         (h_gas     : Gas.baseCost s.fork .GT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .GT
+                     ≤ 1024 + Operation.popArity .GT)
       : StepRunning s
           { s with
               stack        := UInt256.gt a b :: rest
@@ -349,6 +472,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SLT)
         (h_gas     : Gas.baseCost s.fork .SLT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SLT
+                     ≤ 1024 + Operation.popArity .SLT)
       : StepRunning s
           { s with
               stack        := UInt256.slt a b :: rest
@@ -359,6 +484,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SGT)
         (h_gas     : Gas.baseCost s.fork .SGT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SGT
+                     ≤ 1024 + Operation.popArity .SGT)
       : StepRunning s
           { s with
               stack        := UInt256.sgt a b :: rest
@@ -369,6 +496,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .EQ)
         (h_gas     : Gas.baseCost s.fork .EQ ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .EQ
+                     ≤ 1024 + Operation.popArity .EQ)
       : StepRunning s
           { s with
               stack        := UInt256.eq a b :: rest
@@ -379,6 +508,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .ISZERO)
         (h_gas     : Gas.baseCost s.fork .ISZERO ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .ISZERO
+                     ≤ 1024 + Operation.popArity .ISZERO)
       : StepRunning s
           { s with
               stack        := UInt256.isZero a :: rest
@@ -389,6 +520,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .AND)
         (h_gas     : Gas.baseCost s.fork .AND ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .AND
+                     ≤ 1024 + Operation.popArity .AND)
       : StepRunning s
           { s with
               stack        := UInt256.land a b :: rest
@@ -399,6 +532,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .OR)
         (h_gas     : Gas.baseCost s.fork .OR ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .OR
+                     ≤ 1024 + Operation.popArity .OR)
       : StepRunning s
           { s with
               stack        := UInt256.lor a b :: rest
@@ -409,6 +544,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .XOR)
         (h_gas     : Gas.baseCost s.fork .XOR ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: b :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .XOR
+                     ≤ 1024 + Operation.popArity .XOR)
       : StepRunning s
           { s with
               stack        := UInt256.xor a b :: rest
@@ -419,6 +556,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .NOT)
         (h_gas     : Gas.baseCost s.fork .NOT ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .NOT
+                     ≤ 1024 + Operation.popArity .NOT)
       : StepRunning s
           { s with
               stack        := UInt256.lnot a :: rest
@@ -430,6 +569,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .CLZ)
         (h_gas     : Gas.baseCost s.fork .CLZ ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .CLZ
+                     ≤ 1024 + Operation.popArity .CLZ)
       : StepRunning s
           { s with
               stack        := UInt256.clz a :: rest
@@ -440,6 +581,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .BYTE)
         (h_gas     : Gas.baseCost s.fork .BYTE ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: x :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .BYTE
+                     ≤ 1024 + Operation.popArity .BYTE)
       : StepRunning s
           { s with
               stack        := UInt256.byteAt i x :: rest
@@ -450,6 +593,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SHL)
         (h_gas     : Gas.baseCost s.fork .SHL ≤ s.gasAvailable)
         (h_stack   : s.stack = shift :: v :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SHL
+                     ≤ 1024 + Operation.popArity .SHL)
       : StepRunning s
           { s with
               stack        := UInt256.shiftLeft v shift :: rest
@@ -460,6 +605,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SHR)
         (h_gas     : Gas.baseCost s.fork .SHR ≤ s.gasAvailable)
         (h_stack   : s.stack = shift :: v :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SHR
+                     ≤ 1024 + Operation.popArity .SHR)
       : StepRunning s
           { s with
               stack        := UInt256.shiftRight v shift :: rest
@@ -470,6 +617,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SAR)
         (h_gas     : Gas.baseCost s.fork .SAR ≤ s.gasAvailable)
         (h_stack   : s.stack = shift :: v :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SAR
+                     ≤ 1024 + Operation.popArity .SAR)
       : StepRunning s
           { s with
               stack        := UInt256.sar v shift :: rest
@@ -490,6 +639,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .KECCAK256)
         (h_stack : s.stack = offset :: size :: rest)
         (h_gas   : Gas.keccakTotal s offset size ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .KECCAK256
+                     ≤ 1024 + Operation.popArity .KECCAK256)
       : StepRunning s
           { s with
               stack        := EvmSemantics.keccak256
@@ -517,6 +668,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .BALANCE)
         (h_gas     : Gas.balanceTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .BALANCE
+                     ≤ 1024 + Operation.popArity .BALANCE)
       : StepRunning s
           { s with
               stack        := (s.accountMap (AccountAddress.ofUInt256 addr)).balance :: rest
@@ -561,6 +714,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .CALLDATALOAD)
         (h_gas     : Gas.baseCost s.fork .CALLDATALOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .CALLDATALOAD
+                     ≤ 1024 + Operation.popArity .CALLDATALOAD)
       : StepRunning s
           { s with
               stack        := MachineState.readWord s.executionEnv.calldata i.toNat :: rest
@@ -584,6 +739,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CALLDATACOPY)
         (h_stack : s.stack = destOff :: srcOff :: sz :: rest)
         (h_gas   : Gas.calldatacopyTotal s destOff sz ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .CALLDATACOPY
+                     ≤ 1024 + Operation.popArity .CALLDATACOPY)
       : StepRunning s
           { s with
               stack        := rest
@@ -612,6 +769,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CODECOPY)
         (h_stack : s.stack = destOff :: srcOff :: sz :: rest)
         (h_gas   : Gas.codecopyTotal s destOff sz ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .CODECOPY
+                     ≤ 1024 + Operation.popArity .CODECOPY)
       : StepRunning s
           { s with
               stack        := rest
@@ -637,6 +796,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .EXTCODESIZE)
         (h_gas     : Gas.extcodesizeTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .EXTCODESIZE
+                     ≤ 1024 + Operation.popArity .EXTCODESIZE)
       : StepRunning s
           { s with
               stack        := UInt256.ofNat
@@ -655,6 +816,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .EXTCODECOPY)
         (h_stack : s.stack = addr :: destOff :: srcOff :: sz :: rest)
         (h_gas   : Gas.extcodecopyTotal s addr destOff sz ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .EXTCODECOPY
+                     ≤ 1024 + Operation.popArity .EXTCODECOPY)
       : StepRunning s
           { s with
               stack        := rest
@@ -688,6 +851,8 @@ inductive StepRunning : State → State → Prop
         (h_stack    : s.stack = destOff :: srcOff :: sz :: rest)
         (h_inbounds : srcOff.toNat + sz.toNat ≤ s.returnData.size)
         (h_gas      : Gas.returndatacopyTotal s destOff sz ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .RETURNDATACOPY
+                     ≤ 1024 + Operation.popArity .RETURNDATACOPY)
       : StepRunning s
           { s with
               stack        := rest
@@ -703,6 +868,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .EXTCODEHASH)
         (h_gas     : Gas.extcodehashTotal s addr ≤ s.gasAvailable)
         (h_stack   : s.stack = addr :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .EXTCODEHASH
+                     ≤ 1024 + Operation.popArity .EXTCODEHASH)
       : StepRunning s
           { s with
               stack        := (s.accountMap (AccountAddress.ofUInt256 addr)).codeHash :: rest
@@ -719,6 +886,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .BLOCKHASH)
         (h_gas     : Gas.baseCost s.fork .BLOCKHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = n :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .BLOCKHASH
+                     ≤ 1024 + Operation.popArity .BLOCKHASH)
       : StepRunning s
           { s with
               stack        := s.executionEnv.header.blockHash n :: rest
@@ -810,6 +979,8 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .BLOBHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: rest)
         (h_get     : s.executionEnv.blobVersionedHashes[i.toNat]? = some h)
+        (h_cap   : s.stack.length + Operation.pushArity .BLOBHASH
+                     ≤ 1024 + Operation.popArity .BLOBHASH)
       : StepRunning s
           { s with
               stack        := h :: rest
@@ -822,6 +993,8 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .BLOBHASH ≤ s.gasAvailable)
         (h_stack   : s.stack = i :: rest)
         (h_oob     : s.executionEnv.blobVersionedHashes[i.toNat]? = none)
+        (h_cap   : s.stack.length + Operation.pushArity .BLOBHASH
+                     ≤ 1024 + Operation.popArity .BLOBHASH)
       : StepRunning s
           { s with
               stack        := ⟨0⟩ :: rest
@@ -846,6 +1019,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .POP)
         (h_gas     : Gas.baseCost s.fork .POP ≤ s.gasAvailable)
         (h_stack   : s.stack = a :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .POP
+                     ≤ 1024 + Operation.popArity .POP)
       : StepRunning s
           { s with
               stack        := rest
@@ -899,6 +1074,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some (.Swap ⟨n⟩))
         (h_gas     : Gas.baseCost s.fork (.Swap ⟨n⟩) ≤ s.gasAvailable)
         (h_swap    : s.stack.exchange 0 (n.val + 1) = some stk')
+        (h_cap   : s.stack.length + Operation.pushArity (.Swap ⟨n⟩)
+                     ≤ 1024 + Operation.popArity (.Swap ⟨n⟩))
       : StepRunning s
           { s with
               stack        := stk'
@@ -916,6 +1093,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .MLOAD)
         (h_stack : s.stack = offset :: rest)
         (h_gas   : Gas.mloadTotal s offset ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .MLOAD
+                     ≤ 1024 + Operation.popArity .MLOAD)
       : StepRunning s
           { s with
               stack        := MachineState.readWord s.memory offset.toNat :: rest
@@ -930,6 +1109,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .MSTORE)
         (h_stack : s.stack = offset :: value :: rest)
         (h_gas   : Gas.mstoreTotal s offset ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .MSTORE
+                     ≤ 1024 + Operation.popArity .MSTORE)
       : StepRunning s
           { s with
               stack        := rest
@@ -946,6 +1127,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .MSTORE8)
         (h_stack : s.stack = offset :: value :: rest)
         (h_gas   : Gas.mstore8Total s offset ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .MSTORE8
+                     ≤ 1024 + Operation.popArity .MSTORE8)
       : StepRunning s
           { s with
               stack        := rest
@@ -975,6 +1158,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .MCOPY)
         (h_stack : s.stack = destOff :: srcOff :: sz :: rest)
         (h_gas   : Gas.mcopyTotal s destOff srcOff sz ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .MCOPY
+                     ≤ 1024 + Operation.popArity .MCOPY)
       : StepRunning s
           { s with
               stack        := rest
@@ -998,6 +1183,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .SLOAD)
         (h_gas     : Gas.sloadTotal s key ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .SLOAD
+                     ≤ 1024 + Operation.popArity .SLOAD)
       : StepRunning s
           { s with
               stack        := ((s.accountMap s.executionEnv.address).storage key) :: rest
@@ -1017,6 +1204,8 @@ inductive StepRunning : State → State → Prop
         (h_sentry : Gas.sstoreSentry s.fork
                       (s.gasAvailable - Gas.baseCost s.fork .SSTORE) = false)
         (h_gas    : Gas.sstoreTotal s key value ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .SSTORE
+                     ≤ 1024 + Operation.popArity .SSTORE)
       : StepRunning s
           { s with
               stack        := rest
@@ -1040,6 +1229,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some .TLOAD)
         (h_gas     : Gas.baseCost s.fork .TLOAD ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .TLOAD
+                     ≤ 1024 + Operation.popArity .TLOAD)
       : StepRunning s
           { s with
               stack        := ((s.accountMap s.executionEnv.address).tstorage key) :: rest
@@ -1052,6 +1243,8 @@ inductive StepRunning : State → State → Prop
         (h_perm    : s.executionEnv.permitStateMutation = true)
         (h_gas     : Gas.baseCost s.fork .TSTORE ≤ s.gasAvailable)
         (h_stack   : s.stack = key :: value :: rest)
+        (h_cap   : s.stack.length + Operation.pushArity .TSTORE
+                     ≤ 1024 + Operation.popArity .TSTORE)
       : StepRunning s
           { s with
               stack        := rest
@@ -1075,6 +1268,8 @@ inductive StepRunning : State → State → Prop
         (h_gas   : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable)
         (h_stack : s.stack = dest :: rest)
         (h_valid : Decode.isValidJumpDest s.executionEnv.code dest.toNat = true)
+        (h_cap   : s.stack.length + Operation.pushArity .JUMP
+                     ≤ 1024 + Operation.popArity .JUMP)
       : StepRunning s
           { s with
               stack        := rest
@@ -1089,6 +1284,8 @@ inductive StepRunning : State → State → Prop
         (h_stack   : s.stack = dest :: cond :: rest)
         (h_cond    : UInt256.isTrue cond)
         (h_valid   : Decode.isValidJumpDest s.executionEnv.code dest.toNat = true)
+        (h_cap   : s.stack.length + Operation.pushArity .JUMPI
+                     ≤ 1024 + Operation.popArity .JUMPI)
       : StepRunning s
           { s with
               stack        := rest
@@ -1101,6 +1298,8 @@ inductive StepRunning : State → State → Prop
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
         (h_cond    : ¬ UInt256.isTrue cond)
+        (h_cap   : s.stack.length + Operation.pushArity .JUMPI
+                     ≤ 1024 + Operation.popArity .JUMPI)
       : StepRunning s
           { s with
               stack        := rest
@@ -1134,6 +1333,8 @@ inductive StepRunning : State → State → Prop
   | jumpdest (s : State)
         (h_op      : s.decodedOp = some .JUMPDEST)
         (h_gas     : Gas.baseCost s.fork .JUMPDEST ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .JUMPDEST
+                     ≤ 1024 + Operation.popArity .JUMPDEST)
       : StepRunning s
           { s with
               pc           := s.pc.succ
@@ -1145,12 +1346,16 @@ inductive StepRunning : State → State → Prop
 
   | stop (s : State)
         (h_op      : s.decodedOp = some .STOP)
+        (h_cap   : s.stack.length + Operation.pushArity .STOP
+                     ≤ 1024 + Operation.popArity .STOP)
       : StepRunning s { s with halt := .Success, hReturn := .empty }
 
   | return_ (s : State) (offset size : UInt256) (rest : List UInt256)
         (h_op    : s.decodedOp = some .RETURN)
         (h_stack : s.stack = offset :: size :: rest)
         (h_gas   : Gas.returnTotal s offset size ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .RETURN
+                     ≤ 1024 + Operation.popArity .RETURN)
       : StepRunning s
           { s with
               halt         := .Returned
@@ -1163,6 +1368,8 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .REVERT)
         (h_stack : s.stack = offset :: size :: rest)
         (h_gas   : Gas.revertTotal s offset size ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .REVERT
+                     ≤ 1024 + Operation.popArity .REVERT)
       : StepRunning s
           { s with
               halt         := .Reverted
@@ -1190,6 +1397,9 @@ inductive StepRunning : State → State → Prop
                         gasArg :: toArg :: value :: argsOff :: argsLen :: retOff :: retLen :: rest)
         (h_perm     : s.executionEnv.permitStateMutation = false)
         (h_value    : value.toNat ≠ 0)
+        (h_gas   : Gas.baseCost s.fork .CALL ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .CALL
+                     ≤ 1024 + Operation.popArity .CALL)
       : StepRunning s ({ s with halt := .Exception .StaticModeViolation })
 
   /-- CALL (taken): pop the 7 args; charge base (`G_call`), memory expansion for
@@ -1222,6 +1432,8 @@ inductive StepRunning : State → State → Prop
         -- the `g - g/64` cap.
         (h_afford   : forwarded ≤ s.gasAvailable
                         - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
+        (h_cap   : s.stack.length + Operation.pushArity .CALL
+                     ≤ 1024 + Operation.popArity .CALL)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1268,6 +1480,8 @@ inductive StepRunning : State → State → Prop
                       - Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value)
+        (h_cap   : s.stack.length + Operation.pushArity .CALL
+                     ≤ 1024 + Operation.popArity .CALL)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
@@ -1308,6 +1522,8 @@ inductive StepRunning : State → State → Prop
                      gasArg.toNat)
         (h_afford : forwarded ≤ s.gasAvailable
                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
+        (h_cap   : s.stack.length + Operation.pushArity .CALLCODE
+                     ≤ 1024 + Operation.popArity .CALLCODE)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1344,6 +1560,8 @@ inductive StepRunning : State → State → Prop
                       - Gas.callcodeCommitted s value argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value)
+        (h_cap   : s.stack.length + Operation.pushArity .CALLCODE
+                     ≤ 1024 + Operation.popArity .CALLCODE)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
@@ -1388,6 +1606,8 @@ inductive StepRunning : State → State → Prop
                      gasArg.toNat)
         (h_afford : forwarded ≤ s.gasAvailable
                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
+        (h_cap   : s.stack.length + Operation.pushArity .DELEGATECALL
+                     ≤ 1024 + Operation.popArity .DELEGATECALL)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1422,6 +1642,8 @@ inductive StepRunning : State → State → Prop
                     ≤ s.gasAvailable
                       - Gas.delegatecallCommitted s argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024)
+        (h_cap   : s.stack.length + Operation.pushArity .DELEGATECALL
+                     ≤ 1024 + Operation.popArity .DELEGATECALL)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
@@ -1454,6 +1676,8 @@ inductive StepRunning : State → State → Prop
                      gasArg.toNat)
         (h_afford : forwarded ≤ s.gasAvailable
                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
+        (h_cap   : s.stack.length + Operation.pushArity .STATICCALL
+                     ≤ 1024 + Operation.popArity .STATICCALL)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable
@@ -1487,6 +1711,8 @@ inductive StepRunning : State → State → Prop
                     ≤ s.gasAvailable
                       - Gas.staticcallCommitted s argsOff argsLen retOff retLen toArg)
         (h_fail  : s.executionEnv.depth ≥ 1024)
+        (h_cap   : s.stack.length + Operation.pushArity .STATICCALL
+                     ≤ 1024 + Operation.popArity .STATICCALL)
       : StepRunning s
           ({ s with
               gasAvailable := s.gasAvailable
@@ -1531,6 +1757,9 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CREATE)
         (h_stack : s.stack = value :: offset :: size :: rest)
         (h_perm  : s.executionEnv.permitStateMutation = false)
+        (h_gas   : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE
+                     ≤ 1024 + Operation.popArity .CREATE)
       : StepRunning s ({ s with halt := .Exception .StaticModeViolation })
 
   /-- CREATE (not taken — depth limit or insufficient balance): base gas
@@ -1545,6 +1774,9 @@ inductive StepRunning : State → State → Prop
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value ∨
                      Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat)
+        (h_size  : Gas.initCodeTooLarge s.fork size.toNat = false)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE
+                     ≤ 1024 + Operation.popArity .CREATE)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.createCommitted s offset size
@@ -1575,6 +1807,9 @@ inductive StepRunning : State → State → Prop
                      (s.gasAvailable - Gas.createCommitted s offset size))
         (h_coll  : (s.accountMap (EvmSemantics.createAddress s.executionEnv.address
                      (s.accountMap s.executionEnv.address).nonce)).isContract = true)
+        (h_size  : Gas.initCodeTooLarge s.fork size.toNat = false)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE
+                     ≤ 1024 + Operation.popArity .CREATE)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.createCommitted s offset size - forwarded
@@ -1603,6 +1838,9 @@ inductive StepRunning : State → State → Prop
                       (s.gasAvailable - Gas.createCommitted s offset size))
         (h_nocoll : (s.accountMap (EvmSemantics.createAddress s.executionEnv.address
                       (s.accountMap s.executionEnv.address).nonce)).isContract = false)
+        (h_size  : Gas.initCodeTooLarge s.fork size.toNat = false)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE
+                     ≤ 1024 + Operation.popArity .CREATE)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable - Gas.createCommitted s offset size - forwarded
@@ -1618,6 +1856,9 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .CREATE2)
         (h_stack : s.stack = value :: offset :: size :: salt :: rest)
         (h_perm  : s.executionEnv.permitStateMutation = false)
+        (h_gas   : Gas.baseCost s.fork .CREATE2 ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE2
+                     ≤ 1024 + Operation.popArity .CREATE2)
       : StepRunning s ({ s with halt := .Exception .StaticModeViolation })
 
   /-- CREATE2 (not taken — depth or balance). -/
@@ -1630,6 +1871,9 @@ inductive StepRunning : State → State → Prop
         (h_fail  : s.executionEnv.depth ≥ 1024 ∨
                      (s.accountMap s.executionEnv.address).balance < value ∨
                      Account.maxNonce ≤ (s.accountMap s.executionEnv.address).nonce.toNat)
+        (h_size  : Gas.initCodeTooLarge s.fork size.toNat = false)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE2
+                     ≤ 1024 + Operation.popArity .CREATE2)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.create2Committed s offset size
@@ -1655,6 +1899,9 @@ inductive StepRunning : State → State → Prop
                      (EvmSemantics.create2Address s.executionEnv.address salt
                        (MachineState.readPadded s.memory
                           offset.toNat size.toNat))).isContract = true)
+        (h_size  : Gas.initCodeTooLarge s.fork size.toNat = false)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE2
+                     ≤ 1024 + Operation.popArity .CREATE2)
       : StepRunning s
           { s with
               gasAvailable := s.gasAvailable - Gas.create2Committed s offset size - forwarded
@@ -1682,6 +1929,9 @@ inductive StepRunning : State → State → Prop
                       (EvmSemantics.create2Address s.executionEnv.address salt
                         (MachineState.readPadded s.memory
                            offset.toNat size.toNat))).isContract = false)
+        (h_size  : Gas.initCodeTooLarge s.fork size.toNat = false)
+        (h_cap   : s.stack.length + Operation.pushArity .CREATE2
+                     ≤ 1024 + Operation.popArity .CREATE2)
       : StepRunning s
           (({ s with
                 gasAvailable := s.gasAvailable - Gas.create2Committed s offset size - forwarded
@@ -1710,6 +1960,9 @@ inductive StepRunning : State → State → Prop
         (h_op    : s.decodedOp = some .SELFDESTRUCT)
         (h_stack : s.stack = beneficiary :: rest)
         (h_perm  : s.executionEnv.permitStateMutation = false)
+        (h_gas   : Gas.baseCost s.fork .SELFDESTRUCT ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .SELFDESTRUCT
+                     ≤ 1024 + Operation.popArity .SELFDESTRUCT)
       : StepRunning s ({ s with halt := .Exception .StaticModeViolation })
 
   /-- SELFDESTRUCT: pop `beneficiary`, charge base (`G_selfdestruct = 5000`)
@@ -1724,6 +1977,8 @@ inductive StepRunning : State → State → Prop
         (h_stack : s.stack = beneficiary :: rest)
         (h_perm  : s.executionEnv.permitStateMutation = true)
         (h_gas   : Gas.selfDestructTotal s beneficiary ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity .SELFDESTRUCT
+                     ≤ 1024 + Operation.popArity .SELFDESTRUCT)
       : StepRunning s
           (({ s with gasAvailable := s.gasAvailable - Gas.selfDestructTotal s beneficiary
             }).selfDestructTo (AccountAddress.ofUInt256 beneficiary))
@@ -1742,6 +1997,8 @@ inductive StepRunning : State → State → Prop
         (h_topics_n : topics.length = n.val)
         (h_stack    : s.stack = offset :: size :: topics ++ rest)
         (h_gas      : Gas.logTotal s n offset size ≤ s.gasAvailable)
+        (h_cap   : s.stack.length + Operation.pushArity (.Log ⟨n⟩)
+                     ≤ 1024 + Operation.popArity (.Log ⟨n⟩))
       : StepRunning s
           { s with
               stack        := rest
@@ -1775,6 +2032,8 @@ inductive StepRunning : State → State → Prop
         (h_op      : s.decodedOp = some (.SwapN ⟨n⟩))
         (h_gas     : Gas.baseCost s.fork (.SwapN ⟨n⟩) ≤ s.gasAvailable)
         (h_swap    : s.stack.exchange 0 (n.val + 1) = some stk')
+        (h_cap   : s.stack.length + Operation.pushArity (.SwapN ⟨n⟩)
+                     ≤ 1024 + Operation.popArity (.SwapN ⟨n⟩))
       : StepRunning s
           { s with
               stack        := stk'
@@ -1789,6 +2048,8 @@ inductive StepRunning : State → State → Prop
         (h_swap    : s.stack.exchange
                       (b.val >>> 4 + 1)
                       ((b.val &&& 0xf) + 1) = some stk')
+        (h_cap   : s.stack.length + Operation.pushArity (.Exchange ⟨b⟩)
+                     ≤ 1024 + Operation.popArity (.Exchange ⟨b⟩))
       : StepRunning s
           { s with
               stack        := stk'
@@ -1804,20 +2065,32 @@ inductive StepRunning : State → State → Prop
   -- non-overlap between success and exception rules comes from disjoint
   -- hypotheses (`Gas.baseCost s.fork op ≤ gas` vs. `gas < Gas.baseCost s.fork op`, etc.).
   --
-  -- Several exception rules may fire simultaneously from the same state
-  -- (e.g. underflow AND out-of-gas). The relational semantics is
-  -- *non-deterministic* about which exception is reported. A deterministic
-  -- check order can be layered on top later if desired.
+  -- The rules are **mutually exclusive across exception kinds**: each rule
+  -- carries priority premises (`h_cap` for the stack-overflow guard,
+  -- `h_gas` for the base fee, and the `State.oogReach` /
+  -- `State.underflowReach` / `State.staticReach` predicates for the
+  -- per-op check order) asserting that every check `stepF` performs
+  -- earlier passes. Together with the success rules' own guards this
+  -- makes `Step` deterministic — see `StepDeterminism.lean`. Rules
+  -- producing the *same* kind (e.g. `outOfGas` and `initCodeSizeOog`)
+  -- may still overlap: their conclusions are literally equal, so
+  -- determinism is unaffected.
   ----------------------------------------------------------------------------
 
-  /-- Decode failure: the byte at the PC isn't a recognised opcode. -/
+  /-- Decode failure: the byte at the PC isn't a recognised opcode.
+      Disjoint from every other rule (they all require
+      `s.decoded = some _`). -/
   | decodeFailure (s : State)
         (h_none    : s.decoded = none)
       : StepRunning s ({ s with halt := .Exception .InvalidInstruction })
 
-  /-- The explicit `INVALID` opcode (`0xfe`). -/
+  /-- The explicit `INVALID` opcode (`0xfe`). `h_cap` mirrors `stepF`'s
+      overflow-first order; `INVALID`'s base fee is 0, so no gas premise
+      is needed (the top-level gas check cannot fail). -/
   | invalidOpcode (s : State)
         (h_op      : s.decodedOp = some .INVALID)
+        (h_cap     : s.stack.length + Operation.pushArity .INVALID
+                       ≤ 1024 + Operation.popArity .INVALID)
       : StepRunning s ({ s with halt := .Exception .InvalidInstruction })
 
   /-- Insufficient gas to pay for the decoded operation's *total* cost.
@@ -1831,37 +2104,66 @@ inductive StepRunning : State → State → Prop
       (e.g. `s.gasAvailable + 1` on a cheap op) is ruled out by
       `h_cost_ub`. The witness form (rather than demanding
       `s.gasAvailable < Gas.totalCost s op` directly) lets the soundness
-      proof present just the charging stage that failed. -/
+      proof present just the charging stage that failed.
+
+      Priority premises: `h_cap` (the overflow guard fires first), and
+      `h_reach` — either the failing stage is the base fee itself (which
+      `stepF` checks before dispatching into the per-op helper), or the
+      per-op checks preceding the dynamic charges pass
+      (`State.oogReach`). -/
   | outOfGas (s : State) (op : Operation) (cost : Nat)
         (h_op       : s.decodedOp = some op)
+        (h_cap      : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
+        (h_reach    : s.gasAvailable < Gas.baseCost s.fork op ∨ s.oogReach op)
         (h_cost_ub  : cost ≤ Gas.totalCost s op)
         (h_gas      : s.gasAvailable < cost)
       : StepRunning s ({ s with halt := .Exception .OutOfGas })
 
   /-- CREATE/CREATE2 whose init code exceeds the EIP-3860
       `MAX_INITCODE_SIZE` cap (Shanghai+): the opcode aborts exceptionally,
-      consuming all gas, *before* any gas or memory charging — this is a
+      consuming all gas, *before* any memory charging — this is a
       size-cap failure, not a gas shortage, so it is not folded into
       `Gas.totalCost`/`outOfGas`. Both opcodes read `size` from the third
       stack slot, so one rule covers them (CREATE2's `salt` sits in the
-      tail). -/
+      tail). Priority premises mirror `stepF`'s check order for the
+      create family: overflow guard, base fee, stack match (`h_stack`,
+      with `h_len` pinning the full pop arity — CREATE2 pops a 4th
+      `salt` slot before the size cap is consulted, so the 3-slot
+      pattern alone would under-constrain it), then the static check
+      (`h_perm`) — all pass before the size cap is consulted. (No
+      premise excludes a simultaneous gas shortage: that would be the
+      same `OutOfGas` kind, hence the same successor.) -/
   | initCodeSizeOog (s : State) (op : Operation)
         (value offset size : UInt256) (rest : List UInt256)
         (h_op       : s.decodedOp = some op)
         (h_create   : op = .System .CREATE ∨ op = .System .CREATE2)
+        (h_cap      : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
+        (h_gas      : Gas.baseCost s.fork op ≤ s.gasAvailable)
         (h_stack    : s.stack = value :: offset :: size :: rest)
+        (h_len      : op.popArity ≤ s.stack.length)
+        (h_perm     : s.executionEnv.permitStateMutation = true)
         (h_large    : Gas.initCodeTooLarge s.fork size.toNat = true)
       : StepRunning s ({ s with halt := .Exception .OutOfGas })
 
-  /-- Stack has fewer items than the operation requires to pop. -/
+  /-- Stack has fewer items than the operation requires to pop.
+      Priority premises: the overflow guard and base fee pass first
+      (`h_cap`, `h_gas`), and for the ops whose helpers check the
+      static flag / EIP-2200 sentry / dynamic charges before (some of)
+      their stack reads, those checks pass too
+      (`State.underflowReach`). -/
   | stackUnderflow (s : State) (op : Operation)
         (h_op      : s.decodedOp = some op)
+        (h_cap     : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
+        (h_gas     : Gas.baseCost s.fork op ≤ s.gasAvailable)
+        (h_reach   : s.underflowReach op)
         (h_under   : s.stack.length < op.popArity)
       : StepRunning s ({ s with halt := .Exception .StackUnderflow })
 
   /-- Executing this operation would grow the stack beyond the 1024-item
       EVM limit. Requires `popArity ≤ length` so the subtraction is well
-      defined. -/
+      defined. This is the *first* check `stepF` performs after decoding
+      (before even the base-fee check), so it needs no priority
+      premises. -/
   | stackOverflow (s : State) (op : Operation)
         (h_op      : s.decodedOp = some op)
         (h_pop_ok  : op.popArity ≤ s.stack.length)
@@ -1869,10 +2171,17 @@ inductive StepRunning : State → State → Prop
       : StepRunning s ({ s with halt := .Exception .StackOverflow })
 
   /-- State-mutating operation attempted while
-      `executionEnv.permitStateMutation = false`. -/
+      `executionEnv.permitStateMutation = false`. Priority premises:
+      overflow guard and base fee pass (`h_cap`, `h_gas`); for
+      `CREATE`/`CREATE2`/`SELFDESTRUCT` — whose helpers match the stack
+      *before* the static check — the stack is deep enough
+      (`State.staticReach`). -/
   | staticModeViolation (s : State) (op : Operation)
         (h_op      : s.decodedOp = some op)
         (h_mut     : op.isStateMutating = true)
+        (h_cap     : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
+        (h_gas     : Gas.baseCost s.fork op ≤ s.gasAvailable)
+        (h_reach   : s.staticReach op)
         (h_perm    : s.executionEnv.permitStateMutation = false)
       : StepRunning s ({ s with halt := .Exception .StaticModeViolation })
 
@@ -1881,6 +2190,8 @@ inductive StepRunning : State → State → Prop
       not reachable as an instruction boundary. -/
   | jumpBadDest (s : State) (dest : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .JUMP)
+        (h_cap     : s.stack.length + Operation.pushArity .JUMP
+                       ≤ 1024 + Operation.popArity .JUMP)
         (h_gas     : Gas.baseCost s.fork .JUMP ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: rest)
         (h_bad     : Decode.isValidJumpDest s.executionEnv.code dest.toNat = false)
@@ -1890,15 +2201,22 @@ inductive StepRunning : State → State → Prop
       (same rule as `jumpBadDest` — push-data byte or non-`0x5b`). -/
   | jumpiBadDest (s : State) (dest cond : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .JUMPI)
+        (h_cap     : s.stack.length + Operation.pushArity .JUMPI
+                       ≤ 1024 + Operation.popArity .JUMPI)
         (h_gas     : Gas.baseCost s.fork .JUMPI ≤ s.gasAvailable)
         (h_stack   : s.stack = dest :: cond :: rest)
         (h_cond    : UInt256.isTrue cond)
         (h_bad     : Decode.isValidJumpDest s.executionEnv.code dest.toNat = false)
       : StepRunning s ({ s with halt := .Exception .BadJumpDestination })
 
-  /-- RETURNDATACOPY with `srcOffset + size > returnData.size`. -/
+  /-- RETURNDATACOPY with `srcOffset + size > returnData.size`. The
+      spec-mandated bound check happens right after the stack match,
+      before any memory/copy charging, so only the overflow guard, base
+      fee, and stack match precede it. -/
   | returndatacopyOob (s : State) (destOff srcOff sz : UInt256) (rest : List UInt256)
         (h_op      : s.decodedOp = some .RETURNDATACOPY)
+        (h_cap     : s.stack.length + Operation.pushArity .RETURNDATACOPY
+                       ≤ 1024 + Operation.popArity .RETURNDATACOPY)
         (h_gas     : Gas.baseCost s.fork .RETURNDATACOPY ≤ s.gasAvailable)
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
         (h_oob     : srcOff.toNat + sz.toNat > s.returnData.size)
