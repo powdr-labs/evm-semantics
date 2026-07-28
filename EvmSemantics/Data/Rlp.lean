@@ -1,5 +1,6 @@
 module
 
+meta import EvmSemantics.Tactic.Set
 public import EvmSemantics.Data.Bytes
 public import EvmSemantics.State.Account
 

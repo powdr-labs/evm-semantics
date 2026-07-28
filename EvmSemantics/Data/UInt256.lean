@@ -1,7 +1,5 @@
 module
 
-public import Mathlib.Data.Fin.Basic
-
 /-!
 `UInt256` — 256-bit unsigned EVM words.
 
@@ -112,7 +110,7 @@ def expFast (a b : UInt256) : UInt256 := ofNat (expAux (a.toNat % UInt256.size) 
     recursive step is just routine `mul_mod` / `pow_mod` shuffling. -/
 theorem expAux_modEq (base acc e : Nat) :
     expAux base acc e % size = (acc * base ^ e) % size := by
-  induction e using Nat.strong_induction_on generalizing base acc with
+  induction e using Nat.strongRecOn generalizing base acc with
   | _ e ih =>
     unfold expAux
     split

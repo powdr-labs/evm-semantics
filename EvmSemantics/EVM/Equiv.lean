@@ -1,5 +1,7 @@
 module
 
+meta import EvmSemantics.Tactic.Set
+meta import Batteries.Tactic.Init
 public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.StepF
 public import EvmSemantics.EVM.BigStep
@@ -2629,7 +2631,7 @@ private theorem exchange_eq_none_iff {α : Type _} (s : List α) (i j : Nat) :
       simp
       have h_i_lt : i < s.length := by
         by_contra h
-        push Not at h
+        simp only [Nat.not_lt] at h
         rw [List.getElem?_eq_none_iff.mpr h] at h₁
         cases h₁
       right
@@ -2638,12 +2640,12 @@ private theorem exchange_eq_none_iff {α : Type _} (s : List α) (i j : Nat) :
       simp
       have h_i_lt : i < s.length := by
         by_contra h
-        push Not at h
+        simp only [Nat.not_lt] at h
         rw [List.getElem?_eq_none_iff.mpr h] at h₁
         cases h₁
       have h_j_lt : j < s.length := by
         by_contra h
-        push Not at h
+        simp only [Nat.not_lt] at h
         rw [List.getElem?_eq_none_iff.mpr h] at h₂
         cases h₂
       omega
@@ -3991,7 +3993,7 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
                 omega
               rw [← hg] at h_fw
               refine mk_outOfGas h_dec h_stack h_cap
-                  (Or.inr (by simp only [State.oogReach, h_stack]; tauto))
+                  (Or.inr (by simp only [State.oogReach, h_stack]; grind))
                 (Gas.callCommitted s value argsOff argsLen retOff retLen toArg
                   + Gas.forwardGas s.fork
                       (s.gasAvailable
@@ -4005,7 +4007,7 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
             have h_sc' : ¬ surch ≤ s.gasAvailable - base - md := by
               simpa [State.consumeGas, State.consumeMemExp2, ← hmd] using h_sc
             refine mk_outOfGas h_dec h_stack h_cap
-                (Or.inr (by simp only [State.oogReach, h_stack]; tauto))
+                (Or.inr (by simp only [State.oogReach, h_stack]; grind))
               (Gas.callCommitted s value argsOff argsLen retOff retLen toArg)
               (by rw [totalCost_call h_stack]; exact Nat.le_add_right _ _) ?_
             rw [h_comm_eq]
@@ -4025,7 +4027,7 @@ theorem system_sound_error (s : State) (op : Operation.SystemOps)
                        MachineState.memExpansionDelta2, ← hbase, ← hmd] at h_mem
             exact h_mem
           refine mk_outOfGas h_dec h_stack h_cap
-              (Or.inr (by simp only [State.oogReach, h_stack]; tauto))
+              (Or.inr (by simp only [State.oogReach, h_stack]; grind))
               (base + md)
             (by rw [totalCost_call h_stack]
                 exact Nat.le_trans (Nat.le_add_right _ _) (Nat.le_add_right _ _)) ?_

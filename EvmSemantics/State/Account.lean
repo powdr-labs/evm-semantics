@@ -1,5 +1,6 @@
 module
 
+public import Std.Data.HashMap
 public import EvmSemantics.Data.UInt256
 
 /-!
