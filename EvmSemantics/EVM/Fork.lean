@@ -36,6 +36,7 @@ structure PrecompileConfig where
 
 namespace PrecompileConfig
 
+/-- Returns whether an execution profile disables a native precompile address. -/
 @[inline] def disables (config : PrecompileConfig) (addr : AccountAddress) : Bool :=
   config.disabled.any (· == addr)
 
