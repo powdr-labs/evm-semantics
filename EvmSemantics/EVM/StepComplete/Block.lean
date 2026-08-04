@@ -31,7 +31,7 @@ theorem complete_blockhash (s : State) (n : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .BLOCKHASH
                      ≤ 1024 + Operation.popArity .BLOCKHASH)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -51,7 +51,7 @@ theorem complete_coinbase (s : State)
         (h_gas     : Gas.baseCost s.fork .COINBASE ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -71,7 +71,7 @@ theorem complete_timestamp (s : State)
         (h_gas     : Gas.baseCost s.fork .TIMESTAMP ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -91,7 +91,7 @@ theorem complete_number (s : State)
         (h_gas     : Gas.baseCost s.fork .NUMBER ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -111,7 +111,7 @@ theorem complete_prevrandao (s : State)
         (h_gas     : Gas.baseCost s.fork .PREVRANDAO ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -131,7 +131,7 @@ theorem complete_gaslimit (s : State)
         (h_gas     : Gas.baseCost s.fork .GASLIMIT ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -151,7 +151,7 @@ theorem complete_chainid (s : State)
         (h_gas     : Gas.baseCost s.fork .CHAINID ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -171,7 +171,7 @@ theorem complete_selfbalance (s : State)
         (h_gas     : Gas.baseCost s.fork .SELFBALANCE ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -191,7 +191,7 @@ theorem complete_basefee (s : State)
         (h_gas     : Gas.baseCost s.fork .BASEFEE ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -214,7 +214,7 @@ theorem complete_blobhash (s : State) (i : UInt256) (rest : List UInt256) (h : U
         (h_cap   : s.stack.length + Operation.pushArity .BLOBHASH
                      ≤ 1024 + Operation.popArity .BLOBHASH)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -237,7 +237,7 @@ theorem complete_blobhash_oob (s : State) (i : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .BLOBHASH
                      ≤ 1024 + Operation.popArity .BLOBHASH)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -257,7 +257,7 @@ theorem complete_blobbasefee (s : State)
         (h_gas     : Gas.baseCost s.fork .BLOBBASEFEE ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with

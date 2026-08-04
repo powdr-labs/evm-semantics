@@ -48,7 +48,7 @@ theorem stepF_eq_error {s : State} {e : ExecutionException}
 theorem stepFE_dispatch {s : State} {op : Operation}
     {argOpt : Option (UInt256 × Nat)}
     (h_run : s.halt = .Running)
-    (h_np : Precompile.isPrecompile s.executionEnv.fork
+    (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
               s.executionEnv.codeAddr = false)
     (h_dec : s.decoded = some (op, argOpt))
     (h_cap : s.stack.length + op.pushArity ≤ 1024 + op.popArity)
@@ -95,7 +95,7 @@ theorem stepFE_dispatch {s : State} {op : Operation}
     decode: `InvalidInstruction`. -/
 theorem stepFE_decodeNone {s : State}
     (h_run : s.halt = .Running)
-    (h_np : Precompile.isPrecompile s.executionEnv.fork
+    (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
               s.executionEnv.codeAddr = false)
     (h_none : s.decoded = none) :
     stepFE s = .error .InvalidInstruction := by
@@ -110,7 +110,7 @@ theorem stepFE_decodeNone {s : State}
 theorem stepFE_overflow {s : State} {op : Operation}
     {argOpt : Option (UInt256 × Nat)}
     (h_run : s.halt = .Running)
-    (h_np : Precompile.isPrecompile s.executionEnv.fork
+    (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
               s.executionEnv.codeAddr = false)
     (h_dec : s.decoded = some (op, argOpt))
     (h_over : s.stack.length + op.pushArity > 1024 + op.popArity) :
@@ -127,7 +127,7 @@ theorem stepFE_overflow {s : State} {op : Operation}
 theorem stepFE_baseOog {s : State} {op : Operation}
     {argOpt : Option (UInt256 × Nat)}
     (h_run : s.halt = .Running)
-    (h_np : Precompile.isPrecompile s.executionEnv.fork
+    (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
               s.executionEnv.codeAddr = false)
     (h_dec : s.decoded = some (op, argOpt))
     (h_cap : s.stack.length + op.pushArity ≤ 1024 + op.popArity)

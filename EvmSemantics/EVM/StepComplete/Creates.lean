@@ -23,7 +23,7 @@ theorem complete_return_ (s : State) (offset size : UInt256) (rest : List UInt25
         (h_cap   : s.stack.length + Operation.pushArity .RETURN
                      ≤ 1024 + Operation.popArity .RETURN)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -62,7 +62,7 @@ theorem complete_revert (s : State) (offset size : UInt256) (rest : List UInt256
         (h_cap   : s.stack.length + Operation.pushArity .REVERT
                      ≤ 1024 + Operation.popArity .REVERT)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -103,7 +103,7 @@ theorem complete_createStatic (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE
                      ≤ 1024 + Operation.popArity .CREATE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
@@ -128,7 +128,7 @@ theorem complete_createFail (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE
                      ≤ 1024 + Operation.popArity .CREATE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -183,7 +183,7 @@ theorem complete_createCollision (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE
                      ≤ 1024 + Operation.popArity .CREATE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -238,7 +238,7 @@ theorem complete_create (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE
                      ≤ 1024 + Operation.popArity .CREATE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with
@@ -281,7 +281,7 @@ theorem complete_create2Static (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE2
                      ≤ 1024 + Operation.popArity .CREATE2)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
@@ -306,7 +306,7 @@ theorem complete_create2Fail (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE2
                      ≤ 1024 + Operation.popArity .CREATE2)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -363,7 +363,7 @@ theorem complete_create2Collision (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE2
                      ≤ 1024 + Operation.popArity .CREATE2)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -424,7 +424,7 @@ theorem complete_create2 (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CREATE2
                      ≤ 1024 + Operation.popArity .CREATE2)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with
@@ -474,7 +474,7 @@ theorem complete_selfDestructStatic (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .SELFDESTRUCT
                      ≤ 1024 + Operation.popArity .SELFDESTRUCT)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
@@ -495,7 +495,7 @@ theorem complete_selfDestruct (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .SELFDESTRUCT
                      ≤ 1024 + Operation.popArity .SELFDESTRUCT)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with gasAvailable := s.gasAvailable - Gas.selfDestructTotal s beneficiary

@@ -1,5 +1,7 @@
 module
 
+public import EvmSemantics.State.Account
+
 /-!
 `Fork` — the EVM hard-fork version against which gas costs (and any
 fork-conditional semantics) are computed. Threaded through the
@@ -23,6 +25,21 @@ below via the standard `LE` / `LT` / `Decidable` instances.
 @[expose] public section
 
 namespace EvmSemantics
+
+/-- Execution-level overrides for the canonical fork precompile set.
+
+    `Fork` remains the Ethereum hard-fork schedule. This profile hook lets
+    embedders disable a native precompile without inventing a fake fork. -/
+structure PrecompileConfig where
+  /-- Addresses that execute as ordinary accounts, not native precompiles. -/
+  disabled : List AccountAddress := []
+
+namespace PrecompileConfig
+
+@[inline] def disables (config : PrecompileConfig) (addr : AccountAddress) : Bool :=
+  config.disabled.any (· == addr)
+
+end PrecompileConfig
 
 /-- The EVM hard-fork version. Listed in canonical activation order.
 

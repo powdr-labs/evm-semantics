@@ -61,6 +61,8 @@ structure ExecutionEnv where
   /-- EVM hard-fork version against which gas costs and any
       fork-conditional semantics are computed. -/
   fork                : Fork
+  /-- Execution-level precompile overrides, inherited by child frames. -/
+  precompileConfig    : PrecompileConfig := {}
   deriving Inhabited
 
 end EvmSemantics
