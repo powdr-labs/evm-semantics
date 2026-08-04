@@ -2301,7 +2301,8 @@ inductive Step : State → State → Prop
       per-opcode logic encoded by `StepRunning`, plus the explicit
       `s.halt = .Running` guard (so `not_from_done` rules out successors
       from done states) and the **precompile gate**
-      `Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr
+      `Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig
+        s.executionEnv.fork s.executionEnv.codeAddr
       = false` (so a precompile-frame state cannot derive a bytecode
       transition — only the `precompile*` constructors below fire for
       it). The gate is what makes the bytecode and precompile sides
@@ -2310,7 +2311,8 @@ inductive Step : State → State → Prop
       shape. -/
   | running : ∀ {s s' : State},
                 s.halt = .Running →
-                Precompile.isPrecompile s.executionEnv.fork
+                Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig
+                    s.executionEnv.fork
                     s.executionEnv.codeAddr = false →
                 StepRunning s s' → Step s s'
   /-- YP §9 precompile dispatch (success arm). Fires when the frame's
@@ -2323,9 +2325,10 @@ inductive Step : State → State → Prop
       gas refund. -/
   | precompileSuccess (s : State) (output : ByteArray) (gasUsed : Nat)
         (h_running : s.halt = .Running)
-        (h_isPrec  : Precompile.isPrecompile s.executionEnv.fork
+        (h_isPrec  : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig
+                        s.executionEnv.fork
                         s.executionEnv.codeAddr = true)
-        (h_prec    : Precompile.run s.executionEnv.fork
+        (h_prec    : Precompile.runWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                       s.executionEnv.codeAddr s.executionEnv.calldata
                       s.gasAvailable h_isPrec
                     = .success output gasUsed)
@@ -2343,9 +2346,10 @@ inductive Step : State → State → Prop
       pushes `0` on the caller's stack. -/
   | precompileOog (s : State)
         (h_running : s.halt = .Running)
-        (h_isPrec  : Precompile.isPrecompile s.executionEnv.fork
+        (h_isPrec  : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig
+                        s.executionEnv.fork
                         s.executionEnv.codeAddr = true)
-        (h_prec    : Precompile.run s.executionEnv.fork
+        (h_prec    : Precompile.runWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                       s.executionEnv.codeAddr s.executionEnv.calldata
                       s.gasAvailable h_isPrec
                     = .outOfGas)

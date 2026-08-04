@@ -67,7 +67,7 @@ theorem complete_stackUnderflow (s : State) (op : Operation)
         (h_reach   : s.underflowReach op)
         (h_under   : s.stack.length < op.popArity)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StackUnderflow })
     := by

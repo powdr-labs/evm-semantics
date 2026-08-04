@@ -223,7 +223,7 @@ theorem complete_outOfGas (s : State) (op : Operation) (cost : Nat)
         (h_cost_ub  : cost ≤ Gas.totalCost s op)
         (h_gas      : s.gasAvailable < cost)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .OutOfGas })
     := by

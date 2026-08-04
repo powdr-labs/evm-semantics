@@ -23,7 +23,7 @@ theorem complete_pop (s : State) (a : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .POP
                      ≤ 1024 + Operation.popArity .POP)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -45,7 +45,7 @@ theorem complete_mload (s : State) (offset : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .MLOAD
                      ≤ 1024 + Operation.popArity .MLOAD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -80,7 +80,7 @@ theorem complete_mstore (s : State) (offset value : UInt256) (rest : List UInt25
         (h_cap   : s.stack.length + Operation.pushArity .MSTORE
                      ≤ 1024 + Operation.popArity .MSTORE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -117,7 +117,7 @@ theorem complete_mstore8 (s : State) (offset value : UInt256) (rest : List UInt2
         (h_cap   : s.stack.length + Operation.pushArity .MSTORE8
                      ≤ 1024 + Operation.popArity .MSTORE8)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -153,7 +153,7 @@ theorem complete_msize (s : State)
         (h_gas     : Gas.baseCost s.fork .MSIZE ≤ s.gasAvailable)
         (h_cap     : s.stack.length < 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -176,7 +176,7 @@ theorem complete_mcopy (s : State) (destOff srcOff sz : UInt256) (rest : List UI
         (h_cap   : s.stack.length + Operation.pushArity .MCOPY
                      ≤ 1024 + Operation.popArity .MCOPY)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -226,7 +226,7 @@ theorem complete_sload (s : State) (key : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .SLOAD
                      ≤ 1024 + Operation.popArity .SLOAD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -258,7 +258,7 @@ theorem complete_sstore (s : State) (key value : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .SSTORE
                      ≤ 1024 + Operation.popArity .SSTORE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -311,7 +311,7 @@ theorem complete_tload (s : State) (key : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .TLOAD
                      ≤ 1024 + Operation.popArity .TLOAD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -334,7 +334,7 @@ theorem complete_tstore (s : State) (key value : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .TSTORE
                      ≤ 1024 + Operation.popArity .TSTORE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with

@@ -1046,10 +1046,12 @@ def stepFE (s : State) : Except ExecutionException State := Id.run do
     -- borrowed-from address ≠ `address`), and a transaction whose
     -- `to` is itself a precompile (where `buildInitState` sets
     -- `codeAddr := tx.recipient`).
-    match h_isPrec : Precompile.isPrecompile s.executionEnv.fork
+    match h_isPrec : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig
+                       s.executionEnv.fork
                        s.executionEnv.codeAddr with
     | true =>
-      match Precompile.run s.executionEnv.fork s.executionEnv.codeAddr
+      match Precompile.runWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
+              s.executionEnv.codeAddr
               s.executionEnv.calldata s.gasAvailable h_isPrec with
       | .success out gasUsed =>
         .ok { s with

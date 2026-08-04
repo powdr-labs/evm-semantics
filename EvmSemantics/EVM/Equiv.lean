@@ -4983,7 +4983,8 @@ private theorem Operation.pushArity_le_1024 (op : Operation) :
 private theorem stepFE_sound_error' (s : State) (e : ExecutionException)
     (h : stepFE s = .error e) :
     s.halt = .Running ∧
-    Precompile.isPrecompile s.executionEnv.fork s.executionEnv.codeAddr = false ∧
+    Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig
+      s.executionEnv.fork s.executionEnv.codeAddr = false ∧
     StepRunning s ({ s with halt := .Exception e }) := by
   unfold stepFE at h
   simp only [Id.run] at h

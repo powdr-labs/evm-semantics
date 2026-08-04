@@ -19,7 +19,7 @@ namespace StepComplete
 theorem complete_decodeFailure (s : State)
         (h_none    : s.decoded = none)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .InvalidInstruction })
     := by
@@ -31,7 +31,7 @@ theorem complete_invalidOpcode (s : State)
         (h_cap     : s.stack.length + Operation.pushArity .INVALID
                        ≤ 1024 + Operation.popArity .INVALID)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .InvalidInstruction })
     := by
@@ -57,7 +57,7 @@ theorem complete_initCodeSizeOog (s : State) (op : Operation)
         (h_perm     : s.executionEnv.permitStateMutation = true)
         (h_large    : Gas.initCodeTooLarge s.fork size.toNat = true)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .OutOfGas })
     := by
@@ -84,7 +84,7 @@ theorem complete_stackOverflow (s : State) (op : Operation)
         (h_pop_ok  : op.popArity ≤ s.stack.length)
         (h_over    : s.stack.length - op.popArity + op.pushArity > 1024)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StackOverflow })
     := by
@@ -101,7 +101,7 @@ theorem complete_staticModeViolation (s : State) (op : Operation)
         (h_reach   : s.staticReach op)
         (h_perm    : s.executionEnv.permitStateMutation = false)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
@@ -166,7 +166,7 @@ theorem complete_jumpBadDest (s : State) (dest : UInt256) (rest : List UInt256)
         (h_stack   : s.stack = dest :: rest)
         (h_bad     : Decode.isValidJumpDest s.executionEnv.code dest.toNat = false)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .BadJumpDestination })
     := by
@@ -186,7 +186,7 @@ theorem complete_jumpiBadDest (s : State) (dest cond : UInt256) (rest : List UIn
         (h_cond    : UInt256.isTrue cond)
         (h_bad     : Decode.isValidJumpDest s.executionEnv.code dest.toNat = false)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .BadJumpDestination })
     := by
@@ -205,7 +205,7 @@ theorem complete_returndatacopyOob (s : State) (destOff srcOff sz : UInt256) (re
         (h_stack   : s.stack = destOff :: srcOff :: sz :: rest)
         (h_oob     : srcOff.toNat + sz.toNat > s.returnData.size)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .InvalidMemoryAccess })
     := by

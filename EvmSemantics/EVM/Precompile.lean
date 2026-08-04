@@ -731,6 +731,22 @@ def isPrecompile (fork : Fork) (addr : AccountAddress) : Bool :=
        addr = blsMapFpToG1Address || addr = blsMapFp2ToG2Address)) ||
     (fork ≥ .Osaka && addr = p256VerifyAddress)
 
+/-- Fork-aware precompile membership with execution-level overrides.
+
+    The canonical `isPrecompile` predicate is intentionally unchanged.  A
+    caller that needs to model a replacement environment can disable selected
+    addresses without changing the hard-fork gas schedule. -/
+def isPrecompileWithConfig (config : PrecompileConfig) (fork : Fork)
+    (addr : AccountAddress) : Bool :=
+  !config.disables addr && isPrecompile fork addr
+
+theorem isPrecompile_of_isPrecompileWithConfig
+    (config : PrecompileConfig) (fork : Fork) (addr : AccountAddress)
+    (h : isPrecompileWithConfig config fork addr = true) :
+    isPrecompile fork addr = true := by
+  simp [isPrecompileWithConfig] at h ⊢
+  exact h.2
+
 /-- Run a precompile. Total only on the subset
     `isPrecompile fork addr = true`; the hypothesis `h` discharges
     totality by guaranteeing one of the branches below matches.
@@ -786,6 +802,14 @@ def run (fork : Fork) (addr : AccountAddress)
                                      h_add, h_mul, h_pair, h_bl, h_kzg,
                                      h_bg1, h_bm1, h_bg2, h_bm2, h_bp,
                                      h_mf1, h_mf2, h_p256])
+
+/-- Configured counterpart of `run`, used by the executable and relational
+    EVM semantics when an execution profile disables native precompiles. -/
+def runWithConfig (config : PrecompileConfig) (fork : Fork) (addr : AccountAddress)
+    (input : ByteArray) (childGas : Nat)
+    (h : isPrecompileWithConfig config fork addr = true) : Result :=
+  run fork addr input childGas
+    (isPrecompile_of_isPrecompileWithConfig config fork addr h)
 
 end Precompile
 end EVM

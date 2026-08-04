@@ -60,7 +60,7 @@ theorem stepFE_resume {s : State} {f : Frame} {rest : List Frame}
     of a running, non-precompile frame is exactly the `stepF` step. -/
 theorem stepRunning_complete {s s' : State}
     (h_run : s.halt = .Running)
-    (h_np : Precompile.isPrecompile s.executionEnv.fork
+    (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
               s.executionEnv.codeAddr = false)
     (h : StepRunning s s') :
     stepF s = s' := by
@@ -375,7 +375,7 @@ theorem step_complete {s s' : State} (h : Step s s') : stepF s = s' := by
     simp only [Id.run, h_run]
     split
     · rename_i hp
-      have h_prec' : Precompile.run s.executionEnv.fork s.executionEnv.codeAddr
+      have h_prec' : Precompile.runWithConfig s.executionEnv.precompileConfig s.executionEnv.fork s.executionEnv.codeAddr
           s.executionEnv.calldata s.gasAvailable hp = .success out gasUsed := h_prec
       simp only [h_prec']
     · rename_i hp; rw [h_isPrec] at hp; cases hp
@@ -385,7 +385,7 @@ theorem step_complete {s s' : State} (h : Step s s') : stepF s = s' := by
     simp only [Id.run, h_run]
     split
     · rename_i hp
-      have h_prec' : Precompile.run s.executionEnv.fork s.executionEnv.codeAddr
+      have h_prec' : Precompile.runWithConfig s.executionEnv.precompileConfig s.executionEnv.fork s.executionEnv.codeAddr
           s.executionEnv.calldata s.gasAvailable hp = .outOfGas := h_prec
       simp only [h_prec']
     · rename_i hp; rw [h_isPrec] at hp; cases hp

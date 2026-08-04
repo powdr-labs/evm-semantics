@@ -23,7 +23,7 @@ theorem complete_add (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .ADD
                      ≤ 1024 + Operation.popArity .ADD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -45,7 +45,7 @@ theorem complete_mul (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .MUL
                      ≤ 1024 + Operation.popArity .MUL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -67,7 +67,7 @@ theorem complete_sub (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .SUB
                      ≤ 1024 + Operation.popArity .SUB)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -89,7 +89,7 @@ theorem complete_div (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .DIV
                      ≤ 1024 + Operation.popArity .DIV)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -111,7 +111,7 @@ theorem complete_sdiv (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .SDIV
                      ≤ 1024 + Operation.popArity .SDIV)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -133,7 +133,7 @@ theorem complete_mod (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .MOD
                      ≤ 1024 + Operation.popArity .MOD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -155,7 +155,7 @@ theorem complete_smod (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .SMOD
                      ≤ 1024 + Operation.popArity .SMOD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -177,7 +177,7 @@ theorem complete_addmod (s : State) (a b n : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .ADDMOD
                      ≤ 1024 + Operation.popArity .ADDMOD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -199,7 +199,7 @@ theorem complete_mulmod (s : State) (a b n : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .MULMOD
                      ≤ 1024 + Operation.popArity .MULMOD)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -221,7 +221,7 @@ theorem complete_exp (s : State) (a b : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .EXP
                      ≤ 1024 + Operation.popArity .EXP)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -251,7 +251,7 @@ theorem complete_signextend (s : State) (b x : UInt256) (rest : List UInt256)
         (h_cap   : s.stack.length + Operation.pushArity .SIGNEXTEND
                      ≤ 1024 + Operation.popArity .SIGNEXTEND)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -271,7 +271,7 @@ theorem complete_stop (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .STOP
                      ≤ 1024 + Operation.popArity .STOP)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = { s with halt := .Success, hReturn := .empty }
     := by

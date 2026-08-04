@@ -23,7 +23,7 @@ theorem complete_keccak256 (s : State) (offset size : UInt256) (rest : List UInt
         (h_cap   : s.stack.length + Operation.pushArity .KECCAK256
                      ≤ 1024 + Operation.popArity .KECCAK256)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -68,7 +68,7 @@ theorem complete_calldatacopy (s : State) (destOff srcOff sz : UInt256) (rest : 
         (h_cap   : s.stack.length + Operation.pushArity .CALLDATACOPY
                      ≤ 1024 + Operation.popArity .CALLDATACOPY)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -114,7 +114,7 @@ theorem complete_codecopy (s : State) (destOff srcOff sz : UInt256) (rest : List
         (h_cap   : s.stack.length + Operation.pushArity .CODECOPY
                      ≤ 1024 + Operation.popArity .CODECOPY)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -160,7 +160,7 @@ theorem complete_extcodecopy (s : State) (addr destOff srcOff sz : UInt256) (res
         (h_cap   : s.stack.length + Operation.pushArity .EXTCODECOPY
                      ≤ 1024 + Operation.popArity .EXTCODECOPY)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with
@@ -213,7 +213,7 @@ theorem complete_returndatacopy (s : State) (destOff srcOff sz : UInt256) (rest 
         (h_cap   : s.stack.length + Operation.pushArity .RETURNDATACOPY
                      ≤ 1024 + Operation.popArity .RETURNDATACOPY)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           { s with

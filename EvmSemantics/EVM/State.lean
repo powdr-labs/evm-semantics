@@ -292,7 +292,8 @@ def calleeEnvForCall (sc : State) (tgt : AccountAddress) (codeAddr : AccountAddr
     depth                := sc.executionEnv.depth + 1
     permitStateMutation  := sc.executionEnv.permitStateMutation
     blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
-    fork                 := sc.executionEnv.fork }
+    fork                 := sc.executionEnv.fork
+    precompileConfig     := sc.executionEnv.precompileConfig }
 
 /-- EIP-7702 (Prague+) delegate address for a CALL-family target `tgt`: the
     address `tgt`'s delegation designator points to, if any; `none` otherwise
@@ -462,7 +463,8 @@ def calleeEnvFor (sc : State) (kind : CallKind) (tgt : AccountAddress)
     depth                := sc.executionEnv.depth + 1
     permitStateMutation  := kind.calleePermit sc
     blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
-    fork                 := sc.executionEnv.fork }
+    fork                 := sc.executionEnv.fork
+    precompileConfig     := sc.executionEnv.precompileConfig }
 
 /-- Generalised `enterCall`, parameterised over `CallKind`. Used by the
     `Step.delegatecall` / `Step.staticcall` constructors (and could be
@@ -594,7 +596,8 @@ def calleeEnvForCreate (sc : State) (newAddr : AccountAddress)
     depth                := sc.executionEnv.depth + 1
     permitStateMutation  := sc.executionEnv.permitStateMutation
     blobVersionedHashes  := sc.executionEnv.blobVersionedHashes
-    fork                 := sc.executionEnv.fork }
+    fork                 := sc.executionEnv.fork
+    precompileConfig     := sc.executionEnv.precompileConfig }
 
 /-- Enter a CREATE/CREATE2 init-code sub-frame. `sc` is the caller state
     after the static + memory + base-gas deductions; `rest` is the

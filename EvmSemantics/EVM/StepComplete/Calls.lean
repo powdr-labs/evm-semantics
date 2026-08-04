@@ -28,7 +28,7 @@ theorem complete_callStatic (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CALL
                      ≤ 1024 + Operation.popArity .CALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s = ({ s with halt := .Exception .StaticModeViolation })
     := by
@@ -67,7 +67,7 @@ theorem complete_call (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CALL
                      ≤ 1024 + Operation.popArity .CALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with
@@ -163,7 +163,7 @@ theorem complete_callFail (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CALL
                      ≤ 1024 + Operation.popArity .CALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           ({ s with
@@ -238,7 +238,7 @@ theorem complete_callcode (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CALLCODE
                      ≤ 1024 + Operation.popArity .CALLCODE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with
@@ -313,7 +313,7 @@ theorem complete_callcodeFail (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .CALLCODE
                      ≤ 1024 + Operation.popArity .CALLCODE)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           ({ s with
@@ -385,7 +385,7 @@ theorem complete_delegatecall (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .DELEGATECALL
                      ≤ 1024 + Operation.popArity .DELEGATECALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with
@@ -458,7 +458,7 @@ theorem complete_delegatecallFail (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .DELEGATECALL
                      ≤ 1024 + Operation.popArity .DELEGATECALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           ({ s with
@@ -527,7 +527,7 @@ theorem complete_staticcall (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .STATICCALL
                      ≤ 1024 + Operation.popArity .STATICCALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           (({ s with
@@ -600,7 +600,7 @@ theorem complete_staticcallFail (s : State)
         (h_cap   : s.stack.length + Operation.pushArity .STATICCALL
                      ≤ 1024 + Operation.popArity .STATICCALL)
         (h_run : s.halt = .Running)
-        (h_np : Precompile.isPrecompile s.executionEnv.fork
+        (h_np : Precompile.isPrecompileWithConfig s.executionEnv.precompileConfig s.executionEnv.fork
                   s.executionEnv.codeAddr = false) :
     stepF s =
           ({ s with
