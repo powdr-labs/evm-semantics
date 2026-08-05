@@ -35,9 +35,9 @@ structure LogEntry where
 abbrev LogSeries := Array LogEntry
 
 /-- A set of addresses, as a predicate. Used for the reasoning-oriented
-    `selfDestructSet` / `touchedAccounts` fields (membership `s a`). The
-    EIP-2929 warm sets below instead use computable `List`s, since `stepF`
-    must *decide* warmth to pick the cold-vs-warm gas price. -/
+    `selfDestructSet` field (membership `s a`). The EIP-2929 warm sets
+    below instead use computable `List`s, since `stepF` must *decide*
+    warmth to pick the cold-vs-warm gas price. -/
 abbrev AddressSet : Type := AccountAddress → Prop
 
 namespace AddressSet
@@ -58,10 +58,16 @@ def insert (S : AddressSet) (a : AccountAddress) : AddressSet :=
 end AddressSet
 
 /-- The accrued substate `A` (Yellow Paper §6.1) tracked across an
-    execution: addresses self-destructed, addresses touched, refund
-    counter, accessed-account / accessed-storage-key sets (EIP-2929),
-    in-order log series, and a snapshot of the storage at frame start
-    used by SSTORE to look up the "original" value (EIP-1283 / EIP-2200). -/
+    execution: addresses self-destructed, refund counter, accessed-account
+    / accessed-storage-key sets (EIP-2929), in-order log series, and a
+    snapshot of the storage at frame start used by SSTORE to look up the
+    "original" value (EIP-1283 / EIP-2200).
+
+    The YP's touched-account set `Aₜ` is intentionally *not* tracked here:
+    its only consumer, EIP-161 touched-empty pruning, is instead computed
+    at state-root time by `AccountMap.stateRoot` from a `wasInPreState`
+    predicate (an empty account absent from the pre-state was necessarily
+    created — hence touched — during the tx). -/
 structure Substate where
   /-- `Aₛ` — addresses scheduled to be deleted at the end of the transaction. -/
   selfDestructSet     : AddressSet
@@ -73,8 +79,6 @@ structure Substate where
       if `selfDestructTo` fires twice on the same account; the cleanup
       is idempotent (set-to-empty), so duplicates are harmless. -/
   selfDestructList    : Array AccountAddress
-  /-- `Aₜ` — addresses that have been "touched" (read or written). -/
-  touchedAccounts     : AddressSet
   /-- `Aᵣ` — refund counter accumulated from `SSTORE` clears. -/
   refundBalance       : UInt256
   /-- `Aₐ` — accounts already accessed in this transaction (EIP-2929 warm
@@ -100,7 +104,6 @@ namespace Substate
 def empty : Substate :=
   { selfDestructSet     := AddressSet.empty
     selfDestructList    := #[]
-    touchedAccounts     := AddressSet.empty
     refundBalance       := ⟨0⟩
     accessedAccounts    := []
     accessedStorageKeys := []
