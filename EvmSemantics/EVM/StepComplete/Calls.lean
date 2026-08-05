@@ -1,5 +1,6 @@
 module
 
+meta import EvmSemantics.Tactic.SplitIfs
 public import EvmSemantics.EVM.StepComplete.Dispatch
 
 /-!
@@ -99,7 +100,7 @@ theorem complete_call (s : State)
           · simp +decide [ State.consumeGas, State.consumeMemExp2,
               State.activeWordsAfterUInt256_2, Gas.callCommitted,
               MachineState.memExpansionDelta2, State.callTargetCode, State.delegateOf ];
-            congr! 1; all_goals grind;
+            congr 1; all_goals grind;
           · simp +decide [ State.consumeMemExp2, State.consumeGas ] at * ; omega;
         · simp +decide [ State.consumeMemExp2, State.consumeGas ] at *;
           unfold Gas.callCommitted at *; simp_all +decide [ Nat.sub_sub ] ;
@@ -115,16 +116,13 @@ theorem complete_call (s : State)
           · simp +decide [ State.consumeGas, State.consumeMemExp2,
               State.activeWordsAfterUInt256_2, Gas.callCommitted,
               MachineState.memExpansionDelta2, State.callTargetCode, State.delegateOf ];
-            congr! 1;
+            congr 1;
             · grind;
             · grind;
           · simp +decide [ State.consumeMemExp2, State.consumeGas ] at * ; omega;
-        · convert h_afford using 1;
-          · unfold Gas.callCommitted; simp +decide [ State.consumeGas, State.consumeMemExp2 ] ;
-            unfold MachineState.memExpansionDelta2; simp +decide [ Nat.sub_sub ] ;
-          · simp +decide [ State.consumeMemExp2, Gas.callCommitted ];
-            simp +decide [ State.consumeGas, MachineState.memExpansionDelta2 ];
-            grind +splitImp;
+        · simp +decide [ State.consumeGas, State.consumeMemExp2, Gas.callCommitted,
+              MachineState.memExpansionDelta2, Nat.sub_sub ] at h_afford ⊢;
+          grind +splitImp;
       · simp +decide [ State.consumeMemExp2, State.consumeGas ] at *;
         simp +decide [ Gas.callCommitted ] at *;
         simp +decide [ MachineState.memExpansionDelta2 ] at *;

@@ -1,6 +1,5 @@
 module
 
-import Mathlib.Tactic.Linter.Style
 public import Batteries.Tactic.Lint.Misc
 public import Batteries.Tactic.Lint.Simp
 public import EvmSemantics.EVM.Fork

@@ -1,5 +1,6 @@
 module
 
+meta import EvmSemantics.Tactic.SplitIfs
 public import EvmSemantics.EVM.StepComplete.Dispatch
 
 /-!

@@ -1,5 +1,6 @@
 module
 
+public import Std.Data.HashSet
 public import EvmSemantics.Data.UInt256
 public import EvmSemantics.State.Account
 public import EvmSemantics.State.BlockHeader
