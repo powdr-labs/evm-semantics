@@ -193,7 +193,7 @@ theorem complete_jumpi_notTaken (s : State) (dest cond : UInt256) (rest : List U
   refine stepF_eq_ok ?_
   rw [stepFE_dispatch h_run h_np h_dec h_cap h_gas]
   simp only [stepF.stackMemFlow, h_stack]
-  rw [if_pos (not_not.mp h_cond)]
+  rw [if_pos (Decidable.not_not.mp h_cond)]
   rfl
 
 /-- Completeness for `StepRunning.pc`. -/

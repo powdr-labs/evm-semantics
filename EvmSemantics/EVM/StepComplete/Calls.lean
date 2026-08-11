@@ -3,6 +3,8 @@ module
 meta import EvmSemantics.Tactic.SplitIfs
 public import EvmSemantics.EVM.StepComplete.Dispatch
 
+set_option maxRecDepth 10000
+
 /-!
 `StepComplete.Calls` — completeness cases for the Calls constructors of
 `StepRunning`: each constructor's premises force `stepF` to compute
@@ -190,7 +192,11 @@ theorem complete_callFail (s : State)
   refine stepF_eq_ok ?_
   rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
   simp only [stepF.system, h_stack]
-  rw [if_neg (by rintro ⟨hp, hv⟩; rcases h_static with h | h; exacts [hp h, hv h])]
+  rw [if_neg (by
+    rintro ⟨hp, hv⟩
+    rcases h_static with h | h
+    · exact hp h
+    · exact hv h)]
   have h_mem : (s.consumeGas (Gas.baseCost s.fork .CALL) h_base).canExpandMemory2
       argsOff.toNat argsLen.toNat retOff.toNat retLen.toNat := by
     simp only [State.canExpandMemory2, State.consumeGas]; rw [hC] at h_gas; omega
