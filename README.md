@@ -405,9 +405,25 @@ predicates on the exception rules — so from any state at most one
 exception *kind* is derivable, and success rules cannot fire where the
 executable would halt exceptionally. The per-constructor completeness
 cases live in `EVM/StepComplete/` (one file per opcode group, shared
-evaluation lemmas in `Dispatch.lean`); the axiom footprint of the
-headline theorems is pinned to `[propext, Classical.choice, Quot.sound]`
-by `#guard_msgs` checks, as in `Equiv.lean`.
+evaluation lemmas in `Dispatch.lean`).
+
+### What the theorems claim — `Checks.lean`
+
+`Checks.lean` at the repository root is the single place that names the
+headline theorems (`Checks.roots`) and pins each one's exact axiom
+footprint with `#guard_msgs in #print axioms`. The five roots come out at
+`[propext, Classical.choice, Quot.sound]` — Lean's three standard
+classical axioms, and notably not `sorryAx`. It is its own Lake target,
+so a plain `lake build` checks it.
+
+Note what those roots say. Each relates `Step` to `stepF`, both defined
+here, so they establish that the relational and executable views of this
+semantics are the same deterministic function — **not** that the
+semantics matches Ethereum. Nothing in this repository formalises the
+Yellow Paper, so that claim is not a theorem; it rests on the definitions
+being read by a human against the YP and the EIPs, and on the
+conformance suites above. `Checks.lean` documents that boundary
+explicitly.
 
 ## Reference and credits
 

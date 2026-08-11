@@ -64,7 +64,12 @@ jobs:
           # linters re-emit their diagnostics, then fail if any appear.
           rm -rf .lake/build
           set -o pipefail
-          lake build evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests 2>&1 | tee build.log
+          # `EvmSemantics` (the lib) is named explicitly: its second glob root,
+          # `EVM.StepDeterminism`, is proof-only and reachable from no exe, so
+          # building only the executables would skip the completeness layer —
+          # which is exactly how it went unnoticed that #141 broke it.
+          # `Checks` elaborates the pinned axiom footprints.
+          lake build EvmSemantics Checks evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests 2>&1 | tee build.log
           if grep -E "warning:" build.log; then
             echo "::error::Linter warnings detected — see the build log above."
             exit 1

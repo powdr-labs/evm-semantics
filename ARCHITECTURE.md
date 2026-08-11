@@ -35,6 +35,38 @@ in `EVM/StepComplete/`; the exception rules' priority premises
 guards in `EVM/Step.lean`) encode `stepF`'s check order, which is what
 makes the reported exception kind unique.
 
+`EVM/StepDeterminism.lean` is **proof-only**: nothing in the public API
+depends on it, so `EvmSemantics.lean` does not re-export it — importing
+~4.5k lines of proof term into every downstream olean would cost
+consumers a lot and buy them nothing. It is instead a second glob root of
+the `EvmSemantics` lib in `lakefile.toml`, which is what puts it in the
+build graph at all. That entry is load-bearing: before it existed, Lake
+owned no target containing the module, `lake build` skipped it silently,
+and it went unnoticed that the Mathlib removal (#141) had broken it —
+`le_trans`, `not_not` and `exacts` disappeared with Mathlib and Batteries'
+tactic frontend, and the whole completeness layer stopped compiling
+without any CI failing.
+
+## What is proved, and what is only asserted
+
+`Checks.lean` at the repository root names the headline theorems
+(`Checks.roots`) and pins each one's exact axiom footprint with
+`#guard_msgs in #print axioms`. It is its own Lake target, so an ordinary
+`lake build` elaborates it; a `sorry` (`sorryAx`) or a new `axiom`
+anywhere in a root's proof changes the printed message and fails the
+build.
+
+Read the roots' statements before their axiom lists. Every one relates
+`Step` to `stepF` — two definitions that both live in this repository —
+so what they establish is that the relational and executable views are
+the same deterministic function. **No theorem here compares `Step` to the
+Yellow Paper**, and none can, because the reference semantics is not
+formalised in this repository. The claim "this is the EVM" rests instead
+on the definitions themselves (`Step`'s constructors, `Gas.*`, `Decode`,
+`Precompile`, `Tx.execute` — asserted, read by a human against the YP and
+the EIPs) and on the differential conformance suites below. `Checks.lean`
+spells that division out; keeping it visible is the point of the file.
+
 ## Module layers
 
 Modules form a clean dependency stack — foundation → state → machine → EVM core

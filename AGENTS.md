@@ -249,8 +249,11 @@ shard — while INCON-tier regressions (walltimeout perf incons flapping
 under CPU load) stay warnings-only. A run with no parseable summary also
 fails its shard.
 
-1. Build `evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests`,
-   fail on any `warning:`.
+1. Build `EvmSemantics Checks evm_semantics vmtests statetests gstatetests txtests blockchaintests blockchaintests_engine rlptests trietests`,
+   fail on any `warning:`. The `EvmSemantics` **lib** is listed explicitly
+   because its second glob root, `EVM.StepDeterminism`, is proof-only and
+   reachable from no executable; building only the exes skips the whole
+   completeness layer. `Checks` elaborates the pinned axiom footprints.
 2. `lake lint`.
 3. VMTests on the full corpus — compares against
    `.github/vmtests-expected-failures.txt` (pinned to `CORPUS_REV`); a

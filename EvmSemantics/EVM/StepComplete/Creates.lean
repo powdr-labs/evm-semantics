@@ -39,7 +39,7 @@ theorem complete_return_ (s : State) (offset size : UInt256) (rest : List UInt25
       + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
       ≤ s.gasAvailable := h_gas
   have h_base : Gas.baseCost s.fork (.System .RETURN) ≤ s.gasAvailable :=
-    le_trans (Nat.le_add_right _ _) h_gas'
+    Nat.le_trans (Nat.le_add_right _ _) h_gas'
   have h_mem : (s.consumeGas (Gas.baseCost s.fork (.System .RETURN))
       h_base).canExpandMemory offset.toNat size.toNat := by
     show MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
@@ -78,7 +78,7 @@ theorem complete_revert (s : State) (offset size : UInt256) (rest : List UInt256
       + MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
       ≤ s.gasAvailable := h_gas
   have h_base : Gas.baseCost s.fork (.System .REVERT) ≤ s.gasAvailable :=
-    le_trans (Nat.le_add_right _ _) h_gas'
+    Nat.le_trans (Nat.le_add_right _ _) h_gas'
   have h_mem : (s.consumeGas (Gas.baseCost s.fork (.System .REVERT))
       h_base).canExpandMemory offset.toNat size.toNat := by
     show MachineState.memExpansionDelta s.activeWords.toNat offset.toNat size.toNat
@@ -199,7 +199,7 @@ theorem complete_createCollision (s : State)
     := by
   obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op
   have h_base : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable := by
-    exact le_trans ( Nat.le_add_right _ _ ) ( le_trans ( Nat.le_add_right _ _ ) h_gas )
+    exact Nat.le_trans ( Nat.le_add_right _ _ ) ( Nat.le_trans ( Nat.le_add_right _ _ ) h_gas )
   rw [stepF_eq_ok]
   rw [stepFE_dispatch h_run h_np h_dec h_cap h_base]
   simp +decide [ stepF.system, h_stack, h_perm, h_size ]
@@ -252,7 +252,7 @@ theorem complete_create (s : State)
     := by
   obtain ⟨argOpt, h_dec⟩ := State.decodedOp_some h_op;
   have h_base : Gas.baseCost s.fork .CREATE ≤ s.gasAvailable := by
-    exact le_trans ( Nat.le_add_right _ _ ) ( le_trans ( Nat.le_add_right _ _ ) h_gas );
+    exact Nat.le_trans ( Nat.le_add_right _ _ ) ( Nat.le_trans ( Nat.le_add_right _ _ ) h_gas );
   rw [stepF_eq_ok];
   rw [stepFE_dispatch h_run h_np h_dec h_cap h_base];
   simp +decide [ stepF.system, h_stack, h_perm, h_size ];

@@ -54,7 +54,7 @@ theorem stepFE_resume {s : State} {f : Frame} {rest : List Frame}
   simp only [Id.run]
   rcases hh : s.halt with _ | _ | _ | _ | e
   · exact absurd hh h_nr
-  all_goals simp only [hh, h_cs]
+  all_goals simp only [h_cs]
 
 /-- Completeness of the per-opcode layer: a `StepRunning` transition out
     of a running, non-precompile frame is exactly the `stepF` step. -/
@@ -408,20 +408,10 @@ theorem step_iff_stepF {s s' : State} (h_nd : ¬ s.isDone) :
 /-!
 ### Axiom-footprint guard
 
-Same discipline as `Equiv.lean`: pin the axioms of the headline theorems
-so a stray `sorry` (a build *warning*) or a new `axiom` (no warning at
-all) turns into a hard build error.
+`step_complete`, `step_deterministic` and `step_iff_stepF` are declared
+headline theorems: they are named in `Checks.roots` and their axiom
+footprint is pinned there. See `Checks.lean` at the repository root.
 -/
-
-/-- info: 'EvmSemantics.EVM.step_complete' depends on axioms: [propext, Classical.choice,
-Quot.sound] -/
-#guard_msgs in
-#print axioms step_complete
-
-/-- info: 'EvmSemantics.EVM.step_deterministic' depends on axioms: [propext, Classical.choice,
-Quot.sound] -/
-#guard_msgs in
-#print axioms step_deterministic
 
 end EVM
 end EvmSemantics
