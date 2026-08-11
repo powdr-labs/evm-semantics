@@ -1,6 +1,6 @@
 name = "evm_semantics"
 version = "0.1.0"
-defaultTargets = ["evm_semantics"]
+defaultTargets = ["evm_semantics", "Checks"]
 
 # `autoImplicit` (and its relaxed variant) are disabled so a typo in a
 # theorem or constructor statement becomes an elaboration error instead
@@ -19,7 +19,7 @@ leanOptions = { autoImplicit = false, relaxedAutoImplicit = false }
 # docs, ...) on every declaration whose root namespace matches the
 # argument.
 lintDriver = "batteries/runLinter"
-lintDriverArgs = ["EvmSemantics"]
+lintDriverArgs = ["EvmSemantics", "EvmSemantics.EVM.StepDeterminism"]
 
 # Batteries was previously pulled in transitively through Mathlib; now that
 # Mathlib is gone it is required directly. It supplies the `runLinter` lint
@@ -32,6 +32,28 @@ rev = "fa08db58b30eb033edcdab331bba000827f9f785"
 
 [[lean_lib]]
 name = "EvmSemantics"
+# Two roots, deliberately.
+#
+# `EvmSemantics` is the *public* root: what downstream consumers (e.g.
+# yul-compiler) import. It stops at `EVM.Equiv`, so importers pay for the
+# semantics and the soundness direction, and nothing else.
+#
+# `EVM.StepDeterminism` is the *completeness* half — `step_complete`,
+# `step_deterministic`, `step_iff_stepF`, plus the ~4.5k lines of
+# per-constructor cases under `EVM/StepComplete/`. It is proof-only: nothing
+# in the public API depends on it, and importing it would bloat every
+# downstream olean for no gain, so it is not re-exported from
+# `EvmSemantics.lean`. Naming it here is what puts it in the build graph at
+# all — without this entry Lake owns no target containing it, `lake build`
+# skips it silently, and its proofs go unchecked in CI.
+globs = ["EvmSemantics", "EvmSemantics.EVM.StepDeterminism"]
+
+# The declared headline theorems and their pinned axiom footprint. A target
+# of its own (rather than a `lake env lean Checks.lean` side-run) so the
+# `#guard_msgs` pins are elaborated by an ordinary `lake build` — locally as
+# well as in CI. Nothing imports it; it exists to be checked.
+[[lean_lib]]
+name = "Checks"
 
 # Shared helpers imported by several test-runner executables (Lake only
 # builds modules owned by some target, so the shared module needs a lib

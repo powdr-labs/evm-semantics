@@ -5113,22 +5113,14 @@ theorem stepF_sound (s : State) (h_nd : ¬ s.isDone) : Step s (stepF s) :=
 /-!
 ### Axiom-footprint guard
 
-Pin the axiom dependencies of the headline soundness theorems to the three
-standard Lean axioms. A `sorry` shows up as a build *warning* (caught by
-CI's warning gate), but a newly introduced `axiom` produces no warning —
-these `#guard_msgs` checks turn any change to the footprint into a hard
-build error, keeping the "closed, no extra axioms" claim machine-checked.
+`stepFE_sound` and `stepF_sound` are declared headline theorems: they are
+named in `Checks.roots` and their axiom footprint is pinned there with
+`#guard_msgs in #print axioms`. The pins used to live here, but split across
+the files that happened to prove each theorem they gave no single answer to
+"what does this repository guarantee?", and the copies in
+`StepDeterminism.lean` were never even elaborated (that module was outside
+the build graph). See `Checks.lean` at the repository root.
 -/
-
-/-- info: 'EvmSemantics.EVM.stepFE_sound' depends on axioms: [propext, Classical.choice,
-Quot.sound] -/
-#guard_msgs in
-#print axioms stepFE_sound
-
-/-- info: 'EvmSemantics.EVM.stepF_sound' depends on axioms: [propext, Classical.choice,
-Quot.sound] -/
-#guard_msgs in
-#print axioms stepF_sound
 
 end EVM
 end EvmSemantics
