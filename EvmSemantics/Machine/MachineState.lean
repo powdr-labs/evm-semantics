@@ -185,7 +185,7 @@ theorem writeBytes_getElem?_getD (bs bytes : ByteArray) (start a : Nat) :
   · next hne =>
     simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
       Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one,
-      pure_bind, bind_pure, List.forIn_pure_yield_eq_foldl, Id.run_pure]
+      bind_pure, List.forIn_pure_yield_eq_foldl, Id.run_pure]
     have hsz : start + bytes.size ≤ (if bs.size < start + bytes.size then
         bs ++ ByteArray.mk (Array.replicate (start + bytes.size - bs.size) 0) else bs).size := by
       split <;> rename_i hc
@@ -211,7 +211,7 @@ theorem writeBytes_size (bs bytes : ByteArray) (start : Nat) :
   · next hne =>
     simp only [Std.Legacy.Range.forIn_eq_forIn_range', Std.Legacy.Range.size,
       Nat.sub_zero, Nat.add_sub_cancel, Nat.div_one,
-      pure_bind, bind_pure, List.forIn_pure_yield_eq_foldl, Id.run_pure, foldl_set!_size]
+      bind_pure, List.forIn_pure_yield_eq_foldl, Id.run_pure, foldl_set!_size]
     split <;> rename_i hlt
     · rw [ByteArray.size_append]
       show bs.size + (Array.replicate (start + bytes.size - bs.size) 0).size = _

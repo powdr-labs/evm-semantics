@@ -28,8 +28,6 @@ structure Fp6 (p : Nat) where
   c2 : Fp2 p
   deriving DecidableEq
 
-attribute [nolint dupNamespace] Fp6 Fp6.mk Fp6.c0 Fp6.c1 Fp6.c2 Fp6.rec
-
 instance {p : Nat} [NeZero p] : Inhabited (Fp6 p) :=
   ⟨{ c0 := 0, c1 := 0, c2 := 0 }⟩
 

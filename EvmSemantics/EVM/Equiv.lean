@@ -6,6 +6,8 @@ public import EvmSemantics.EVM.Step
 public import EvmSemantics.EVM.StepF
 public import EvmSemantics.EVM.BigStep
 
+set_option maxRecDepth 10000
+
 /-!
 `Equiv` — soundness of `stepF` with respect to the relational `Step`.
 
