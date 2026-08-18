@@ -35,8 +35,6 @@ structure Fp2 (p : Nat) where
   c1 : Fin p
   deriving DecidableEq
 
-attribute [nolint dupNamespace] Fp2 Fp2.mk Fp2.c0 Fp2.c1 Fp2.rec
-
 instance {p : Nat} [NeZero p] : Inhabited (Fp2 p) := ⟨{ c0 := 0, c1 := 0 }⟩
 
 namespace Fp2

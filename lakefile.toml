@@ -28,7 +28,7 @@ lintDriverArgs = ["EvmSemantics", "EvmSemantics.EVM.StepDeterminism"]
 [[require]]
 name = "batteries"
 git = "https://github.com/leanprover-community/batteries"
-rev = "fa08db58b30eb033edcdab331bba000827f9f785"
+rev = "v4.33.0"
 
 [[lean_lib]]
 name = "EvmSemantics"
@@ -137,5 +137,4 @@ root = "tests.EcrecoverBench"
 [[lean_exe]]
 name = "mpt_smoke"
 root = "tests.MptSmoke"
-
 
